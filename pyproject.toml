@@ -18,7 +18,8 @@ classifiers = [
 ]
 
 dependencies = [
-
+    "types-pyyaml>=6.0.12.20250326",
+    "types-toml>=0.10.8.20240310",
 ]
 
 [project.optional-dependencies]

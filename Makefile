@@ -7,8 +7,8 @@ install-uv:
 	@echo "Installing UV package manager..."
 	@curl -LsSf https://astral.sh/uv/install.sh | sh
 	@echo "UV installed successfully!"
-	
-setup: 
+
+setup:
 	@if ! command -v uv >/dev/null 2>&1; then \
 		${MAKE} install-uv; \
 	fi
