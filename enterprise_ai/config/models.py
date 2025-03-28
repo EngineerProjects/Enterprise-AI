@@ -41,17 +41,17 @@ class PathConfig(BaseModel):
         default_factory=lambda: Path(os.getcwd()) / "workspace",
         description="Root directory for workspace files",
     )
-    logs_dir: Path = Field(
+    logs_dir: Optional[Path] = Field(
         default=None, description="Directory for log files (defaults to workspace_root/logs)"
     )
-    cache_dir: Path = Field(
+    cache_dir: Optional[Path] = Field(
         default=None, description="Directory for cache files (defaults to workspace_root/cache)"
     )
-    config_dir: Path = Field(
+    config_dir: Optional[Path] = Field(
         default=None,
         description="Directory for configuration files (defaults to workspace_root/config)",
     )
-    templates_dir: Path = Field(
+    templates_dir: Optional[Path] = Field(
         default=None,
         description="Directory for template files (defaults to workspace_root/templates)",
     )
@@ -77,10 +77,19 @@ class PathConfig(BaseModel):
     def ensure_directories_exist(self) -> None:
         """Create all configured directories if they don't exist."""
         self.workspace_root.mkdir(exist_ok=True, parents=True)
-        self.logs_dir.mkdir(exist_ok=True, parents=True)
-        self.cache_dir.mkdir(exist_ok=True, parents=True)
-        self.config_dir.mkdir(exist_ok=True, parents=True)
-        self.templates_dir.mkdir(exist_ok=True, parents=True)
+
+        # Check for None before calling mkdir
+        if self.logs_dir is not None:
+            self.logs_dir.mkdir(exist_ok=True, parents=True)
+
+        if self.cache_dir is not None:
+            self.cache_dir.mkdir(exist_ok=True, parents=True)
+
+        if self.config_dir is not None:
+            self.config_dir.mkdir(exist_ok=True, parents=True)
+
+        if self.templates_dir is not None:
+            self.templates_dir.mkdir(exist_ok=True, parents=True)
 
 
 # -----------------------------------------------------------------------------
@@ -314,21 +323,74 @@ class LLMServiceConfig(BaseModel):
     organization: Optional[str] = Field(None, description="Organization ID (for OpenAI)")
 
     # Configuration components
-    paths: PathConfig = Field(default_factory=PathConfig, description="Path configuration")
+    paths: PathConfig = Field(
+        default_factory=lambda: PathConfig(), description="Path configuration"
+    )
     cache_config: CacheConfig = Field(
-        default_factory=CacheConfig, description="Cache configuration"
+        default_factory=lambda: CacheConfig(
+            use_cache=True,
+            cache_type="hybrid",
+            ttl=DEFAULT_CACHE_TTL,
+            max_size_mb=MAX_CACHE_SIZE_MB,
+            cache_dir=None,
+            max_entries=MAX_CACHE_ENTRIES,
+            promotion_policy="both",
+            synchronize_writes=False,
+            retention="7 days",
+        ),
+        description="Cache configuration",
     )
     retry_config: RetryConfig = Field(
-        default_factory=RetryConfig, description="Retry configuration"
+        default_factory=lambda: RetryConfig(
+            max_retries=MAX_RETRIES,
+            initial_delay=1.0,
+            max_delay=60.0,
+            backoff_strategy="exponential",
+            jitter_factor=0.25,
+            retry_on_timeout=True,
+            retry_on_connection_error=True,
+            retry_on_server_error=True,
+            retry_on_rate_limit=True,
+        ),
+        description="Retry configuration",
     )
     timeouts: RequestTimeouts = Field(
-        default_factory=RequestTimeouts, description="Timeout configuration"
+        default_factory=lambda: RequestTimeouts(
+            default_timeout=DEFAULT_REQUEST_TIMEOUT,
+            connect_timeout=None,
+            read_timeout=None,
+            streaming_timeout=STREAMING_REQUEST_TIMEOUT,
+            async_timeout=None,
+        ),
+        description="Timeout configuration",
     )
     model_selection: ModelSelectionStrategy = Field(
-        default_factory=ModelSelectionStrategy, description="Model selection strategy"
+        default_factory=lambda: ModelSelectionStrategy(
+            preferred_model="",
+            fallback_models=None,
+            auto_fallback=True,
+            capability_requirements={},
+            max_cost_tier=None,
+            fallback_across_providers=False,
+            provider_preferences=[],
+        ),
+        description="Model selection strategy",
     )
     orchestrator_config: OrchestratorConfig = Field(
-        default_factory=OrchestratorConfig, description="Request orchestration configuration"
+        default_factory=lambda: OrchestratorConfig(
+            max_concurrent_requests=10,
+            max_queue_size=100,
+            rate_limits=PROVIDER_RATE_LIMITS.copy(),
+            priority_levels=4,
+            adaptive_scaling=True,
+            max_retries=MAX_RETRIES,
+            enable_deduplication=True,
+            deduplication_ttl=5.0,
+            enable_circuit_breaker=True,
+            circuit_breaker_threshold=5,
+            circuit_breaker_timeout=30.0,
+        ),
+        description="Request orchestration configuration",
     )
     ollama_config: Optional[OllamaConfig] = Field(None, description="Ollama-specific configuration")
 
@@ -357,14 +419,18 @@ class LLMServiceConfig(BaseModel):
     def setup_path_defaults(self) -> "LLMServiceConfig":
         """Set up default paths for cache_dir if not specified."""
         # If cache_dir not explicitly set, use the one from paths
-        if self.cache_config and self.cache_config.cache_dir is None:
+        if (
+            self.cache_config
+            and self.cache_config.cache_dir is None
+            and self.paths.cache_dir is not None
+        ):
             self.cache_config.cache_dir = self.paths.cache_dir / "llm"
 
         # Ensure directories exist
         self.paths.ensure_directories_exist()
 
         # Create LLM cache directory
-        if self.cache_config and self.cache_config.cache_dir:
+        if self.cache_config and self.cache_config.cache_dir is not None:
             self.cache_config.cache_dir.mkdir(exist_ok=True, parents=True)
 
         return self
@@ -375,7 +441,18 @@ class LLMServiceConfig(BaseModel):
         # Initialize Ollama config if provider might be Ollama
         provider = self.provider_name or "default"
         if provider.lower() == "ollama" and self.ollama_config is None:
-            self.ollama_config = OllamaConfig()
+            self.ollama_config = OllamaConfig(
+                auto_pull=True,
+                timeout=900.0,
+                fallback_model="llama3",
+                model_cache_size=3,
+                connection_pool_size=10,
+                keep_alive=True,
+                strict_validation=False,
+                host="localhost",
+                port=11434,
+                secure=False,
+            )
 
         return self
 
@@ -464,8 +541,23 @@ class AppConfig(BaseModel):
     """Main application configuration."""
 
     # Core components
-    paths: PathConfig = Field(default_factory=PathConfig, description="Path configuration")
-    logging: LogConfig = Field(default_factory=LogConfig, description="Logging configuration")
+    paths: PathConfig = Field(
+        default_factory=lambda: PathConfig(), description="Path configuration"
+    )
+    logging: LogConfig = Field(
+        default_factory=lambda: LogConfig(
+            level="INFO",
+            format="<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+            log_to_console=True,
+            log_to_file=True,
+            log_dir=None,
+            log_file_name="enterprise_ai_{time}.log",
+            rotation="10 MB",
+            retention="30 days",
+            compression="zip",
+        ),
+        description="Logging configuration",
+    )
 
     # LLM configurations
     llm: Dict[str, LLMProviderSettings] = Field(..., description="LLM configurations")
@@ -493,23 +585,76 @@ class AppConfig(BaseModel):
     def initialize_service_config(self) -> "AppConfig":
         """Initialize LLM service configuration if not explicitly provided."""
         if self.llm_service is None:
-            self.llm_service = LLMServiceConfig()
+            self.llm_service = LLMServiceConfig(
+                provider_name=None,
+                model_name=None,
+                api_key=None,
+                api_base=None,
+                api_version=None,
+                organization=None,
+                ollama_config=None,
+                temperature=None,
+                max_tokens=None,
+                validate_model=False,
+                strict_validation=False,
+                connection_pool_size=10,
+                enable_metrics=True,
+                log_level="INFO",
+                enable_provider_pooling=False,
+                provider_pool_size=(1, 5),
+            )
 
         # Set path-related values
-        if self.logging and self.logging.log_dir is None:
+        if self.logging and self.logging.log_dir is None and hasattr(self.paths, "logs_dir"):
             self.logging.log_dir = self.paths.logs_dir
 
         # Initialize sub-configurations
         if self.cache_config is None:
-            self.cache_config = CacheConfig()
+            self.cache_config = CacheConfig(
+                use_cache=True,
+                cache_type="hybrid",
+                ttl=DEFAULT_CACHE_TTL,
+                max_size_mb=MAX_CACHE_SIZE_MB,
+                cache_dir=None,
+                max_entries=MAX_CACHE_ENTRIES,
+                promotion_policy="both",
+                synchronize_writes=False,
+                retention="7 days",
+            )
 
         if self.timeouts is None:
-            self.timeouts = RequestTimeouts()
+            self.timeouts = RequestTimeouts(
+                default_timeout=DEFAULT_REQUEST_TIMEOUT,
+                connect_timeout=None,
+                read_timeout=None,
+                streaming_timeout=STREAMING_REQUEST_TIMEOUT,
+                async_timeout=None,
+            )
 
         if self.model_selection is None:
-            self.model_selection = ModelSelectionStrategy()
+            self.model_selection = ModelSelectionStrategy(
+                preferred_model="",
+                fallback_models=None,
+                auto_fallback=True,
+                capability_requirements={},
+                max_cost_tier=None,
+                fallback_across_providers=False,
+                provider_preferences=[],
+            )
 
         if self.orchestrator_config is None:
-            self.orchestrator_config = OrchestratorConfig()
+            self.orchestrator_config = OrchestratorConfig(
+                max_concurrent_requests=10,
+                max_queue_size=100,
+                rate_limits=PROVIDER_RATE_LIMITS.copy(),
+                priority_levels=4,
+                adaptive_scaling=True,
+                max_retries=MAX_RETRIES,
+                enable_deduplication=True,
+                deduplication_ttl=5.0,
+                enable_circuit_breaker=True,
+                circuit_breaker_threshold=5,
+                circuit_breaker_timeout=30.0,
+            )
 
         return self

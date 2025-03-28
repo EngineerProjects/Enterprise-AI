@@ -70,6 +70,10 @@ class Function(BaseModel, FunctionProtocol):
     name: str
     arguments: str
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert function to dictionary format."""
+        return {"name": self.name, "arguments": self.arguments}
+
 
 class ToolCall(BaseModel, ToolCallProtocol):
     """Represents a tool/function call in a message."""
@@ -77,6 +81,10 @@ class ToolCall(BaseModel, ToolCallProtocol):
     id: str
     type: str = "function"
     function: Function
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert tool call to dictionary format."""
+        return {"id": self.id, "type": self.type, "function": self.function.to_dict()}
 
 
 # Choice options for tool usage
