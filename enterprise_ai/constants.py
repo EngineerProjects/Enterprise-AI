@@ -2,16 +2,12 @@
 Constants and paths for Enterprise AI.
 
 This module defines global constants and paths used throughout the Enterprise AI
-framework, ensuring they are centrally defined and can be imported without causing
-circular dependencies. These constants are used across the system for configuration,
-file operations, token management, and other core functionality.
+framework, organized by functional area.
 """
 
 import os
-import sys
 from pathlib import Path
-from typing import Dict, List, Set, Tuple, Final, Union
-
+from typing import Dict, List, Set, Final, Any, Optional, cast
 
 # -----------------------------------------------------------------------------
 # System Paths
@@ -48,85 +44,136 @@ DEFAULT_CONFIGS_DIR: Final[Path] = Path(__file__).parent / "default_configs"
 TEMPLATES_DIR: Final[Path] = PROJECT_ROOT / "templates"
 
 # Ensure essential directories exist
-WORKSPACE_ROOT.mkdir(exist_ok=True, parents=True)
-LOGS_DIR.mkdir(exist_ok=True, parents=True)
-CACHE_DIR.mkdir(exist_ok=True, parents=True)
+os.makedirs(WORKSPACE_ROOT, exist_ok=True)
+os.makedirs(LOGS_DIR, exist_ok=True)
+os.makedirs(CACHE_DIR, exist_ok=True)
 
 # Default configuration file paths
 DEFAULT_CONFIG_PATH: Final[str] = str(CONFIG_DIR / "config.yaml")
 DEFAULT_CONFIG_TOML: Final[str] = str(CONFIG_DIR / "config.toml")
 DEFAULT_CONFIG_YAML: Final[str] = str(CONFIG_DIR / "config.yaml")
 
+# Configuration file constants
+CONFIG_FILE_EXTENSIONS: Final[List[str]] = [".yaml", ".yml", ".toml", ".json"]
+DEFAULT_CONFIG_FILENAME: Final[str] = "config"
+
+# Paths for different config types
+LLM_CONFIG_PATH: Final[str] = "llm"
+AGENT_CONFIG_PATH: Final[str] = "agent"
+TEAM_CONFIG_PATH: Final[str] = "team"
+TOOL_CONFIG_PATH: Final[str] = "tool"
+
+# Environment variable prefixes
+ENV_PREFIX: Final[str] = "ENTERPRISE_AI_"
+CONFIG_ENV_PREFIX: Final[str] = f"{ENV_PREFIX}CONFIG_"
+API_KEY_ENV_PREFIX: Final[str] = f"{ENV_PREFIX}API_KEY_"
+
+# Provider-specific environment variables
+PROVIDER_ENV_MAPPING: Final[Dict[str, str]] = {
+    "openai": "OPENAI_API_KEY",
+    "anthropic": "ANTHROPIC_API_KEY",
+}
 
 # -----------------------------------------------------------------------------
 # LLM Constants
 # -----------------------------------------------------------------------------
 
+# Provider identifiers
+PROVIDER_OPENAI: Final[str] = "openai"
+PROVIDER_ANTHROPIC: Final[str] = "anthropic"
+PROVIDER_OLLAMA: Final[str] = "ollama"
+
+# Supported providers
+SUPPORTED_PROVIDERS: Final[Set[str]] = {
+    PROVIDER_OPENAI,
+    PROVIDER_ANTHROPIC,
+    PROVIDER_OLLAMA,
+}
+
 # Default model parameters
 DEFAULT_TEMPERATURE: Final[float] = 0.7
 DEFAULT_MAX_TOKENS: Final[int] = 1024
 DEFAULT_TOP_P: Final[float] = 1.0
-DEFAULT_FREQUENCY_PENALTY: Final[float] = 0.0
-DEFAULT_PRESENCE_PENALTY: Final[float] = 0.0
 
-# Default context window sizes for different model types
-# These are conservative defaults that can be overridden in config
-MODEL_CONTEXT_SIZES: Final[Dict[str, int]] = {
-    # OpenAI models
-    "gpt-3.5-turbo": 4096,
-    "gpt-3.5-turbo-16k": 16384,
-    "gpt-4": 8192,
-    "gpt-4-32k": 32768,
-    "gpt-4o": 128000,
-    "gpt-4o-mini": 128000,
-    # Anthropic models
-    "claude-2": 100000,
-    "claude-3-opus": 200000,
-    "claude-3-sonnet": 200000,
-    "claude-3-haiku": 200000,
-    # Open source models
-    "llama2": 4096,
-    "llama3": 8192,
-    "mistral": 8192,
-    "mixtral": 32768,
-    "phi": 2048,
-    "gemma": 8192,
+# Default LLM configuration
+DEFAULT_LLM_CONFIG: Final[Dict[str, Dict[str, Any]]] = {
+    "openai": {
+        "api_type": "openai",
+        "model": "gpt-4o",
+        "temperature": DEFAULT_TEMPERATURE,
+        "max_tokens": DEFAULT_MAX_TOKENS,
+        "top_p": DEFAULT_TOP_P,
+    },
+    "anthropic": {
+        "api_type": "anthropic",
+        "model": "claude-3-sonnet",
+        "temperature": DEFAULT_TEMPERATURE,
+        "max_tokens": DEFAULT_MAX_TOKENS,
+        "top_p": DEFAULT_TOP_P,
+    },
+    "ollama": {
+        "api_type": "ollama",
+        "base_url": "http://localhost:11434",
+        "model": "llama3",
+        "temperature": DEFAULT_TEMPERATURE,
+        "max_tokens": DEFAULT_MAX_TOKENS,
+        "top_p": DEFAULT_TOP_P,
+    },
 }
 
-# Default model for each provider
-DEFAULT_MODELS: Final[Dict[str, str]] = {
-    "openai": "gpt-4o",
-    "anthropic": "claude-3-sonnet",
-    "ollama": "llama3",
-    "default": "gpt-4o",
-}
+# Default provider
+DEFAULT_PROVIDER: Final[str] = "ollama"
 
 # Request timeouts (in seconds)
 DEFAULT_REQUEST_TIMEOUT: Final[float] = 60.0
 STREAMING_REQUEST_TIMEOUT: Final[float] = 300.0
 CONNECTION_TIMEOUT: Final[float] = 10.0
-ASYNC_TIMEOUT: Final[float] = 90.0
 
-# Retry configuration
-MAX_RETRIES: Final[int] = 3
-RETRY_INITIAL_DELAY: Final[float] = 1.0
-RETRY_MAX_DELAY: Final[float] = 60.0
-RETRY_BACKOFF_FACTOR: Final[float] = 2.0
+# Ollama API endpoints
+OLLAMA_GENERATE_PATH: Final[str] = "api/generate"
+OLLAMA_CHAT_PATH: Final[str] = "api/chat"
+OLLAMA_TAGS_PATH: Final[str] = "api/tags"
+OLLAMA_SHOW_PATH: Final[str] = "api/show"
+
+# -----------------------------------------------------------------------------
+# LLM Caching and Model Settings
+# -----------------------------------------------------------------------------
+
+# Caching constants
+DEFAULT_CACHE_TTL: Final[int] = 3600  # 1 hour in seconds
+MAX_CACHE_SIZE_MB: Final[int] = 1024  # 1 GB
+MAX_CACHE_ENTRIES: Final[int] = 10000  # Maximum number of entries
+
+# Model context sizes (maximum tokens per model)
+MODEL_CONTEXT_SIZES: Final[Dict[str, int]] = {
+    "gpt-3.5-turbo": 16385,
+    "gpt-4": 128000,
+    "gpt-4-turbo": 128000,
+    "gpt-4o": 128000,
+    "claude-3-opus": 200000,
+    "claude-3-sonnet": 200000,
+    "claude-3-haiku": 200000,
+}
+
+# Default models by provider
+DEFAULT_MODELS: Final[Dict[str, str]] = {
+    "openai": "gpt-4o",
+    "anthropic": "claude-3-sonnet",
+    "ollama": "llama3",
+    "cohere": "command-r-plus",
+    "default": "gpt-4o",
+}
 
 # Provider rate limits (requests per minute)
 PROVIDER_RATE_LIMITS: Final[Dict[str, float]] = {
-    "openai": 60.0,  # 60 requests per minute for OpenAI
-    "anthropic": 30.0,  # 30 requests per minute for Anthropic
-    "ollama": 20.0,  # 20 requests per minute for Ollama (local)
-    "default": 30.0,  # Default for other providers
+    "openai": 60.0,
+    "anthropic": 40.0,
+    "ollama": 300.0,
+    "default": 60.0,
 }
 
-# Cache constants
-DEFAULT_CACHE_TTL: Final[int] = 3600  # 1 hour in seconds
-MAX_CACHE_SIZE_MB: Final[int] = 500  # 500 MB
-MAX_CACHE_ENTRIES: Final[int] = 1000  # 1000 entries
-CACHE_RETENTION_DAYS: Final[int] = 7  # 7 days
-
+# Retry configuration
+MAX_RETRIES: Final[int] = 3
 
 # -----------------------------------------------------------------------------
 # Message Constants
@@ -147,25 +194,6 @@ ASSISTANT_RESPONSE_MARKER: Final[str] = "<assistant>"
 ASSISTANT_RESPONSE_END_MARKER: Final[str] = "</assistant>"
 TOOL_RESPONSE_MARKER: Final[str] = "<tool>"
 TOOL_RESPONSE_END_MARKER: Final[str] = "</tool>"
-
-
-# -----------------------------------------------------------------------------
-# Tool Constants
-# -----------------------------------------------------------------------------
-
-# Default operation timeouts for different tool types (in seconds)
-TOOL_DEFAULT_TIMEOUT: Final[float] = 30.0
-FILE_OPERATION_TIMEOUT: Final[float] = 10.0
-PYTHON_EXECUTION_TIMEOUT: Final[float] = 60.0
-TERMINAL_COMMAND_TIMEOUT: Final[float] = 30.0
-WEB_REQUEST_TIMEOUT: Final[float] = 30.0
-DATABASE_QUERY_TIMEOUT: Final[float] = 60.0
-
-# File size limits for different operations (in bytes)
-MAX_FILE_READ_SIZE: Final[int] = 10 * 1024 * 1024  # 10 MB
-MAX_FILE_WRITE_SIZE: Final[int] = 5 * 1024 * 1024  # 5 MB
-MAX_IMAGE_SIZE: Final[int] = 5 * 1024 * 1024  # 5 MB
-
 
 # -----------------------------------------------------------------------------
 # Logging Constants
@@ -191,7 +219,6 @@ MAX_LOG_FILE_SIZE: Final[int] = 10 * 1024 * 1024  # 10 MB
 
 # Log retention periods
 LOG_RETENTION_DAYS: Final[int] = 30  # 30 days
-
 
 # -----------------------------------------------------------------------------
 # Security Constants

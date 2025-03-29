@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, TypeVar, Union, cast
 
 from enterprise_ai.exceptions import ConfigValueError
 from enterprise_ai.logger import get_logger
-from enterprise_ai.config.constants import (
+from enterprise_ai.constants import (
     ENV_PREFIX,
     CONFIG_ENV_PREFIX,
     API_KEY_ENV_PREFIX,

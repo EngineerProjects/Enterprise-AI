@@ -19,6 +19,7 @@ classifiers = [
 
 dependencies = [
     "httpx>=0.28.1",
+    "loguru>=0.7.3",
     "pydantic>=2.10.6",
     "toml>=0.10.2",
     "types-pyyaml>=6.0.12.20250326",

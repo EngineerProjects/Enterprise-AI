@@ -5,13 +5,30 @@ This module provides specialized formatters for log messages, enabling
 consistent and informative logging across the framework.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, TYPE_CHECKING, Union, cast
 
+# Type definitions for type checker only
+if TYPE_CHECKING:
+    from logging import Logger as StdLogger
+
+    try:
+        from loguru import Logger as LoguruLogger
+
+        AnyLogger = Union["LoguruLogger", "StdLogger"]
+    except ImportError:
+        from logging import Logger as AnyLogger
+
+# Runtime imports
 try:
     from loguru import logger as loguru_logger
+
+    HAS_LOGURU = True
 except ImportError:
     # Fallback for when loguru is not installed
-    loguru_logger = None
+    import logging
+
+    loguru_logger = None  # type: ignore
+    HAS_LOGURU = False
 
 
 class EnterpriseFormatter:

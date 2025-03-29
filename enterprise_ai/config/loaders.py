@@ -14,7 +14,7 @@ from pydantic import ValidationError
 from enterprise_ai.exceptions import ConfigFileError, ConfigValueError
 from enterprise_ai.constants import CONFIG_DIR, DEFAULT_CONFIGS_DIR
 from enterprise_ai.logger import get_logger
-from enterprise_ai.config.constants import CONFIG_FILE_EXTENSIONS, DEFAULT_CONFIG_FILENAME
+from enterprise_ai.constants import CONFIG_FILE_EXTENSIONS, DEFAULT_CONFIG_FILENAME
 
 # Initialize logger
 logger = get_logger("config.loaders")

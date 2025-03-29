@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Set, Union
 from enterprise_ai.logger import get_logger
 from enterprise_ai.exceptions import ConfigValueError, ConfigDependencyError
 from enterprise_ai.config.utils import get_api_key_from_env
-from enterprise_ai.config.constants import PROVIDER_ENV_MAPPING
+from enterprise_ai.constants import PROVIDER_ENV_MAPPING
 
 # Initialize logger
 logger = get_logger("config.providers")

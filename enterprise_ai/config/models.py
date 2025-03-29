@@ -213,7 +213,7 @@ class RequestTimeouts(BaseModel):
 
         return self
 
-    def as_dict(self) -> Dict[str, float | None]:
+    def as_dict(self) -> Dict[str, Optional[float]]:
         """Convert to dictionary for httpx."""
         return {
             "default": self.default_timeout,

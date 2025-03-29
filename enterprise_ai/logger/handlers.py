@@ -6,13 +6,30 @@ different outputs, including console, files, and external services.
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, TYPE_CHECKING, cast
 
+# Type definitions for type checker only
+if TYPE_CHECKING:
+    from logging import Logger as StdLogger
+
+    try:
+        from loguru import Logger as LoguruLogger
+
+        AnyLogger = Union["LoguruLogger", "StdLogger"]
+    except ImportError:
+        from logging import Logger as AnyLogger
+
+# Runtime imports
 try:
     from loguru import logger as loguru_logger
+
+    HAS_LOGURU = True
 except ImportError:
     # Fallback for when loguru is not installed
-    loguru_logger = None
+    import logging
+
+    loguru_logger = None  # type: ignore
+    HAS_LOGURU = False
 
 
 class EnterpriseHandler:
@@ -24,7 +41,7 @@ class EnterpriseHandler:
             level: Minimum log level to process
         """
         self.level = level
-        self.handler_id: Optional[int] = None  # Explicitly type as Optional[int]
+        self.handler_id: Optional[int] = None
 
     def setup(self) -> int:
         """Set up the handler and return its ID.
@@ -57,18 +74,20 @@ class ConsoleHandler(EnterpriseHandler):
         Returns:
             Handler ID
         """
-        if loguru_logger is None:
+        if not HAS_LOGURU or loguru_logger is None:
             return -1
 
         # Store result in a temporary variable to handle possible None
+        handler_id = -1
         result = loguru_logger.add(
             sys.stderr,
             level=self.level,
             colorize=self.colorize,
         )
+        handler_id = -1 if result is None else result
 
         # Ensure we return an int even if result is None
-        self.handler_id = -1 if result is None else result
+        self.handler_id = handler_id
         return self.handler_id
 
 
@@ -102,13 +121,16 @@ class FileHandler(EnterpriseHandler):
         Returns:
             Handler ID
         """
-        if loguru_logger is None:
+        if not HAS_LOGURU or loguru_logger is None:
             return -1
 
         # Ensure directory exists
         self.file_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Store result in a temporary variable to handle possible None
+        # Initialize handler ID with a default value
+        handler_id = -1
+
+        # Add handler
         result = loguru_logger.add(
             str(self.file_path),
             level=self.level,
@@ -116,7 +138,8 @@ class FileHandler(EnterpriseHandler):
             retention=self.retention,
             compression=self.compression,
         )
+        handler_id = -1 if result is None else result
 
-        # Ensure we return an int even if result is None
-        self.handler_id = -1 if result is None else result
+        # Store and return the handler ID
+        self.handler_id = handler_id
         return self.handler_id
