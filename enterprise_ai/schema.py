@@ -9,7 +9,20 @@ and data consistency across the system without creating circular dependencies.
 
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Literal, Optional, Union, TypeVar, cast, Sequence
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Literal,
+    Optional,
+    Type,
+    Union,
+    TypeVar,
+    cast,
+    Sequence,
+)
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -33,6 +46,7 @@ logger = get_logger("schema")
 
 # Type variable for generic typing
 T = TypeVar("T")
+F = TypeVar("F", bound="Function")
 
 
 # Role and Message Type Definitions
@@ -64,7 +78,7 @@ ROLE_TYPE = Role  # Using the Enum directly instead of Literal
 
 
 # Tool and Function Call Schemas
-class Function(BaseModel, FunctionProtocol):
+class Function(BaseModel):
     """Represents a function definition in a tool call."""
 
     name: str
@@ -74,8 +88,21 @@ class Function(BaseModel, FunctionProtocol):
         """Convert function to dictionary format."""
         return {"name": self.name, "arguments": self.arguments}
 
+    @classmethod
+    def __get_validators__(cls) -> Generator[Callable[[Any], Any], None, None]:
+        # Use a more general return type for the callable
+        yield cls.validate
 
-class ToolCall(BaseModel, ToolCallProtocol):
+    @classmethod
+    def validate(cls: Type[F], v: Any) -> F:
+        if isinstance(v, cls):
+            return v
+        if isinstance(v, dict):
+            return cls(**v)
+        raise ValueError(f"Cannot convert {type(v)} to {cls.__name__}")
+
+
+class ToolCall(BaseModel):
     """Represents a tool/function call in a message."""
 
     id: str
@@ -140,12 +167,14 @@ class TaskState(str, Enum):
 
 
 # Messages
-class Message(BaseModel, MessageProtocol):
+class Message(BaseModel):
     """Represents a chat message in the conversation."""
 
-    role: RoleType  # Changed from Role to RoleType to match the protocol
+    model_config = {"arbitrary_types_allowed": True}
+
+    role: RoleType
     content: Optional[str] = Field(default=None)
-    tool_calls: Optional[List[ToolCallProtocol]] = Field(default=None)  # Using ToolCallProtocol
+    tool_calls: Optional[List[ToolCallProtocol]] = Field(default=None)
     name: Optional[str] = Field(default=None)
     tool_call_id: Optional[str] = Field(default=None)
     base64_image: Optional[str] = Field(default=None)
@@ -348,10 +377,12 @@ class Message(BaseModel, MessageProtocol):
         )
 
 
-class Memory(BaseModel, MemoryProtocol):
+class Memory(BaseModel):
     """Memory store for agent messages."""
 
-    messages: List[MessageProtocol] = Field(default_factory=list)  # Changed to MessageProtocol
+    model_config = {"arbitrary_types_allowed": True}
+
+    messages: List[MessageProtocol] = Field(default_factory=list)
     max_messages: int = Field(default=100)
     metadata: Dict[str, Any] = Field(default_factory=lambda: {})
 
