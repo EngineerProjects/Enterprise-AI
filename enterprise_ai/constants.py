@@ -176,26 +176,6 @@ PROVIDER_RATE_LIMITS: Final[Dict[str, float]] = {
 MAX_RETRIES: Final[int] = 3
 
 # -----------------------------------------------------------------------------
-# Message Constants
-# -----------------------------------------------------------------------------
-
-# Maximum allowed length for different message components (in characters)
-MAX_CONTENT_LENGTH: Final[int] = 100000
-MAX_NAME_LENGTH: Final[int] = 64
-MAX_TOOL_NAME_LENGTH: Final[int] = 64
-MAX_SYSTEM_PROMPT_LENGTH: Final[int] = 32000
-
-# Special tokens or markers for message processing
-SYSTEM_PROMPT_MARKER: Final[str] = "<system>"
-SYSTEM_PROMPT_END_MARKER: Final[str] = "</system>"
-USER_PROMPT_MARKER: Final[str] = "<user>"
-USER_PROMPT_END_MARKER: Final[str] = "</user>"
-ASSISTANT_RESPONSE_MARKER: Final[str] = "<assistant>"
-ASSISTANT_RESPONSE_END_MARKER: Final[str] = "</assistant>"
-TOOL_RESPONSE_MARKER: Final[str] = "<tool>"
-TOOL_RESPONSE_END_MARKER: Final[str] = "</tool>"
-
-# -----------------------------------------------------------------------------
 # Logging Constants
 # -----------------------------------------------------------------------------
 
