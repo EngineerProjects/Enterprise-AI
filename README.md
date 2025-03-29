@@ -74,7 +74,6 @@ enterprise_ai/
 ├── version.py                 # Version information
 ├── config/                    # Configuration system
 │   ├── __init__.py            # Exports configuration API
-│   ├── constants.py           # Configuration-specific constants
 │   ├── models.py              # Configuration data models
 │   ├── loaders.py             # Configuration loading utilities (YAML/TOML)
 │   ├── validation.py          # Configuration validation logic
@@ -98,7 +97,6 @@ enterprise_ai/
 enterprise_ai/
 ├── llm/                       # LLM functionality
 │   ├── __init__.py            # Exports LLM API
-│   ├── constants.py           # LLM-specific constants
 │   ├── types.py               # LLM-specific types
 │   ├── utils.py               # Utility functions for LLM operations
 │   ├── base.py                # Base provider interface
