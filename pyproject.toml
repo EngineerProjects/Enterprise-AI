@@ -23,6 +23,7 @@ dependencies = [
     "pillow>=11.1.0",
     "pydantic>=2.10.6",
     "toml>=0.10.2",
+    "types-pyyaml>=6.0.12.20250326",
 ]
 
 [project.optional-dependencies]
