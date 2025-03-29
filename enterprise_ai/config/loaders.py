@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union, cast
 
-import toml
+import toml  # type: ignore
 import yaml
 from pydantic import ValidationError
 

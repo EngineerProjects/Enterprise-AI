@@ -64,37 +64,49 @@ enterprise-ai/                 # Project root
 
 ```
 enterprise_ai/
-├── __init__.py                # Exports version, core functionality
-├── constants.py               # System-wide constants, paths, default values
-├── types.py                   # Type definitions, Protocol classes, interfaces
-├── exceptions.py              # Exception hierarchy for all components
-├── utils.py                   # General utility functions used across modules
-├── py.typed                   # Marker file for PEP 561 type checking
-├── schema.py                  # Core data models with no feature dependencies
-├── version.py                 # Version information
+enterprise_ai/
+├── __init__.py                # Package exports, version
+├── constants.py               # System-wide constants
+├── types.py                   # Type definitions, interfaces, protocols
+├── exceptions.py              # All exception classes
+├── py.typed                   # Type checking marker
+├── schema.py                  # Core data models (no feature imports)
+├── version.py                 # Version info only
 ├── config/                    # Configuration system
-│   ├── __init__.py            # Exports configuration API
-│   ├── models.py              # Configuration data models
-│   ├── loaders.py             # Configuration loading utilities (YAML/TOML)
-│   ├── validation.py          # Configuration validation logic
-│   ├── defaults.py            # Default configuration values
-│   ├── providers.py           # Provider-specific configuration logic
-│   ├── singleton.py           # Singleton pattern implementation
-│   └── utils.py               # Configuration-specific utilities
-└── logger/                    # Logging system
-    ├── __init__.py            # Exports logging API
-    ├── config.py              # Logger configuration
-    ├── formatters.py          # Custom log formatters
-    ├── handlers.py            # Custom log handlers
-    ├── context.py             # Contextual logging functionality
-    ├── adapters.py            # Adapters for third-party loggers
-    └── utils.py               # Logging-specific utilities
+│   ├── __init__.py            # Public exports
+│   ├── models.py              # Configuration models
+│   ├── loaders.py             # YAML/TOML loading utilities
+│   ├── providers.py           # Provider-specific config
+│   ├── utils.py               # Helper functions
+│   └── singleton.py           # Singleton pattern implementation
+├── logger/                    # Logging system
+│   ├── __init__.py            # Public exports
+│   ├── config.py              # Logger configuration
+│   ├── formatters.py          # Log formatters
+│   ├── handlers.py            # Custom log handlers
+│   └── utils.py               # Helper functions
 ```
 
 ### Feature Module Structure
 
 ```
 enterprise_ai/
+├── message/                   # NEW: Message handling feature module
+│   ├── __init__.py            # Public exports
+│   ├── types.py               # Message-specific types
+│   ├── base.py                # Enhanced message functionality
+│   ├── image.py               # Image processing (moved from llm/image.py)
+│   ├── formatter.py           # Format messages for different outputs
+│   ├── validation.py          # Message validation logic
+│   ├── storage.py             # Message persistence
+│   ├── memory.py              # Conversation history management
+│   ├── utils.py               # Message-specific utilities
+│   └── transformers/          # Provider-specific transformations
+│       ├── __init__.py        # Public exports
+│       ├── base.py            # Base transformer functionality
+│       ├── openai.py          # OpenAI message transformations
+│       ├── anthropic.py       # Anthropic message transformations
+│       └── ollama.py          # Ollama message transformations
 ├── llm/                       # LLM functionality
 │   ├── __init__.py            # Exports LLM API
 │   ├── types.py               # LLM-specific types
@@ -103,7 +115,6 @@ enterprise_ai/
 │   ├── cache.py               # Caching mechanism for LLM responses
 │   ├── retry.py               # Retry mechanisms
 │   ├── token_counter.py       # Token counting utilities
-│   ├── image.py               # Image processing utilities
 │   ├── providers/             # Provider implementations
 │   │   ├── __init__.py        # Exports available providers
 │   │   ├── registry.py        # Provider registration system
