@@ -38,7 +38,7 @@ class LoggerConfig:
         log_dir: Optional[Path] = None,
         format: str = DEFAULT_LOG_FORMAT,
         retention: str = f"{LOG_RETENTION_DAYS} days",
-        rotation: str = f"{MAX_LOG_FILE_SIZE} bytes",
+        rotation: str = f"{MAX_LOG_FILE_SIZE} MB",
         enable_context: bool = True,
     ):
         """Initialize logger configuration.

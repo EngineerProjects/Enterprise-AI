@@ -9,6 +9,7 @@ methods while maintaining compatibility with the core message system.
 import base64
 import copy
 import json
+from pathlib import Path
 import uuid
 from datetime import datetime
 from typing import (
@@ -279,8 +280,12 @@ class FileContentImpl(BaseContent):
 # -----------------------------------------------------------------------------
 
 
-class EnhancedMessage(Message, EnhancedMessageProtocol):
-    """Enhanced message implementation with additional capabilities."""
+class EnhancedMessage(Message):
+    """Enhanced message implementation with additional capabilities.
+
+    This class implements all methods and properties defined in EnhancedMessageProtocol
+    without directly inheriting from it to avoid metaclass conflicts.
+    """
 
     def __init__(
         self,
@@ -358,6 +363,35 @@ class EnhancedMessage(Message, EnhancedMessageProtocol):
         elif content_type == CONTENT_TYPE_TOOL_CALL:
             tool_call_content = cast(ToolCallContent, content)
             self.tool_calls = tool_call_content.tool_calls
+
+    def add_image(
+        self,
+        image_data: Union[str, bytes, Path],
+        alt_text: Optional[str] = None,
+        optimize: bool = True,
+    ) -> None:
+        """Add an image to the message using ImageHelper.
+
+        Args:
+            image_data: Image as a file path, bytes, or base64 string
+            alt_text: Optional alternative text for the image
+            optimize: Whether to automatically optimize the image if needed
+        """
+        # Import here to avoid circular imports
+        from enterprise_ai.message.image_helper import process_image_for_message
+
+        # Process the image using ImageHelper
+        image_content = process_image_for_message(image=image_data, alt_text=alt_text)
+
+        # Add the processed image content
+        self.add_content(cast(ContentProtocol, image_content))
+
+        # Update base attributes for backward compatibility
+        if isinstance(image_content, ImageContent):
+            if isinstance(image_content.data, str):
+                self.base64_image = image_content.data
+            elif isinstance(image_content.data, bytes):
+                self.base64_image = base64.b64encode(image_content.data).decode("utf-8")
 
     def get_content_by_type(self, content_type: ContentTypeValue) -> List[ContentProtocol]:
         """Get content by type."""
@@ -571,54 +605,24 @@ class MessageFactory:
         )
 
     @classmethod
-    def with_image(
+    def with_processed_image(
         cls,
         role: RoleType,
         text_content: str,
-        image_data: Union[str, bytes],
-        image_format: str = IMAGE_FORMAT_BASE64,
+        image_data: Union[str, bytes, Path],
         alt_text: Optional[str] = None,
         **kwargs: Any,
     ) -> EnhancedMessage:
-        """Create a message with both text and image content."""
+        """Create a message with optimized image content."""
         # Create basic message
-        if role == Role.USER:
-            message = cls.user_message(text_content, **kwargs)
-        elif role == Role.ASSISTANT:
-            message = cls.assistant_message(text_content, **kwargs)
-        elif role == Role.SYSTEM:
-            message = cls.system_message(text_content, **kwargs)
-        elif role == Role.TOOL:
-            if "name" not in kwargs or "tool_call_id" not in kwargs:
-                raise ConfigValueError(
-                    "name and tool_call_id",
-                    None,
-                    "Tool messages require name and tool_call_id parameters",
-                )
-            message = cls.tool_message(
-                text_content, kwargs.pop("name"), kwargs.pop("tool_call_id"), **kwargs
-            )
-        elif role == Role.AGENT:
-            if "name" not in kwargs:
-                raise ConfigValueError("name", None, "Agent messages require name parameter")
-            message = cls.agent_message(text_content, kwargs.pop("name"), **kwargs)
-        else:
-            raise ConfigValueError("role", role, f"Invalid role: {role}")
+        message = (
+            cls.user_message(text_content, **kwargs)
+            if role == Role.USER
+            else cls.assistant_message(text_content, **kwargs)
+        )
 
-        # Add image content
-        if isinstance(image_data, bytes):
-            message.add_content(
-                cast(
-                    ContentProtocol, ImageContentImpl.from_bytes(image_data, image_format, alt_text)
-                )
-            )
-        else:  # string (base64)
-            message.add_content(
-                cast(
-                    ContentProtocol,
-                    ImageContentImpl.from_base64(image_data, image_format, alt_text),
-                )
-            )
+        # Use ImageHelper to process and add the image
+        message.add_image(image_data, alt_text)
 
         return message
 

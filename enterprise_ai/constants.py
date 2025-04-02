@@ -195,7 +195,7 @@ DEFAULT_LOG_FORMAT: Final[str] = (
 )
 
 # Maximum log file size before rotation (in bytes)
-MAX_LOG_FILE_SIZE: Final[int] = 10 * 1024 * 1024  # 10 MB
+MAX_LOG_FILE_SIZE: Final[int] = 10  # 10 MB
 
 # Log retention periods
 LOG_RETENTION_DAYS: Final[int] = 30  # 30 days
