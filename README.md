@@ -1,198 +1,180 @@
 # Enterprise AI: The Future of Automated Workforces
 
-## Project Overview
+## Project Vision
 
-Enterprise AI is a multi-agent artificial intelligence platform that enables users to create autonomous AI teams capable of executing complex tasks through specialized collaboration. Unlike traditional single-agent assistants, Enterprise AI organizes multiple AI agents into structured teams with distinct roles, responsibilities, and capabilities, functioning similar to a human organization.
+Enterprise AI is building the future of intelligent work automation by creating multi-agent AI systems that collaborate like human organizations. Rather than single agents working in isolation, Enterprise AI orchestrates specialized AI workers into cohesive teams with defined roles, responsibilities, and workflows.
 
-## Core Capabilities
+This framework enables enterprises and individuals to delegate complex tasks to AI teams that can:
+- Solve problems requiring multiple skill sets
+- Maintain long-term context and organizational memory
+- Execute complex, multi-step workflows with minimal supervision
+- Self-organize and adapt to changing requirements
+- Securely handle sensitive information and code execution
 
-Enterprise AI provides a comprehensive framework for intelligent agent collaboration:
+The long-term vision is to create AI teams that operate with sufficient autonomy to become trusted extensions of human workforces, handling entire classes of knowledge work with minimal oversight.
 
-1. **Agent Hierarchy System** - Creates teams with manager agents that coordinate specialized workers
-1. **Role-Based Specialization** - Assigns agents to specific domains of expertise (e.g., development, research)
-1. **Multi-Tool Integration** - Equips agents with appropriate tools based on their specialization
-1. **Workflow Orchestration** - Manages complex multi-step processes across multiple agents
-1. **Execution Environments** - Provides secure, isolated environments for code execution and testing
-1. **Team Communication** - Enables knowledge sharing and task handoffs between agents
+## Core Architecture
 
-## Implementation Architecture
+Enterprise AI is built on a modular architecture with clear separation of concerns:
 
-The implementation builds upon a proven agent architecture with enhancements for team-based AI collaboration. The system uses a modular design with clearly separated components:
+1. **Core Framework** - Foundation classes, protocols, and utilities
+2. **Message System** - Enhanced message handling with validation, formatting, and memory
+3. **Storage System** - Persistent storage for messages, conversations, and agent state
+4. **LLM Framework** - Unified API for working with different language model providers
+5. **Agent System** - Base agent capabilities and specialized role implementations
+6. **Team Management** - Coordination and communication between agents
+7. **Tool Framework** - Extensible capabilities agents can use to interact with external systems
+8. **Workflow Engine** - Task orchestration and process management
+9. **Sandbox** - Secure execution environment for code and tools
 
-- **Core Framework** - Base classes, communication protocols, memory management
-- **Agent System** - Agent specializations with role-specific capabilities
-- **Tool Framework** - Specialized tools for different domains
-- **Workflow Engine** - Task coordination and team management
-- **Execution Environments** - Sandbox systems for secure execution
+## Project Status
 
-## Complete Enterprise AI Project Structure
+Enterprise AI is currently in active development, with core messaging functionality implemented and storage capabilities under construction. The framework is being built incrementally with a focus on establishing solid foundations before building higher-level components.
 
-### Root Package Structure
+## Development Checklist
 
-```
-enterprise-ai/                 # Project root
-├── README.md                  # Project overview and documentation
-├── pyproject.toml             # Modern Python packaging configuration
-├── setup.py                   # Installation script (optional, for compatibility)
-├── Makefile                   # Development workflow commands
-├── .gitignore                 # Git ignore patterns
-├── .pre-commit-config.yaml    # Pre-commit hooks for code quality
-├── .python-version            # Python version specification
-├── tests/                     # Test suite
-│   ├── __init__.py
-│   ├── conftest.py            # Test fixtures and configuration
-│   ├── test_config.py         # Tests for configuration system
-│   ├── test_dependencies.py   # Validates import hierarchy rules
-│   ├── test_exceptions.py     # Tests for exception classes
-│   ├── test_logger.py         # Tests for logging system
-│   ├── test_schema.py         # Tests for data models
-│   └── ...                    # Additional test modules
-├── docs/                      # Documentation
-│   ├── architecture.md        # System architecture overview
-│   ├── dependency_rules.md    # Dependency hierarchy rules
-│   └── ...                    # Additional documentation
-├── examples/                  # Example usage scripts
-│   ├── basic_usage.py
-│   ├── team_composition.py
-│   └── ...
-└── enterprise_ai/             # Main package
-    ├── __init__.py            # Package initialization, version exports
-    └── ...                    # Core and feature modules (detailed below)
-```
+### Core Infrastructure
+- [x] Project structure and packaging
+- [x] Configuration system
+- [x] Logging system
+- [x] Exception hierarchy
+- [x] Type definitions and protocols
+- [x] Basic testing framework
 
-### Core Module Structure
+### Message System
+- [x] Message schema and protocols
+- [x] Enhanced message with mixed content support
+- [x] Content validation system
+- [x] Formatting for different outputs (markdown, HTML, etc.)
+- [x] Image processing and handling
+- [x] Memory management for conversations
+- [ ] Message transformers for different providers
+  - [ ] Base transformer functionality
+  - [ ] OpenAI format support
+  - [ ] Anthropic format support
+  - [ ] Ollama format support
 
-```
-enterprise_ai/
-enterprise_ai/
-├── __init__.py                # Package exports, version
-├── constants.py               # System-wide constants
-├── types.py                   # Type definitions, interfaces, protocols
-├── exceptions.py              # All exception classes
-├── py.typed                   # Type checking marker
-├── schema.py                  # Core data models (no feature imports)
-├── version.py                 # Version info only
-├── config/                    # Configuration system
-│   ├── __init__.py            # Public exports
-│   ├── models.py              # Configuration models
-│   ├── loaders.py             # YAML/TOML loading utilities
-│   ├── providers.py           # Provider-specific config
-│   ├── utils.py               # Helper functions
-│   └── singleton.py           # Singleton pattern implementation
-├── logger/                    # Logging system
-│   ├── __init__.py            # Public exports
-│   ├── config.py              # Logger configuration
-│   ├── formatters.py          # Log formatters
-│   ├── handlers.py            # Custom log handlers
-│   └── utils.py               # Helper functions
-```
+### Storage System
+- [ ] Storage interfaces and protocols
+- [ ] File-based storage implementation
+- [ ] SQLite storage implementation
+- [ ] Message repository pattern
+- [ ] Conversation persistence
+- [ ] Advanced query capabilities
+- [ ] Cloud storage providers (future)
+  - [ ] S3/Minio support
+  - [ ] PostgreSQL support
+  - [ ] MongoDB support
+  - [ ] Redis support
 
-### Feature Module Structure
+### LLM Integration
+- [ ] Provider interface
+- [ ] API integration for major providers
+  - [ ] OpenAI integration
+  - [ ] Anthropic integration
+  - [ ] Ollama integration
+- [ ] Token counting and management
+- [ ] Response caching
+- [ ] Fallback mechanisms
+- [ ] Request throttling and rate limiting
+- [ ] Streaming support
+- [ ] Cost tracking
+- [ ] Service layer abstractions
 
-```
-enterprise_ai/
-├── message/                   # NEW: Message handling feature module
-│   ├── __init__.py            # Public exports
-│   ├── types.py               # Message-specific types
-│   ├── base.py                # Enhanced message functionality
-│   ├── image.py               # Image processing (moved from llm/image.py)
-│   ├── formatter.py           # Format messages for different outputs
-│   ├── validation.py          # Message validation logic
-│   ├── memory.py              # Conversation history management
-│   ├── utils.py               # Message-specific utilities
-│   └── transformers/          # Provider-specific transformations
-│       ├── __init__.py        # Public exports
-│       ├── base.py            # Base transformer functionality
-│       ├── openai.py          # OpenAI message transformations
-│       ├── anthropic.py       # Anthropic message transformations
-│       └── ollama.py          # Ollama message transformations
-├── storage/                   # Message persistence
-│   ├── __init__.py            # Public exports
-│   ├── base.py                # Base storage interfaces
-│   ├── file.py                # File storage implementation
-│   ├── sqlite.py              # SQLite implementation
-│   ├── repository.py          # High-level API
-│   └── providers/             # For future cloud implementations
-├── llm/                       # LLM functionality
-│   ├── __init__.py            # Exports LLM API
-│   ├── types.py               # LLM-specific types
-│   ├── utils.py               # Utility functions for LLM operations
-│   ├── base.py                # Base provider interface
-│   ├── cache.py               # Caching mechanism for LLM responses
-│   ├── retry.py               # Retry mechanisms
-│   ├── token_counter.py       # Token counting utilities
-│   ├── providers/             # Provider implementations
-│   │   ├── __init__.py        # Exports available providers
-│   │   ├── registry.py        # Provider registration system
-│   │   ├── factory.py         # Provider factory functions
-│   │   ├── openai_provider.py # OpenAI provider implementation
-│   │   ├── anthropic_provider.py # Anthropic provider implementation
-│   │   └── ollama_provider.py # Ollama provider implementation
-│   └── service/               # Service layer
-│       ├── __init__.py        # Exports service API
-│       ├── cache.py           # Service caching implementation
-│       ├── metrics.py         # Performance metrics collection
-│       ├── pools.py           # Provider pooling mechanism
-│       ├── orchestration.py   # Request orchestration
-│       ├── core.py            # Core service implementation
-│       └── defaults.py        # Default service instances
-├── agent/                     # Agent system
-│   ├── __init__.py            # Exports agent API
-│   ├── types.py               # Agent-specific types
-│   ├── base.py                # Base agent functionality
-│   ├── state.py               # Agent state management
-│   ├── memory.py              # Agent memory implementation
-│   ├── tooling.py             # Agent tool integration
-│   ├── planning.py            # Planning capabilities
-│   ├── execution.py           # Execution control flow
-│   └── factory.py             # Agent creation factories
-├── team/                      # Team management
-│   ├── __init__.py            # Exports team API
-│   ├── types.py               # Team-specific types
-│   ├── registry.py            # Role and agent registry
-│   ├── coordinator.py         # Team coordination
-│   ├── hierarchy.py           # Team structure management
-│   └── templates/             # Role templates
-│       ├── __init__.py        # Exports available templates
-│       ├── manager.py         # Manager role definition
-│       ├── developer.py       # Developer role definition
-│       ├── researcher.py      # Researcher role definition
-│       └── analyst.py         # Analyst role definition
-├── tool/                      # Tool framework
-│   ├── __init__.py            # Exports tool API
-│   ├── types.py               # Tool-specific types
-│   ├── base.py                # Base tool classes
-│   ├── utils.py               # Tool utilities
-│   ├── validation.py          # Input/output validation
-│   ├── authorization.py       # Tool access control
-│   ├── collection.py          # Tool collection management
-│   ├── file_operators.py      # File operation tools
-│   ├── python_execute.py      # Python execution tools
-│   ├── terminal.py            # Terminal tools
-│   └── search/                # Search tools
-│       ├── __init__.py        # Exports search API
-│       ├── base.py            # Base search functionality
-│       └── providers/         # Search providers
-├── flow/                      # Workflow engine
-│   ├── __init__.py            # Exports flow API
-│   ├── types.py               # Flow-specific types
-│   ├── base.py                # Base workflow functionality
-│   ├── factory.py             # Workflow creation
-│   ├── planning.py            # Planning workflows
-│   ├── team_workflow.py       # Team coordination workflows
-│   └── task_router.py         # Task routing
-└── sandbox/                   # Secure execution
-    ├── __init__.py            # Exports sandbox API
-    ├── types.py               # Sandbox-specific types
-    ├── client.py              # Sandbox client
-    └── core/                  # Core sandbox functionality
-        ├── __init__.py        # Exports core sandbox API
-        ├── exceptions.py      # Sandbox-specific exceptions
-        ├── manager.py         # Resource management
-        ├── sandbox.py         # Execution environment
-        └── terminal.py        # Terminal emulation
+### Agent System
+- [ ] Base agent implementation
+- [ ] Agent state management
+- [ ] Agent memory integration
+- [ ] Planning capabilities
+- [ ] Specialized agent roles
+- [ ] Agent factories and configuration
+
+### Team Management
+- [ ] Team configuration
+- [ ] Role and responsibility management
+- [ ] Inter-agent communication
+- [ ] Hierarchical team structures
+- [ ] Task delegation and coordination
+- [ ] Team performance monitoring
+
+### Tool Framework
+- [ ] Tool definition and registration
+- [ ] Input/output validation
+- [ ] Tool access controls
+- [ ] Standard tool library
+  - [ ] File operations
+  - [ ] Web search
+  - [ ] Code execution
+  - [ ] Data analysis
+  - [ ] API client tools
+
+### Workflow Engine
+- [ ] Task definition and management
+- [ ] Workflow execution
+- [ ] State tracking
+- [ ] Error handling and recovery
+- [ ] Progress reporting
+- [ ] Workflow templates
+
+### Sandbox
+- [ ] Secure code execution
+- [ ] Resource limitations
+- [ ] Input/output filtering
+- [ ] Environment isolation
+- [ ] Session management
+
+### Documentation
+- [ ] API Documentation
+- [ ] Usage examples
+- [ ] Architecture diagrams
+- [ ] Best practices guide
+- [ ] Deployment guide
+
+### Quality Assurance
+- [x] Unit testing framework
+- [ ] Integration tests
+- [ ] Performance benchmarks
+- [ ] Security audits
+- [ ] Continuous integration
+
+## Getting Started
+
+Enterprise AI is still in development and not yet ready for production use. However, you can explore the existing functionality:
+
+```python
+from enterprise_ai.message import Message, EnhancedMessage, MessageFactory
+from enterprise_ai.message.memory import ConversationMemory
+
+# Create a conversation memory with system prompt
+memory = ConversationMemory(system_prompt="You are a helpful AI assistant.")
+
+# Add messages to the conversation
+memory.add_user_message("Hello, can you help me with a Python problem?")
+memory.add_assistant_message("Of course! What's the problem you're facing?")
+
+# Create a message with code
+code_message = MessageFactory.with_code(
+    role="user",
+    text_content="I'm trying to understand list comprehensions. Can you explain this code?",
+    code="[x*2 for x in range(10) if x % 2 == 0]",
+    language="python"
+)
+
+# Add to conversation
+memory.add_message(code_message)
+
+# Get formatted conversation history
+from enterprise_ai.message.formatter import format_messages
+formatted = format_messages(memory.messages, format_name="markdown")
+print(formatted)
 ```
 
-### **Vision**
+Stay tuned for more features as development progresses!
 
-Enterprise AI aims to **revolutionize** how businesses and individuals **delegate** work. Instead of hiring and managing human teams, users can **deploy AI-powered teams** to complete tasks efficiently, cost-effectively, and at scale.
+## Contributing
+
+Enterprise AI is currently in early development. If you're interested in contributing, reach out to the project maintainers.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
