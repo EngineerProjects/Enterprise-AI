@@ -98,7 +98,6 @@ enterprise_ai/
 │   ├── image.py               # Image processing (moved from llm/image.py)
 │   ├── formatter.py           # Format messages for different outputs
 │   ├── validation.py          # Message validation logic
-│   ├── storage.py             # Message persistence
 │   ├── memory.py              # Conversation history management
 │   ├── utils.py               # Message-specific utilities
 │   └── transformers/          # Provider-specific transformations
@@ -107,6 +106,13 @@ enterprise_ai/
 │       ├── openai.py          # OpenAI message transformations
 │       ├── anthropic.py       # Anthropic message transformations
 │       └── ollama.py          # Ollama message transformations
+├── storage/                   # Message persistence
+│   ├── __init__.py            # Public exports
+│   ├── base.py                # Base storage interfaces
+│   ├── file.py                # File storage implementation
+│   ├── sqlite.py              # SQLite implementation
+│   ├── repository.py          # High-level API
+│   └── providers/             # For future cloud implementations
 ├── llm/                       # LLM functionality
 │   ├── __init__.py            # Exports LLM API
 │   ├── types.py               # LLM-specific types

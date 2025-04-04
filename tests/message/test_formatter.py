@@ -267,7 +267,7 @@ def test_plain_text_formatter_strip_markdown():
     """Test stripping markdown formatting."""
     formatter = PlainTextFormatter()
     markdown_text = """# Heading
-    
+
 This is **bold** and *italic* text.
 
 - List item 1

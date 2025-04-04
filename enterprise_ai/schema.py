@@ -380,7 +380,7 @@ class Message(BaseModel):
 class Memory(BaseModel):
     """Memory store for agent messages."""
 
-    model_config = {"arbitrary_types_allowed": True}
+    model_config = {"arbitrary_types_allowed": True, "extra": "allow"}
 
     messages: List[MessageProtocol] = Field(default_factory=list)
     max_messages: int = Field(default=100)
