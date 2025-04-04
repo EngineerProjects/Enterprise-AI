@@ -164,6 +164,17 @@ from enterprise_ai.message.utils import (
     merge_consecutive_messages,
 )
 
+# Import memory module for conversation history management
+from enterprise_ai.message.memory import (
+    EnhancedMemory,
+    ConversationMemory,
+    ShortTermMemory,
+    LongTermMemory,
+    create_conversation_memory,
+    create_short_term_memory,
+    create_long_term_memory,
+)
+
 # Define the public API for this module
 __all__ = [
     # Message classes and factory
@@ -282,4 +293,12 @@ __all__ = [
     "normalize_message_content",
     "get_conversation_summary",
     "merge_consecutive_messages",
+    # Memory module
+    "EnhancedMemory",
+    "ConversationMemory",
+    "ShortTermMemory",
+    "LongTermMemory",
+    "create_conversation_memory",
+    "create_short_term_memory",
+    "create_long_term_memory",
 ]
