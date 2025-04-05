@@ -1,4 +1,14 @@
-# Enterprise AI: The Future of Automated Workforces
+<p align="center">
+  <img src="docs/images/logo2.png" alt="Enterprise AI Logo" width="200">
+</p>
+
+<h1 align="center">Enterprise AI: The Future of Automated Workforces</h1>
+
+<p align="center">
+  <b>Building multi-agent AI organizations that collaborate like humans</b><br>
+  <i>Empowering enterprises to delegate complex tasks to autonomous AI teams</i>
+</p>
+
 
 ## Project Vision
 
