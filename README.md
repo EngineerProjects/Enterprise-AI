@@ -61,10 +61,10 @@ Enterprise AI is currently in active development, with core messaging functional
 - [x] Formatting for different outputs (markdown, HTML, etc.)
 - [x] Image processing and handling
 - [x] Memory management for conversations
-- [ ] Message transformers for different providers
+- [x] Message transformers for different providers
   - [x] Base transformer functionality
-  - [ ] OpenAI format support
-  - [ ] Anthropic format support
+  - [x] OpenAI format support
+  - [x] Anthropic format support
   - [x] Ollama format support
 
 ### Storage System
@@ -83,7 +83,7 @@ Enterprise AI is currently in active development, with core messaging functional
 
 ### LLM Integration
 
-- [ ] Provider interface
+- [x] Provider interface
 - [ ] API integration for major providers
   - [ ] OpenAI integration
   - [ ] Anthropic integration
