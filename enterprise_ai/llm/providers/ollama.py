@@ -17,6 +17,7 @@ from enterprise_ai.constants import (
     DEFAULT_TOP_P,
     OLLAMA_API_BASE,
     DEFAULT_OLLAMA_MODEL,
+    DEFAULT_TIMEOUT,
     ModelFeature
 )
 from enterprise_ai.exceptions import APIError, ModelNotFoundError
@@ -42,6 +43,7 @@ class OllamaProvider(LLMProvider):
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
+        timeout: Optional[float] = None,
         **kwargs: Any
     ):
         """
@@ -49,15 +51,27 @@ class OllamaProvider(LLMProvider):
         
         Args:
             model_name: Name of the model to use
-            base_url: Ollama API base URL
+            base_url: Ollama base URL (with or without /api)
             temperature: Sampling temperature
             max_tokens: Maximum tokens to generate
             top_p: Nucleus sampling parameter
+            timeout: HTTP request timeout in seconds
             **kwargs: Additional parameters
         """
         # Get config values or use defaults
         model = model_name or get_config("llm.ollama.model", DEFAULT_OLLAMA_MODEL)
         url = base_url or get_config("llm.ollama.base_url", OLLAMA_API_BASE)
+        
+        # Normalize the base URL to ensure consistent format
+        # We work with base_url without trailing /api
+        if url.endswith("/api"):
+            url = url[:-4]
+        if url.endswith("/"):
+            url = url[:-1]
+            
+        # Set a reasonable timeout, defaulting to configuration value or DEFAULT_TIMEOUT
+        default_timeout = get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
+        self._timeout = timeout or default_timeout
         
         # Initialize base class
         super().__init__(
@@ -69,22 +83,38 @@ class OllamaProvider(LLMProvider):
             **kwargs
         )
         
-        logger.info(f"Initialized Ollama provider with model {model}")
+        logger.info(f"Initialized Ollama provider with model {model}, timeout {self._timeout}s")
         
         # Cache for model info
         self._model_info = None
         
-        # Create HTTP clients
-        self._client = httpx.Client(timeout=30.0)
+        # Create HTTP clients with configured timeout
+        self._client = httpx.Client(timeout=self._timeout)
         self._async_client = None  # Lazy initialization for async client
     
     def __del__(self):
         """Clean up resources when the provider is deleted."""
-        if self._client:
+        if hasattr(self, '_client') and self._client:
             self._client.close()
-        if self._async_client:
+        if hasattr(self, '_async_client') and self._async_client:
             # We can't await close() in __del__, but we can ensure it's closed
             self._async_client.aclose()
+
+    def _get_api_url(self, endpoint: str) -> str:
+        """
+        Get the full API URL for a given endpoint.
+        
+        Args:
+            endpoint: API endpoint (e.g., 'chat', 'show')
+            
+        Returns:
+            Full API URL
+        """
+        # Ensure endpoint doesn't start with a slash
+        if endpoint.startswith('/'):
+            endpoint = endpoint[1:]
+        
+        return f"{self.config['base_url']}/api/{endpoint}"
 
     def complete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
         """
@@ -101,6 +131,23 @@ class OllamaProvider(LLMProvider):
             APIError: If there's an issue with the API request
             ModelNotFoundError: If the model is not found
         """
+        # Get request timeout - allow override via kwargs or use the instance default
+        request_timeout = kwargs.pop("timeout", self._timeout)
+        
+        # Check if this is a vision model or if any message contains images
+        has_images = False
+        for msg in messages:
+            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
+                has_images = True
+                break
+        
+        # If this is a vision model or images are included, increase timeout if needed
+        if "vision" in self.model_name.lower() or has_images:
+            # For vision tasks, use a longer timeout (at least 120 seconds)
+            vision_timeout = max(request_timeout, 120.0)
+            logger.debug(f"Using extended timeout ({vision_timeout}s) for vision model or image input")
+            request_timeout = vision_timeout
+        
         # Prepare request payload
         payload = {
             "model": self.model_name,
@@ -113,15 +160,16 @@ class OllamaProvider(LLMProvider):
         
         # Add any extra parameters
         for key, value in kwargs.items():
-            if key not in payload and key not in ("stream",):
+            if key not in payload and key not in ("stream", "timeout"):
                 payload[key] = value
         
         # Make the API request
-        logger.debug(f"Sending request to Ollama API: {self.model_name}")
+        logger.debug(f"Sending request to Ollama API: {self.model_name} with timeout {request_timeout}s")
         try:
             response = self._client.post(
-                f"{self.config['base_url']}/chat",
-                json=payload
+                self._get_api_url("chat"),
+                json=payload,
+                timeout=request_timeout  # Use the determined timeout
             )
             
             # Handle HTTP errors
@@ -153,6 +201,11 @@ class OllamaProvider(LLMProvider):
                 }
             )
             
+        except httpx.ReadTimeout as e:
+            self.track_request(False)
+            logger.error(f"Request to Ollama API timed out after {request_timeout}s: {e}")
+            raise APIError(message=f"Request to Ollama API timed out after {request_timeout}s. Your model may require more processing time. Try increasing the timeout value.")
+        
         except httpx.RequestError as e:
             self.track_request(False)
             logger.error(f"Request to Ollama API failed: {e}")
@@ -169,6 +222,22 @@ class OllamaProvider(LLMProvider):
         Returns:
             Iterator of partial completion messages
         """
+        # Get request timeout - allow override via kwargs or use the instance default
+        request_timeout = kwargs.pop("timeout", self._timeout)
+        
+        # Check for vision model or images
+        has_images = False
+        for msg in messages:
+            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
+                has_images = True
+                break
+        
+        # For vision models or images, use a longer timeout
+        if "vision" in self.model_name.lower() or has_images:
+            vision_timeout = max(request_timeout, 120.0)
+            logger.debug(f"Using extended timeout ({vision_timeout}s) for vision model streaming")
+            request_timeout = vision_timeout
+        
         # Prepare request payload
         payload = {
             "model": self.model_name,
@@ -180,13 +249,13 @@ class OllamaProvider(LLMProvider):
         }
         
         # Make the API request
-        logger.debug(f"Sending streaming request to Ollama API: {self.model_name}")
+        logger.debug(f"Sending streaming request to Ollama API: {self.model_name} with timeout {request_timeout}s")
         try:
             with self._client.stream(
                 "POST",
-                f"{self.config['base_url']}/chat",
+                self._get_api_url("chat"),
                 json=payload,
-                timeout=60.0  # Longer timeout for streaming
+                timeout=request_timeout  # Use the determined timeout
             ) as response:
                 # Handle HTTP errors
                 if response.status_code != 200:
@@ -240,6 +309,11 @@ class OllamaProvider(LLMProvider):
                     }
                 )
         
+        except httpx.ReadTimeout as e:
+            self.track_request(False)
+            logger.error(f"Streaming request to Ollama API timed out after {request_timeout}s: {e}")
+            raise APIError(message=f"Streaming request to Ollama API timed out after {request_timeout}s. Try increasing the timeout value.")
+        
         except httpx.RequestError as e:
             self.track_request(False)
             logger.error(f"Streaming request to Ollama API failed: {e}")
@@ -256,9 +330,25 @@ class OllamaProvider(LLMProvider):
         Returns:
             Completion message
         """
+        # Get request timeout - allow override via kwargs or use the instance default
+        request_timeout = kwargs.pop("timeout", self._timeout)
+        
+        # Check for vision model or images
+        has_images = False
+        for msg in messages:
+            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
+                has_images = True
+                break
+        
+        # For vision models or images, use a longer timeout
+        if "vision" in self.model_name.lower() or has_images:
+            vision_timeout = max(request_timeout, 120.0)
+            logger.debug(f"Using extended timeout ({vision_timeout}s) for async vision model request")
+            request_timeout = vision_timeout
+        
         # Initialize async client if needed
         if self._async_client is None:
-            self._async_client = httpx.AsyncClient(timeout=30.0)
+            self._async_client = httpx.AsyncClient(timeout=request_timeout)
         
         # Prepare request payload
         payload = {
@@ -272,15 +362,16 @@ class OllamaProvider(LLMProvider):
         
         # Add any extra parameters
         for key, value in kwargs.items():
-            if key not in payload and key not in ("stream",):
+            if key not in payload and key not in ("stream", "timeout"):
                 payload[key] = value
         
         # Make the API request
-        logger.debug(f"Sending async request to Ollama API: {self.model_name}")
+        logger.debug(f"Sending async request to Ollama API: {self.model_name} with timeout {request_timeout}s")
         try:
             response = await self._async_client.post(
-                f"{self.config['base_url']}/chat",
-                json=payload
+                self._get_api_url("chat"),
+                json=payload,
+                timeout=request_timeout  # Use the determined timeout
             )
             
             # Handle HTTP errors
@@ -312,9 +403,14 @@ class OllamaProvider(LLMProvider):
                 }
             )
             
+        except httpx.ReadTimeout as e:
+            self.track_request(False)
+            logger.error(f"Async request to Ollama API timed out after {request_timeout}s: {e}")
+            raise APIError(message=f"Async request to Ollama API timed out after {request_timeout}s. Try increasing the timeout value.")
+        
         except httpx.RequestError as e:
             self.track_request(False)
-            logger.error(f"Request to Ollama API failed: {e}")
+            logger.error(f"Async request to Ollama API failed: {e}")
             raise APIError(message=f"Failed to connect to Ollama API: {e}")
     
     async def acomplete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> AsyncIterator[MessageProtocol]:
@@ -328,9 +424,25 @@ class OllamaProvider(LLMProvider):
         Returns:
             Async iterator of partial completion messages
         """
+        # Get request timeout - allow override via kwargs or use the instance default
+        request_timeout = kwargs.pop("timeout", self._timeout)
+        
+        # Check for vision model or images
+        has_images = False
+        for msg in messages:
+            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
+                has_images = True
+                break
+        
+        # For vision models or images, use a longer timeout
+        if "vision" in self.model_name.lower() or has_images:
+            vision_timeout = max(request_timeout, 120.0)
+            logger.debug(f"Using extended timeout ({vision_timeout}s) for async streaming vision model request")
+            request_timeout = vision_timeout
+        
         # Initialize async client if needed
         if self._async_client is None:
-            self._async_client = httpx.AsyncClient(timeout=30.0)
+            self._async_client = httpx.AsyncClient(timeout=request_timeout)
         
         # Prepare request payload
         payload = {
@@ -343,13 +455,13 @@ class OllamaProvider(LLMProvider):
         }
         
         # Make the API request
-        logger.debug(f"Sending async streaming request to Ollama API: {self.model_name}")
+        logger.debug(f"Sending async streaming request to Ollama API: {self.model_name} with timeout {request_timeout}s")
         try:
             async with self._async_client.stream(
                 "POST",
-                f"{self.config['base_url']}/chat",
+                self._get_api_url("chat"),
                 json=payload,
-                timeout=60.0  # Longer timeout for streaming
+                timeout=request_timeout  # Use the determined timeout
             ) as response:
                 # Handle HTTP errors
                 if response.status_code != 200:
@@ -403,6 +515,11 @@ class OllamaProvider(LLMProvider):
                     }
                 )
         
+        except httpx.ReadTimeout as e:
+            self.track_request(False)
+            logger.error(f"Async streaming request to Ollama API timed out after {request_timeout}s: {e}")
+            raise APIError(message=f"Async streaming request to Ollama API timed out after {request_timeout}s. Try increasing the timeout value.")
+        
         except httpx.RequestError as e:
             self.track_request(False)
             logger.error(f"Streaming request to Ollama API failed: {e}")
@@ -422,8 +539,9 @@ class OllamaProvider(LLMProvider):
         try:
             # Get model details
             response = self._client.post(
-                f"{self.config['base_url']}/show",
-                json={"name": self.model_name}
+                self._get_api_url("show"),
+                json={"name": self.model_name},
+                timeout=30.0  # Use a separate timeout for metadata requests
             )
             
             if response.status_code != 200:
@@ -446,7 +564,9 @@ class OllamaProvider(LLMProvider):
             
             # Detect vision capability
             vision_capable = False
-            if "projector_info" in model_data:
+            if "vision" in self.model_name.lower():
+                vision_capable = True
+            elif "projector_info" in model_data:
                 vision_capable = True
             elif "details" in model_data and "families" in model_data["details"]:
                 families = model_data["details"]["families"]

@@ -22,11 +22,11 @@ ENV_PREFIX = "ENTERPRISE_AI_"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TOP_P = 1.0
-DEFAULT_TIMEOUT = 60.0
+DEFAULT_TIMEOUT = 60.0  # Default timeout in seconds
 DEFAULT_MAX_RETRIES = 3
 
 # Ollama API
-OLLAMA_API_BASE = "http://localhost:11434/api"
+OLLAMA_API_BASE = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2"
 
 # Model capabilities
