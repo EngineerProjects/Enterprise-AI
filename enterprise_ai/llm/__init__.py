@@ -14,10 +14,11 @@ from enterprise_ai.schema import Message, CompletionOptions
 # Default provider instance
 _default_provider = None
 
+
 def get_default_provider() -> LLMProvider:
     """
     Get the default LLM provider.
-    
+
     Returns:
         Default provider instance
     """
@@ -27,6 +28,7 @@ def get_default_provider() -> LLMProvider:
         _default_provider = get_provider(provider_name)
     return _default_provider
 
+
 def complete(
     messages: List[Union[Message, str]],
     options: Optional[CompletionOptions] = None,
@@ -34,12 +36,12 @@ def complete(
 ) -> Message:
     """
     Generate a completion for the given messages.
-    
+
     Args:
         messages: List of messages or strings (strings are converted to user messages)
         options: Completion options
         provider: LLM provider to use (uses default if None)
-        
+
     Returns:
         Generated assistant message
     """
@@ -50,10 +52,10 @@ def complete(
             processed_messages.append(Message.user_message(msg))
         else:
             processed_messages.append(msg)
-    
+
     # Use specified provider or default
     llm_provider = provider or get_default_provider()
-    
+
     # Get completion with options
     kwargs = {}
     if options:
@@ -61,10 +63,11 @@ def complete(
             "temperature": options.temperature,
             "max_tokens": options.max_tokens,
             "top_p": options.top_p,
-            **options.extra_params
+            **options.extra_params,
         }
-    
+
     return llm_provider.complete(processed_messages, **kwargs)
+
 
 # Export API
 __all__ = ["complete", "get_provider", "get_default_provider", "LLMProvider"]

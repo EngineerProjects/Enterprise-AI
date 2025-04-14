@@ -421,26 +421,25 @@ if __name__ == "__main__":
         separator()
         sleep(1)
 
-        # test_basic_completion(provider)
-        # separator()
-        # sleep(1)
+        test_basic_completion(provider)
+        separator()
+        sleep(1)
 
-        # test_streaming_completion(provider)
-        # separator()
-        # sleep(1)
+        test_streaming_completion(provider)
+        separator()
+        sleep(1)
 
-        # test_async_completion(provider)
-        # separator()
-        # sleep(1)
+        test_async_completion(provider)
+        separator()
+        sleep(1)
         
-        # Run the async streaming test with proper asyncio handling
         asyncio.run(test_async_streaming())
         separator()
         sleep(1)
 
-        # test_vision_input(provider, IMAGE_PATH)
-        # separator()
-        # sleep(1)
+        test_vision_input(provider, IMAGE_PATH)
+        separator()
+        sleep(1)
 
         test_error_handling(MODEL_NAME, BASE_URL, TIMEOUT)
         separator()

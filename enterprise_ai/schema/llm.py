@@ -7,10 +7,11 @@ This module defines data models related to LLM configuration and responses.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
+
 @dataclass
 class CompletionOptions:
     """Options for LLM completion requests."""
-    
+
     temperature: float = 0.7
     max_tokens: int = 1024
     top_p: float = 1.0
@@ -19,6 +20,7 @@ class CompletionOptions:
     stop: Optional[List[str]] = None
     stream: bool = False
     extra_params: Dict[str, Any] = field(default_factory=dict)
+
 
 class ModelInfo:
     """Information about an LLM model's capabilities and constraints."""

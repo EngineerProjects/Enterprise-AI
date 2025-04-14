@@ -7,11 +7,13 @@ This module defines global constants used throughout the Enterprise AI framework
 import os
 from pathlib import Path
 
+
 # System paths
 def get_project_root() -> Path:
     """Get the project root directory."""
     module_path = Path(__file__).resolve().parent.parent
     return module_path
+
 
 PROJECT_ROOT = get_project_root()
 CONFIG_DIR = PROJECT_ROOT / "config"
@@ -29,11 +31,13 @@ DEFAULT_MAX_RETRIES = 3
 OLLAMA_API_BASE = "http://localhost:11434"
 DEFAULT_OLLAMA_MODEL = "llama3.2"
 
+
 # Model capabilities
 class ModelFeature:
     """Model feature capabilities."""
+
     VISION = "vision"
-    FUNCTION_CALLING = "function_calling" 
+    FUNCTION_CALLING = "function_calling"
     STREAMING = "streaming"
     CODE = "code"
     JSON_MODE = "json_mode"

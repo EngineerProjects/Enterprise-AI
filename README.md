@@ -9,7 +9,6 @@
   <i>Empowering enterprises to delegate complex tasks to autonomous AI teams</i>
 </p>
 
-
 ## Project Vision
 
 Enterprise AI is building the future of intelligent work automation by creating multi-agent AI systems that collaborate like human organizations. Rather than single agents working in isolation, Enterprise AI orchestrates specialized AI workers into cohesive teams with defined roles, responsibilities, and workflows.
