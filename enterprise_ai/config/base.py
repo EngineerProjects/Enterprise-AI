@@ -4,7 +4,7 @@ Base configuration functionality for Enterprise AI.
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, cast
 
 import yaml
 
@@ -12,7 +12,7 @@ from enterprise_ai.constants import DEFAULT_CONFIG_PATH, ENV_PREFIX
 from enterprise_ai.exceptions import ConfigFileError
 
 # Global config cache
-_config_cache: Dict[str, Any] = {}
+_config_cache: Dict[str, Dict[str, Any]] = {}
 
 
 def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
@@ -44,8 +44,9 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
     try:
         with open(path, "r") as f:
             config = yaml.safe_load(f) or {}
-            _config_cache[path] = config
-            return config
+            config_dict = cast(Dict[str, Any], config)
+            _config_cache[path] = config_dict
+            return config_dict
     except Exception as e:
         raise ConfigFileError(f"Failed to load config from {path}: {str(e)}")
 
@@ -73,7 +74,7 @@ def get_config(key: str, default: Any = None, config_path: Optional[str] = None)
 
     # Navigate to the specified key
     parts = key.split(".")
-    current = config
+    current: Any = config
 
     for part in parts:
         if not isinstance(current, dict) or part not in current:

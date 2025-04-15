@@ -5,7 +5,7 @@ This module provides implementations of the ConversationMemory interface
 for different use cases and storage mechanisms.
 """
 
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Type, Union, cast
 
 from enterprise_ai.schema.memory.base import ConversationMemory
 from enterprise_ai.types import MessageProtocol
@@ -175,13 +175,13 @@ class ConversationMemoryFactory:
     implementations and methods for creating instances.
     """
 
-    _registry: Dict[str, type] = {
+    _registry: Dict[str, Type[ConversationMemory]] = {
         "memory": InMemoryConversation,
         "sliding_window": SlidingWindowConversation,
     }
 
     @classmethod
-    def register(cls, name: str, memory_class: type) -> None:
+    def register(cls, name: str, memory_class: Type[ConversationMemory]) -> None:
         """
         Register a new conversation memory implementation.
 
@@ -210,4 +210,5 @@ class ConversationMemoryFactory:
             valid_types = ", ".join(cls._registry.keys())
             raise ValueError(f"Unknown memory type: {memory_type}. Valid types: {valid_types}")
 
-        return cls._registry[memory_type](**kwargs)
+        memory_class = cls._registry[memory_type]
+        return memory_class(**kwargs)

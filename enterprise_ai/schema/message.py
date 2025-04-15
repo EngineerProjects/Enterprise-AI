@@ -5,9 +5,9 @@ This module defines the core message model used for LLM interactions.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Union, cast
+from typing import Any, Dict, Optional, cast
 
-from enterprise_ai.types import MessageProtocol, Serializable
+from enterprise_ai.types import MessageProtocol
 
 
 class Message:
@@ -47,7 +47,7 @@ class Message:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert message to dictionary format."""
-        result = {"role": self.role}
+        result: Dict[str, Any] = {"role": self.role}
 
         if self.content is not None:
             result["content"] = self.content

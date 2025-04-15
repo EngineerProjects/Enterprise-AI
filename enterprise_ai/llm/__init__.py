@@ -4,12 +4,13 @@ LLM functionality for Enterprise AI.
 This module provides a high-level API for interacting with language models.
 """
 
-from typing import List, Optional, Union
+from typing import List, Optional, Union, cast
 
 from enterprise_ai.config import get_config
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.llm.providers import get_provider
 from enterprise_ai.schema import Message, CompletionOptions
+from enterprise_ai.types import MessageProtocol
 
 # Default provider instance
 _default_provider = None
@@ -33,7 +34,7 @@ def complete(
     messages: List[Union[Message, str]],
     options: Optional[CompletionOptions] = None,
     provider: Optional[LLMProvider] = None,
-) -> Message:
+) -> MessageProtocol:
     """
     Generate a completion for the given messages.
 
@@ -46,12 +47,12 @@ def complete(
         Generated assistant message
     """
     # Convert strings to user messages
-    processed_messages = []
+    processed_messages: List[MessageProtocol] = []
     for msg in messages:
         if isinstance(msg, str):
-            processed_messages.append(Message.user_message(msg))
+            processed_messages.append(cast(MessageProtocol, Message.user_message(msg)))
         else:
-            processed_messages.append(msg)
+            processed_messages.append(cast(MessageProtocol, msg))
 
     # Use specified provider or default
     llm_provider = provider or get_default_provider()

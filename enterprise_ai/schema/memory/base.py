@@ -6,10 +6,12 @@ implementations in the Enterprise AI framework.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, List, Optional
+from typing import Any, List, Optional, TypeVar, cast
 
 from enterprise_ai.schema.message import Message
 from enterprise_ai.types import MessageProtocol
+
+T = TypeVar("T", bound=MessageProtocol)
 
 
 class ConversationMemory(ABC):
@@ -42,8 +44,8 @@ class ConversationMemory(ABC):
             The created message
         """
         message = Message.user_message(content, **kwargs)
-        self.add_message(message)
-        return message
+        self.add_message(cast(MessageProtocol, message))
+        return cast(MessageProtocol, message)
 
     def add_assistant_message(self, content: str, **kwargs: Any) -> MessageProtocol:
         """
@@ -57,8 +59,8 @@ class ConversationMemory(ABC):
             The created message
         """
         message = Message.assistant_message(content, **kwargs)
-        self.add_message(message)
-        return message
+        self.add_message(cast(MessageProtocol, message))
+        return cast(MessageProtocol, message)
 
     def add_system_message(self, content: str, **kwargs: Any) -> MessageProtocol:
         """
@@ -72,8 +74,8 @@ class ConversationMemory(ABC):
             The created message
         """
         message = Message.system_message(content, **kwargs)
-        self.add_message(message)
-        return message
+        self.add_message(cast(MessageProtocol, message))
+        return cast(MessageProtocol, message)
 
     @abstractmethod
     def get_messages(

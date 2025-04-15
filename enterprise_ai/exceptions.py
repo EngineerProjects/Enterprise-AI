@@ -4,6 +4,8 @@ Custom exception classes for Enterprise AI.
 This module provides a detailed hierarchy of exception types for different error scenarios.
 """
 
+from typing import Optional
+
 
 class EnterpriseAIError(Exception):
     """Base exception for all Enterprise AI errors."""
@@ -52,7 +54,7 @@ class ModelNotFoundError(LLMError):
 class APIError(LLMError):
     """Exception raised when an API error occurs."""
 
-    def __init__(self, status_code: int = None, message: str = None) -> None:
+    def __init__(self, status_code: Optional[int] = None, message: Optional[str] = None) -> None:
         self.status_code = status_code
         msg = f"API error occurred (status {status_code})" if status_code else "API error occurred"
         if message:
@@ -63,7 +65,7 @@ class APIError(LLMError):
 class TokenLimitExceeded(LLMError):
     """Exception raised when the token limit is exceeded."""
 
-    def __init__(self, model: str = None, message: str = None) -> None:
+    def __init__(self, model: Optional[str] = None, message: Optional[str] = None) -> None:
         self.model = model
         msg = message or f"Token limit exceeded for model {model}"
         super().__init__(msg)

@@ -6,7 +6,7 @@ This module provides an LLM provider for the Ollama API.
 
 import json
 import asyncio
-from typing import Any, Dict, List, Optional, Set, Iterator, AsyncIterator, Union
+from typing import Any, Dict, List, Optional, Set, Iterator, AsyncIterator, Union, cast
 
 import httpx
 
@@ -91,14 +91,16 @@ class OllamaProvider(LLMProvider):
 
         logger.info(f"Initialized Ollama provider with model {model}, timeout {self._timeout}s")
 
-        # Cache for model info
-        self._model_info = None
+        # Cache for model info - Let base class handle this
+        # DO NOT redefine with type annotation here as it conflicts with parent class
 
         # Create HTTP clients with configured timeout
-        self._client = httpx.Client(timeout=self._timeout)
-        self._async_client = None  # Lazy initialization for async client
+        self._client: Optional[httpx.Client] = httpx.Client(timeout=self._timeout)
+        self._async_client: Optional[httpx.AsyncClient] = (
+            None  # Lazy initialization for async client
+        )
 
-    def __del__(self):
+    def __del__(self) -> None:
         """Clean up resources when the provider is deleted."""
         if hasattr(self, "_client") and self._client:
             self._client.close()
@@ -107,7 +109,7 @@ class OllamaProvider(LLMProvider):
             # This avoids the coroutine warning
             pass
 
-    def close(self):
+    def close(self) -> None:
         """Explicitly close clients to free resources."""
         if hasattr(self, "_client") and self._client:
             self._client.close()
@@ -182,9 +184,11 @@ class OllamaProvider(LLMProvider):
         use_chat_endpoint = "tools" in kwargs
 
         if use_chat_endpoint:
-            return self._complete_chat(messages, request_timeout, **kwargs)
+            return cast(MessageProtocol, self._complete_chat(messages, request_timeout, **kwargs))
         else:
-            return self._complete_generate(messages, request_timeout, **kwargs)
+            return cast(
+                MessageProtocol, self._complete_generate(messages, request_timeout, **kwargs)
+            )
 
     def _complete_generate(
         self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
@@ -248,6 +252,10 @@ class OllamaProvider(LLMProvider):
             f"Sending request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure client is initialized
+            if self._client is None:
+                self._client = httpx.Client(timeout=self._timeout)
+
             response = self._client.post(
                 self._get_api_url("generate"), json=payload, timeout=request_timeout
             )
@@ -265,18 +273,21 @@ class OllamaProvider(LLMProvider):
 
             # Create and return the assistant message
             content = result.get("response", "")
-            return Message(
-                role="assistant",
-                content=content,
-                metadata={
-                    "provider": "ollama",
-                    "model": self.model_name,
-                    "response_metadata": {
-                        key: value
-                        for key, value in result.items()
-                        if key not in ("response", "model")
+            return cast(
+                MessageProtocol,
+                Message(
+                    role="assistant",
+                    content=content,
+                    metadata={
+                        "provider": "ollama",
+                        "model": self.model_name,
+                        "response_metadata": {
+                            key: value
+                            for key, value in result.items()
+                            if key not in ("response", "model")
+                        },
                     },
-                },
+                ),
             )
 
         except httpx.ReadTimeout as e:
@@ -330,6 +341,10 @@ class OllamaProvider(LLMProvider):
             f"Sending request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure client is initialized
+            if self._client is None:
+                self._client = httpx.Client(timeout=self._timeout)
+
             response = self._client.post(
                 self._get_api_url("chat"), json=payload, timeout=request_timeout
             )
@@ -363,7 +378,9 @@ class OllamaProvider(LLMProvider):
             if tool_calls:
                 metadata["tool_calls"] = tool_calls
 
-            return Message(role="assistant", content=content, metadata=metadata)
+            return cast(
+                MessageProtocol, Message(role="assistant", content=content, metadata=metadata)
+            )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -477,6 +494,10 @@ class OllamaProvider(LLMProvider):
             f"Sending streaming request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure client is initialized
+            if self._client is None:
+                self._client = httpx.Client(timeout=self._timeout)
+
             with self._client.stream(
                 "POST", self._get_api_url("generate"), json=payload, timeout=request_timeout
             ) as response:
@@ -504,28 +525,34 @@ class OllamaProvider(LLMProvider):
                         content_buffer += chunk_content
 
                         # Create a partial message for this chunk
-                        yield Message(
-                            role="assistant",
-                            content=content_buffer,
-                            metadata={
-                                "provider": "ollama",
-                                "model": self.model_name,
-                                "is_partial": True,
-                            },
+                        yield cast(
+                            MessageProtocol,
+                            Message(
+                                role="assistant",
+                                content=content_buffer,
+                                metadata={
+                                    "provider": "ollama",
+                                    "model": self.model_name,
+                                    "is_partial": True,
+                                },
+                            ),
                         )
                     except json.JSONDecodeError as e:
                         logger.warning(f"Failed to parse streaming chunk: {e}")
                         continue
 
                 # Final message with complete content
-                yield Message(
-                    role="assistant",
-                    content=content_buffer,
-                    metadata={
-                        "provider": "ollama",
-                        "model": self.model_name,
-                        "is_partial": False,
-                    },
+                yield cast(
+                    MessageProtocol,
+                    Message(
+                        role="assistant",
+                        content=content_buffer,
+                        metadata={
+                            "provider": "ollama",
+                            "model": self.model_name,
+                            "is_partial": False,
+                        },
+                    ),
                 )
 
         except httpx.ReadTimeout as e:
@@ -579,6 +606,10 @@ class OllamaProvider(LLMProvider):
             f"Sending streaming request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure client is initialized
+            if self._client is None:
+                self._client = httpx.Client(timeout=self._timeout)
+
             with self._client.stream(
                 "POST", self._get_api_url("chat"), json=payload, timeout=request_timeout
             ) as response:
@@ -624,7 +655,10 @@ class OllamaProvider(LLMProvider):
                             metadata["tool_calls"] = tool_calls
 
                         # Create a partial message for this chunk
-                        yield Message(role="assistant", content=content_buffer, metadata=metadata)
+                        yield cast(
+                            MessageProtocol,
+                            Message(role="assistant", content=content_buffer, metadata=metadata),
+                        )
                     except json.JSONDecodeError as e:
                         logger.warning(f"Failed to parse streaming chunk: {e}")
                         continue
@@ -641,7 +675,10 @@ class OllamaProvider(LLMProvider):
                     metadata["tool_calls"] = tool_calls
 
                 # Final message with complete content
-                yield Message(role="assistant", content=content_buffer, metadata=metadata)
+                yield cast(
+                    MessageProtocol,
+                    Message(role="assistant", content=content_buffer, metadata=metadata),
+                )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -695,9 +732,13 @@ class OllamaProvider(LLMProvider):
         use_chat_endpoint = "tools" in kwargs
 
         if use_chat_endpoint:
-            return await self._acomplete_chat(messages, request_timeout, **kwargs)
+            return cast(
+                MessageProtocol, await self._acomplete_chat(messages, request_timeout, **kwargs)
+            )
         else:
-            return await self._acomplete_generate(messages, request_timeout, **kwargs)
+            return cast(
+                MessageProtocol, await self._acomplete_generate(messages, request_timeout, **kwargs)
+            )
 
     async def _acomplete_generate(
         self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
@@ -761,6 +802,10 @@ class OllamaProvider(LLMProvider):
             f"Sending async request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure async client is initialized
+            if self._async_client is None:
+                self._async_client = httpx.AsyncClient(timeout=request_timeout)
+
             response = await self._async_client.post(
                 self._get_api_url("generate"), json=payload, timeout=request_timeout
             )
@@ -778,18 +823,21 @@ class OllamaProvider(LLMProvider):
 
             # Create and return the assistant message
             content = result.get("response", "")
-            return Message(
-                role="assistant",
-                content=content,
-                metadata={
-                    "provider": "ollama",
-                    "model": self.model_name,
-                    "response_metadata": {
-                        key: value
-                        for key, value in result.items()
-                        if key not in ("response", "model")
+            return cast(
+                MessageProtocol,
+                Message(
+                    role="assistant",
+                    content=content,
+                    metadata={
+                        "provider": "ollama",
+                        "model": self.model_name,
+                        "response_metadata": {
+                            key: value
+                            for key, value in result.items()
+                            if key not in ("response", "model")
+                        },
                     },
-                },
+                ),
             )
 
         except httpx.ReadTimeout as e:
@@ -845,6 +893,10 @@ class OllamaProvider(LLMProvider):
             f"Sending async request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure async client is initialized
+            if self._async_client is None:
+                self._async_client = httpx.AsyncClient(timeout=request_timeout)
+
             response = await self._async_client.post(
                 self._get_api_url("chat"), json=payload, timeout=request_timeout
             )
@@ -878,7 +930,9 @@ class OllamaProvider(LLMProvider):
             if tool_calls:
                 metadata["tool_calls"] = tool_calls
 
-            return Message(role="assistant", content=content, metadata=metadata)
+            return cast(
+                MessageProtocol, Message(role="assistant", content=content, metadata=metadata)
+            )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -935,12 +989,12 @@ class OllamaProvider(LLMProvider):
 
         if use_chat_endpoint:
             async for message in self._acomplete_chat_stream(messages, request_timeout, **kwargs):
-                yield message
+                yield cast(MessageProtocol, message)
         else:
             async for message in self._acomplete_generate_stream(
                 messages, request_timeout, **kwargs
             ):
-                yield message
+                yield cast(MessageProtocol, message)
 
     async def _acomplete_generate_stream(
         self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
@@ -1004,6 +1058,10 @@ class OllamaProvider(LLMProvider):
             f"Sending async streaming request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure async client is initialized
+            if self._async_client is None:
+                self._async_client = httpx.AsyncClient(timeout=request_timeout)
+
             async with self._async_client.stream(
                 "POST", self._get_api_url("generate"), json=payload, timeout=request_timeout
             ) as response:
@@ -1031,28 +1089,34 @@ class OllamaProvider(LLMProvider):
                         content_buffer += chunk_content
 
                         # Create a partial message for this chunk
-                        yield Message(
-                            role="assistant",
-                            content=content_buffer,
-                            metadata={
-                                "provider": "ollama",
-                                "model": self.model_name,
-                                "is_partial": True,
-                            },
+                        yield cast(
+                            MessageProtocol,
+                            Message(
+                                role="assistant",
+                                content=content_buffer,
+                                metadata={
+                                    "provider": "ollama",
+                                    "model": self.model_name,
+                                    "is_partial": True,
+                                },
+                            ),
                         )
                     except json.JSONDecodeError as e:
                         logger.warning(f"Failed to parse streaming chunk: {e}")
                         continue
 
                 # Final message with complete content
-                yield Message(
-                    role="assistant",
-                    content=content_buffer,
-                    metadata={
-                        "provider": "ollama",
-                        "model": self.model_name,
-                        "is_partial": False,
-                    },
+                yield cast(
+                    MessageProtocol,
+                    Message(
+                        role="assistant",
+                        content=content_buffer,
+                        metadata={
+                            "provider": "ollama",
+                            "model": self.model_name,
+                            "is_partial": False,
+                        },
+                    ),
                 )
 
         except httpx.ReadTimeout as e:
@@ -1108,6 +1172,10 @@ class OllamaProvider(LLMProvider):
             f"Sending async streaming request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
         )
         try:
+            # Ensure async client is initialized
+            if self._async_client is None:
+                self._async_client = httpx.AsyncClient(timeout=request_timeout)
+
             async with self._async_client.stream(
                 "POST", self._get_api_url("chat"), json=payload, timeout=request_timeout
             ) as response:
@@ -1153,7 +1221,10 @@ class OllamaProvider(LLMProvider):
                             metadata["tool_calls"] = tool_calls
 
                         # Create a partial message for this chunk
-                        yield Message(role="assistant", content=content_buffer, metadata=metadata)
+                        yield cast(
+                            MessageProtocol,
+                            Message(role="assistant", content=content_buffer, metadata=metadata),
+                        )
                     except json.JSONDecodeError as e:
                         logger.warning(f"Failed to parse streaming chunk: {e}")
                         continue
@@ -1170,7 +1241,10 @@ class OllamaProvider(LLMProvider):
                     metadata["tool_calls"] = tool_calls
 
                 # Final message with complete content
-                yield Message(role="assistant", content=content_buffer, metadata=metadata)
+                yield cast(
+                    MessageProtocol,
+                    Message(role="assistant", content=content_buffer, metadata=metadata),
+                )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -1200,7 +1274,7 @@ class OllamaProvider(LLMProvider):
         # Use explicit capabilities if provided during initialization
         if self._explicit_capabilities is not None:
             # Create and cache ModelInfo with explicit capabilities
-            self._model_info = ModelInfo(
+            model_info = ModelInfo(
                 id=self.model_name,
                 provider="ollama",
                 max_tokens=DEFAULT_MAX_TOKENS,
@@ -1211,9 +1285,14 @@ class OllamaProvider(LLMProvider):
             logger.info(
                 f"Using explicitly defined capabilities for {self.model_name}: {self._explicit_capabilities}"
             )
-            return self._model_info
+            # Store the model info
+            return model_info
 
         try:
+            # Ensure client is initialized
+            if self._client is None:
+                self._client = httpx.Client(timeout=self._timeout)
+
             # Get model details
             response = self._client.post(
                 self._get_api_url("show"),
@@ -1226,7 +1305,7 @@ class OllamaProvider(LLMProvider):
                     f"Failed to get model info for {self.model_name}: {response.status_code}"
                 )
                 # Return basic model info with defaults
-                self._model_info = ModelInfo(
+                model_info = ModelInfo(
                     id=self.model_name,
                     provider="ollama",
                     max_tokens=DEFAULT_MAX_TOKENS,
@@ -1234,7 +1313,7 @@ class OllamaProvider(LLMProvider):
                     context_window=4096,  # Default conservative estimate
                     description=f"Ollama model: {self.model_name}",
                 )
-                return self._model_info
+                return model_info
 
             model_data = response.json()
 
@@ -1314,7 +1393,7 @@ class OllamaProvider(LLMProvider):
             description = f"Ollama model: {self.model_name} ({parameter_size})"
 
             # Create and cache model info
-            self._model_info = ModelInfo(
+            model_info = ModelInfo(
                 id=self.model_name,
                 provider="ollama",
                 max_tokens=min(DEFAULT_MAX_TOKENS, context_window // 2),  # Conservative estimate
@@ -1324,12 +1403,12 @@ class OllamaProvider(LLMProvider):
             )
 
             logger.debug(f"Detected capabilities for {self.model_name}: {features}")
-            return self._model_info
+            return model_info
 
         except Exception as e:
             logger.error(f"Error getting model info: {e}")
             # Return basic model info with defaults
-            self._model_info = ModelInfo(
+            model_info = ModelInfo(
                 id=self.model_name,
                 provider="ollama",
                 max_tokens=DEFAULT_MAX_TOKENS,
@@ -1337,7 +1416,7 @@ class OllamaProvider(LLMProvider):
                 context_window=4096,  # Default conservative estimate
                 description=f"Ollama model: {self.model_name}",
             )
-            return self._model_info
+            return model_info
 
     def _format_message(self, message: MessageProtocol) -> Dict[str, Any]:
         """
