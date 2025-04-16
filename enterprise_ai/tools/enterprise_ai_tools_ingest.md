@@ -41,13 +41,13 @@ tool/
 Please help me refactor my code to implement this structure while maintaining functionality. I'll share my current code in the next message.
 ```
 
-
 # Project Summary
+
 Repository: /home/amiche/PROJECTS/Enterprise-AI/enterprise_ai
 Branch: main
 Files analyzed: 47
 Estimated tokens: 53.1k
-Analysis time: 0.00 seconds 
+Analysis time: 0.00 seconds
 
 # Directory Structure
 
@@ -75,7 +75,6 @@ Analysis time: 0.00 seconds
 ```
 
 # Files Content
-
 
 ## tool/search/__init__.py
 
