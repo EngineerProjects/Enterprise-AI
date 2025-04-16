@@ -23,13 +23,13 @@ class MessageType(Enum):
     """Types of agent messages."""
 
     TASK_ASSIGNMENT = auto()  # Assign a task to an agent
-    TASK_UPDATE = auto()      # Update task status
-    TASK_COMPLETE = auto()    # Task completion notification
-    QUERY = auto()            # Information request
-    RESPONSE = auto()         # Response to a query
-    BROADCAST = auto()        # Broadcast to all agents
-    NOTIFICATION = auto()     # General notification
-    ERROR = auto()            # Error message
+    TASK_UPDATE = auto()  # Update task status
+    TASK_COMPLETE = auto()  # Task completion notification
+    QUERY = auto()  # Information request
+    RESPONSE = auto()  # Response to a query
+    BROADCAST = auto()  # Broadcast to all agents
+    NOTIFICATION = auto()  # General notification
+    ERROR = auto()  # Error message
 
 
 @dataclass
@@ -74,7 +74,7 @@ class BaseAgentMessage(AgentMessage):
             "role": self.role,
             "message_id": self.message_id,
         }
-        
+
         # Add timestamp with proper handling
         if self.timestamp:
             result["timestamp"] = self.timestamp.isoformat()
@@ -96,7 +96,7 @@ class BaseAgentMessage(AgentMessage):
             metadata_dict: Dict[str, Any] = {}
             for key, value in self.metadata.items():
                 metadata_dict[key] = value
-            
+
             if metadata_dict:  # Only add if not empty
                 result["metadata"] = metadata_dict
 
@@ -116,7 +116,7 @@ class BaseAgentMessage(AgentMessage):
         if self.metadata:
             for key, value in self.metadata.items():
                 metadata_dict[key] = value
-        
+
         # Add agent-specific metadata
         metadata_dict["agent_metadata"] = {
             "sender_id": self.sender_id,
@@ -126,7 +126,7 @@ class BaseAgentMessage(AgentMessage):
             "reply_to": self.reply_to,
             "is_broadcast": self.is_broadcast,
         }
-        
+
         return Message(
             role=self.role,
             content=self.content,
@@ -157,7 +157,7 @@ class BaseAgentMessage(AgentMessage):
         # Extract agent metadata if present
         agent_metadata: Dict[str, Any] = {}
         metadata_dict: Dict[str, Any] = {}
-        
+
         if message.metadata:
             if "agent_metadata" in message.metadata:
                 agent_metadata = message.metadata["agent_metadata"]
@@ -180,43 +180,43 @@ class BaseAgentMessage(AgentMessage):
             role=message.role,
             reply_to=agent_metadata.get("message_id"),
         )
-        
+
     @classmethod
     def user_message(cls, content: str, **kwargs: Any) -> MessageProtocol:
         """Create a user message.
-        
+
         Args:
             content: Message content
             **kwargs: Additional message parameters
-            
+
         Returns:
             User message
         """
         msg = Message.user_message(content, **kwargs)
         return cast(MessageProtocol, msg)
-        
+
     @classmethod
     def system_message(cls, content: str, **kwargs: Any) -> MessageProtocol:
         """Create a system message.
-        
+
         Args:
             content: Message content
             **kwargs: Additional message parameters
-            
+
         Returns:
             System message
         """
         msg = Message.system_message(content, **kwargs)
         return cast(MessageProtocol, msg)
-        
+
     @classmethod
     def assistant_message(cls, content: str, **kwargs: Any) -> MessageProtocol:
         """Create an assistant message.
-        
+
         Args:
             content: Message content
             **kwargs: Additional message parameters
-            
+
         Returns:
             Assistant message
         """
@@ -249,9 +249,9 @@ class TaskAssignmentMessage(BaseAgentMessage):
         if "metadata" in kwargs:
             for key, value in kwargs.pop("metadata").items():
                 metadata_dict[key] = value
-        
+
         metadata_dict["task_id"] = task_id
-        
+
         super().__init__(
             sender_id=sender_id,
             receiver_id=receiver_id,
@@ -289,10 +289,10 @@ class TaskUpdateMessage(BaseAgentMessage):
         if "metadata" in kwargs:
             for key, value in kwargs.pop("metadata").items():
                 metadata_dict[key] = value
-        
+
         metadata_dict["task_id"] = task_id
         metadata_dict["status"] = status
-        
+
         super().__init__(
             sender_id=sender_id,
             receiver_id=receiver_id,
@@ -437,10 +437,10 @@ class ErrorMessage(BaseAgentMessage):
         if "metadata" in kwargs:
             for key, value in kwargs.pop("metadata").items():
                 metadata_dict[key] = value
-        
+
         if error_code:
             metadata_dict["error_code"] = error_code
-        
+
         super().__init__(
             sender_id=sender_id,
             receiver_id=receiver_id,
