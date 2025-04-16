@@ -27,7 +27,7 @@ The implementation builds upon a proven agent architecture with enhancements for
 
 ## Complete Enterprise AI Project Structure
 
-### Root Package Structure
+### Example Root Package Structure
 
 ```
 enterprise-ai/                 # Project root
