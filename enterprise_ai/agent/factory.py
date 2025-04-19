@@ -12,7 +12,7 @@ from enterprise_ai.agent.base import BaseAgent, LLMAgent
 from enterprise_ai.agent.role import create_role
 from enterprise_ai.agent.types import AgentProtocol, AgentRole
 from enterprise_ai.config import get_config
-from enterprise_ai.llm import get_default_provider, get_provider
+from enterprise_ai.llm import get_default_provider, create_provider
 from enterprise_ai.logger import get_logger
 
 logger = get_logger("agent.factory")
@@ -79,7 +79,7 @@ def create_agent(
         # Get LLM provider
         llm_provider = None
         if llm_provider_name:
-            llm_provider = get_provider(llm_provider_name)
+            llm_provider = create_provider(llm_provider_name)
         else:
             llm_provider = get_default_provider()
 

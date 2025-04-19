@@ -51,10 +51,10 @@ DEFAULT_CONFIG = SandboxSettings(
 async def create_sandbox(config: Optional[SandboxSettings] = None) -> LocalSandboxClient:
     """Create and initialize a sandbox environment."""
     print_section("Creating Sandbox Environment")
-    
+
     # Use default config if none provided
     config = config or DEFAULT_CONFIG
-    
+
     # Print configuration
     print_info("Sandbox Configuration:")
     print(f"- Image: {config.image}")
@@ -63,17 +63,17 @@ async def create_sandbox(config: Optional[SandboxSettings] = None) -> LocalSandb
     print(f"- CPU Limit: {config.cpu_limit}")
     print(f"- Timeout: {config.timeout} seconds")
     print(f"- Network Access: {'Enabled' if config.network_enabled else 'Disabled'}")
-    
+
     # Initialize the sandbox client
     client = LocalSandboxClient()
-    
+
     # Create the sandbox
     print_info("\nCreating and starting sandbox container...")
     async with AsyncTimer("Sandbox creation"):
         await client.create(config=config)
-    
+
     print_success("Sandbox created successfully!")
-    
+
     # Install basic utilities
     print_info("\nInstalling essential packages...")
     try:
@@ -82,13 +82,13 @@ async def create_sandbox(config: Optional[SandboxSettings] = None) -> LocalSandb
     except Exception as e:
         print_warning(f"Package installation encountered an issue: {e}")
         print_info("Continuing with basic sandbox...")
-    
+
     return client
 
 async def run_python_code(client: LocalSandboxClient) -> None:
     """Run Python code in the sandbox."""
     print_section("Running Python Code")
-    
+
     # Write a Python script to analyze
     code = """
 #!/usr/bin/env python3
@@ -132,20 +132,20 @@ print("Created directory structure with files")
 
 print("\\nScript execution completed successfully!")
 """
-    
+
     # Write the script to the sandbox
     print_info("Writing Python script to sandbox...")
     await client.write_file("analysis.py", code)
-    
+
     # Make it executable
     await client.run_command("chmod +x analysis.py")
-    
+
     # Execute the script
     print_info("\nExecuting Python script...")
     try:
         async with AsyncTimer("Script execution"):
             result = await client.run_command("python analysis.py", timeout=30)
-        
+
         print_success("Script executed successfully!")
         print("\nScript Output:")
         print("-" * 40)
@@ -155,7 +155,7 @@ print("\\nScript execution completed successfully!")
         print_error("Script execution timed out!")
     except Exception as e:
         print_error(f"Error executing script: {e}")
-    
+
     # Read the generated file
     try:
         file_content = await client.read_file("output.txt")
@@ -169,24 +169,24 @@ print("\\nScript execution completed successfully!")
 async def test_file_operations(client: LocalSandboxClient) -> None:
     """Test file operations between host and container."""
     print_section("File Operations")
-    
+
     # Create a temporary file on the host
     with tempfile.NamedTemporaryFile(mode='w', delete=False) as temp:
         temp.write("This is a test file created on the host system.\n")
         temp.write("It will be copied to the container.\n")
         temp.write(f"Created at: {os.path.getmtime(temp.name)}\n")
         host_file_path = temp.name
-    
+
     print_info(f"Created temporary file on host: {host_file_path}")
-    
+
     # Copy file to container
     container_path = "host_file.txt"
     print_info(f"Copying file to container as {container_path}...")
-    
+
     try:
         await client.copy_to(host_file_path, container_path)
         print_success("File copied to container!")
-        
+
         # Verify file exists in container
         file_content = await client.read_file(container_path)
         print("\nFile content in container:")
@@ -195,7 +195,7 @@ async def test_file_operations(client: LocalSandboxClient) -> None:
         print("-" * 40)
     except Exception as e:
         print_error(f"Failed to copy file to container: {e}")
-    
+
     # Create a file in the container and copy it back
     container_file = "container_file.txt"
     container_content = """This file was created inside the container.
@@ -205,27 +205,27 @@ Container environment information:
 - Hostname: $(hostname)
 - User: $(whoami)
 """
-    
+
     try:
         # Create file in container using shell command (with dynamic content)
         await client.run_command(f'echo "{container_content}" | envsubst > {container_file}')
         print_info(f"Created file in container: {container_file}")
-        
+
         # Create temporary directory for output
         with tempfile.TemporaryDirectory() as temp_dir:
             host_output_path = os.path.join(temp_dir, "output.txt")
-            
+
             # Copy from container to host
             print_info(f"Copying file from container to host: {host_output_path}")
             await client.copy_from(container_file, host_output_path)
-            
+
             # Read the copied file
             with open(host_output_path, 'r') as f:
                 print("\nFile copied from container:")
                 print("-" * 40)
                 print(f.read())
                 print("-" * 40)
-            
+
             print_success("File operations completed successfully!")
     except Exception as e:
         print_error(f"File operation failed: {e}")
@@ -233,13 +233,13 @@ Container environment information:
 async def test_network_access(client: LocalSandboxClient, network_enabled: bool) -> None:
     """Test network access based on sandbox configuration."""
     print_section(f"Testing Network Access (enabled={network_enabled})")
-    
+
     # Try to access external website
     cmd = "curl -s -m 5 https://example.com -o /dev/null -w '%{http_code}' || echo 'Failed'"
-    
+
     print_info("Testing network connectivity to example.com...")
     result = await client.run_command(cmd, timeout=10)
-    
+
     if result == "Failed" or "Failed" in result:
         print_info("Network access is blocked (no connection to external site)")
         if network_enabled:
@@ -256,7 +256,7 @@ async def test_network_access(client: LocalSandboxClient, network_enabled: bool)
 async def test_resource_limits(client: LocalSandboxClient) -> None:
     """Test resource limits in the sandbox."""
     print_section("Testing Resource Limits")
-    
+
     # Create a script that uses memory
     memory_script = """
 import numpy as np
@@ -282,18 +282,18 @@ try:
         # Allocate memory chunk
         arr = np.ones((chunk_size_mb * 1024 * 1024 // 8), dtype=np.float64)
         arrays.append(arr)
-        
+
         # Touch the memory to ensure it's allocated
         arr[0] = i
-        
+
         # Report current memory usage
         report_memory(arrays)
-        
+
         # Short pause to allow for output
         time.sleep(0.1)
-    
+
     print(f"Test completed without hitting memory limits after allocating {chunk_size_mb * len(arrays)} MB")
-    
+
 except MemoryError:
     print(f"Memory limit reached after allocating approximately {chunk_size_mb * len(arrays)} MB")
 except Exception as e:
@@ -302,10 +302,10 @@ finally:
     # Clean up
     print("Cleaning up allocated memory...")
     arrays = None
-    
+
 print("Memory test completed")
 """
-    
+
     # First install numpy
     print_info("Installing numpy for memory test...")
     try:
@@ -315,10 +315,10 @@ print("Memory test completed")
         print_error(f"Failed to install NumPy: {e}")
         print_warning("Skipping memory test")
         return
-    
+
     # Write the script
     await client.write_file("memory_test.py", memory_script)
-    
+
     # Run the memory test
     print_info("\nRunning memory test...")
     try:
@@ -335,7 +335,7 @@ print("Memory test completed")
 async def test_error_handling(client: LocalSandboxClient) -> None:
     """Test error handling in the sandbox."""
     print_section("Error Handling Test")
-    
+
     # Test timeout error
     print_info("Testing command timeout...")
     try:
@@ -345,7 +345,7 @@ async def test_error_handling(client: LocalSandboxClient) -> None:
         print_success("Timeout correctly triggered")
     except Exception as e:
         print_error(f"Unexpected error during timeout test: {type(e).__name__}: {e}")
-    
+
     # Test file not found
     print_info("\nTesting file not found error...")
     try:
@@ -355,7 +355,7 @@ async def test_error_handling(client: LocalSandboxClient) -> None:
         print_success("File not found error correctly triggered")
     except Exception as e:
         print_error(f"Unexpected error type: {type(e).__name__}: {e}")
-    
+
     # Test invalid command
     print_info("\nTesting invalid command...")
     try:
@@ -371,27 +371,27 @@ async def run_examples() -> None:
     """Run all sandbox examples."""
     # Create a sandbox with default settings (no network)
     client = await create_sandbox()
-    
+
     try:
         # Run Python code example
         await run_python_code(client)
         separator()
-        
+
         # Test file operations
         await test_file_operations(client)
         separator()
-        
+
         # Test network access (should be blocked with default settings)
         await test_network_access(client, False)
         separator()
-        
+
         # Test resource limits
         await test_resource_limits(client)
         separator()
-        
+
         # Test error handling
         await test_error_handling(client)
-        
+
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
@@ -402,7 +402,7 @@ async def run_examples() -> None:
         print_info("Destroying sandbox container...")
         await client.cleanup()
         print_success("Sandbox resources cleaned up successfully")
-    
+
     # Test with network enabled
     print_section("Creating Sandbox with Network Enabled")
     network_config = SandboxSettings(
@@ -413,13 +413,13 @@ async def run_examples() -> None:
         timeout=60,
         network_enabled=True  # Enable network access
     )
-    
+
     try:
         network_client = await create_sandbox(network_config)
-        
+
         # Test network access (should be enabled)
         await test_network_access(network_client, True)
-        
+
         # Clean up network sandbox
         print_info("\nCleaning up network-enabled sandbox...")
         await network_client.cleanup()
@@ -430,11 +430,11 @@ async def run_examples() -> None:
 def main():
     """Main entry point for sandbox examples."""
     print_title("Enterprise AI Sandbox Examples")
-    
+
     try:
         # Run all examples asynchronously
         run_async(run_examples())
-        
+
         print_success("All sandbox examples completed!")
     except Exception as e:
         print_error(f"Error running sandbox examples: {e}")

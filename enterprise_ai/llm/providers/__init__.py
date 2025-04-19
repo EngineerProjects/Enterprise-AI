@@ -1,61 +1,49 @@
 """
-LLM provider implementations.
+Provider implementations for Enterprise AI.
 
-This module manages the available LLM providers.
+This module manages available LLM providers and provides functions
+for accessing and registering them.
 """
 
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional, Type
 
-from enterprise_ai.exceptions import ProviderNotSupportedError
 from enterprise_ai.llm.base import LLMProvider
+from enterprise_ai.llm.providers.registry import ProviderRegistry, get_registry
+from enterprise_ai.llm.providers.factory import (
+    create_provider,
+    get_default_provider,
+    list_available_providers,
+)
 from enterprise_ai.logger import get_logger
 
 logger = get_logger("llm.providers")
 
-# Provider registry
-_providers: Dict[str, LLMProvider] = {}
+# Automatically import available providers
+# Each provider will register itself via the registry decorator
+try:
+    from enterprise_ai.llm.providers.ollama import OllamaProvider  # noqa
+except ImportError:
+    logger.debug("Ollama provider not available")
 
+# Add other provider imports as they become available
+# try:
+#     from enterprise_ai.llm.providers.openai_provider import OpenAIProvider  # noqa
+# except ImportError:
+#     logger.debug("OpenAI provider not available")
+#
+# try:
+#     from enterprise_ai.llm.providers.anthropic_provider import AnthropicProvider  # noqa
+# except ImportError:
+#     logger.debug("Anthropic provider not available")
 
-def register_provider(name: str, provider: LLMProvider) -> None:
-    """
-    Register a provider.
-
-    Args:
-        name: Provider name
-        provider: Provider instance
-    """
-    _providers[name.lower()] = provider
-    logger.debug(f"Registered provider: {name}")
-
-
-def get_provider(name: str) -> LLMProvider:
-    """
-    Get a provider by name.
-
-    Args:
-        name: Provider name
-
-    Returns:
-        Provider instance
-
-    Raises:
-        ProviderNotSupportedError: If the provider is not supported
-    """
-    name = name.lower()
-
-    # Lazy import to avoid circular imports
-    if name == "ollama" and name not in _providers:
-        from enterprise_ai.llm.providers.ollama import OllamaProvider
-
-        register_provider("ollama", OllamaProvider())
-
-    if name not in _providers:
-        raise ProviderNotSupportedError(name)
-
-    return _providers[name]
-
-
-# Export Ollama provider for direct imports
-from enterprise_ai.llm.providers.ollama import OllamaProvider  # noqa: E402
-
-__all__ = ["get_provider", "register_provider", "OllamaProvider"]
+__all__ = [
+    # Registry and factory classes
+    "ProviderRegistry",
+    "get_registry",
+    # Provider management functions
+    "create_provider",
+    "get_default_provider",
+    "list_available_providers",
+    # Provider classes
+    "OllamaProvider",
+]

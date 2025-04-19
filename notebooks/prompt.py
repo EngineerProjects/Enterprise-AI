@@ -15,11 +15,11 @@ from pathlib import Path
 
 # Import common utilities
 from utils import (
-    setup_project_path, 
-    print_title, 
-    print_section, 
-    print_info, 
-    print_success, 
+    setup_project_path,
+    print_title,
+    print_section,
+    print_info,
+    print_success,
     print_error,
     separator
 )
@@ -29,33 +29,33 @@ project_root = setup_project_path()
 
 # Import enterprise_ai modules
 from enterprise_ai.prompt import (
-    PromptTemplate, 
-    PromptLibrary, 
-    get_prompt_library, 
-    get_prompt, 
+    PromptTemplate,
+    PromptLibrary,
+    get_prompt_library,
+    get_prompt,
     format_prompt
 )
 
 def test_default_prompts():
     """Test loading and using the default prompts."""
     print_section("Testing Default Prompts")
-    
+
     # Get the prompt library
     library = get_prompt_library()
-    
+
     # List available prompts
     prompts = library.list_prompts()
     print_info(f"Available prompts: {len(prompts)}")
     for i, prompt_id in enumerate(prompts):
         print(f"{i+1}. {prompt_id}")
-    
+
     # Try to load and format a role prompt
     developer_prompt = get_prompt("roles.developer")
     if developer_prompt:
         print_success("Successfully loaded developer role prompt")
         print_info("Developer prompt template:")
         print(developer_prompt)
-        
+
         # Format the prompt with additional context
         formatted = format_prompt("roles.developer", additional_context="Focus on Python development")
         if formatted:
@@ -65,7 +65,7 @@ def test_default_prompts():
             print_error("Failed to format developer prompt")
     else:
         print_error("Failed to load developer role prompt")
-        
+
     # Try with manager role
     manager_prompt = get_prompt("roles.manager")
     if manager_prompt:
@@ -80,10 +80,10 @@ def test_default_prompts():
 def test_custom_prompts():
     """Test creating and using custom prompts."""
     print_section("Testing Custom Prompts")
-    
+
     # Get the prompt library
     library = get_prompt_library()
-    
+
     # Create a custom prompt template
     custom_template = """
 You are an AI assistant specializing in $domain.
@@ -95,14 +95,14 @@ Your tasks include:
 
 Additional instructions: $additional_instructions
 """
-    
+
     # Add the prompt to the library
     library.add_prompt(
-        "custom.specialist", 
-        custom_template, 
+        "custom.specialist",
+        custom_template,
         metadata={"author": "User", "version": "1.0"}
     )
-    
+
     # Format the custom prompt
     formatted = library.format_prompt(
         "custom.specialist",
@@ -112,14 +112,14 @@ Additional instructions: $additional_instructions
         task3="Visualize results",
         additional_instructions="Focus on interpretability"
     )
-    
+
     if formatted:
         print_success("Successfully created and formatted custom prompt")
         print_info("Formatted custom prompt:")
         print(formatted)
     else:
         print_error("Failed to format custom prompt")
-    
+
     # Create another custom prompt for a different domain
     custom_template2 = """
 # $title
@@ -136,14 +136,14 @@ $constraints
 ## Timeline
 $timeline
 """
-    
+
     # Add the prompt to the library
     library.add_prompt(
-        "custom.project", 
+        "custom.project",
         custom_template2,
         metadata={"author": "User", "version": "1.0", "type": "project_brief"}
     )
-    
+
     # Format the custom prompt
     formatted2 = library.format_prompt(
         "custom.project",
@@ -153,7 +153,7 @@ $timeline
         constraints="Must comply with privacy regulations and work in real-time",
         timeline="Development to be completed within 3 months"
     )
-    
+
     if formatted2:
         print_success("Successfully created and formatted project brief prompt")
         print_info("Formatted project brief:")
@@ -164,7 +164,7 @@ $timeline
 def create_prompt_template_programmatically():
     """Create prompt templates programmatically."""
     print_section("Creating Prompt Templates Programmatically")
-    
+
     # Create a simple template
     template = PromptTemplate(
         """
@@ -179,7 +179,7 @@ Remember to be $tone and $style in your approach.
 """,
         metadata={"purpose": "Role playing", "category": "creative"}
     )
-    
+
     # Format the template
     formatted = template.format(
         persona="historical detective",
@@ -188,10 +188,10 @@ Remember to be $tone and $style in your approach.
         tone="analytical",
         style="thorough"
     )
-    
+
     print_info("Prompt template created programmatically:")
     print(formatted)
-    
+
     # Create a more complex template
     template2 = PromptTemplate(
         """
@@ -217,7 +217,7 @@ $output_format
 """,
         metadata={"purpose": "Technical task", "category": "professional"}
     )
-    
+
     # Format the template
     formatted2 = template2.format(
         title="Database Migration Plan",
@@ -228,26 +228,26 @@ $output_format
         constraints="- Minimal downtime required\n- Must preserve all historical data\n- Security compliance must be maintained",
         output_format="Provide a detailed plan with timeline, resource requirements, risks, and mitigation strategies."
     )
-    
+
     print_info("\nComplex prompt template created programmatically:")
     print(formatted2)
 
 def main():
     """Run all prompt examples."""
     print_title("Enterprise AI Prompt System Examples")
-    
+
     # Test default prompts
     test_default_prompts()
     separator()
-    
+
     # Test custom prompts
     test_custom_prompts()
     separator()
-    
+
     # Create programmatic templates
     create_prompt_template_programmatically()
     separator()
-    
+
     print_success("All prompt examples completed!")
 
 if __name__ == "__main__":

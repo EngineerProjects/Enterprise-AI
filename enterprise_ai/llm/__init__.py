@@ -8,26 +8,13 @@ from typing import List, Optional, Union, cast
 
 from enterprise_ai.config import get_config
 from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.llm.providers import get_provider
+from enterprise_ai.llm.simple import LLM  # Import the LLM class
+from enterprise_ai.llm.providers.factory import (
+    create_provider,
+    get_default_provider,
+)  # Use correct imports
 from enterprise_ai.schema import Message, CompletionOptions
 from enterprise_ai.types import MessageProtocol
-
-# Default provider instance
-_default_provider = None
-
-
-def get_default_provider() -> LLMProvider:
-    """
-    Get the default LLM provider.
-
-    Returns:
-        Default provider instance
-    """
-    global _default_provider
-    if _default_provider is None:
-        provider_name = get_config("llm.default_provider", "ollama")
-        _default_provider = get_provider(provider_name)
-    return _default_provider
 
 
 def complete(
@@ -71,4 +58,10 @@ def complete(
 
 
 # Export API
-__all__ = ["complete", "get_provider", "get_default_provider", "LLMProvider"]
+__all__ = [
+    "complete",
+    "create_provider",  # Changed from get_provider
+    "get_default_provider",
+    "LLMProvider",
+    "LLM",  # Export LLM class
+]

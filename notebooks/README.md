@@ -7,26 +7,30 @@ This directory contains notebooks and example scripts for testing and demonstrat
 Before running these notebooks, make sure to set up your environment:
 
 1. **Install required packages**:
+
    ```bash
    pip install pillow numpy requests httpx
    ```
 
-2. **Prepare image directory**:
+1. **Prepare image directory**:
+
    ```bash
    mkdir -p notebooks/images
    ```
 
-3. **Add your images**:
+1. **Add your images**:
    Copy your image files to the `notebooks/images` directory. The system is configured to look for:
+
    - `animaux.jpg`
    - `indian_love.jpg`
    - `familly.jpg`
    - `paysage.jpg`
    - `logo2.png`
 
-4. **Configure Ollama**:
+1. **Configure Ollama**:
    Make sure Ollama is running locally with appropriate models installed.
    Install Ollama models with:
+
    ```bash
    ollama pull smollm2  # Default small model
    ollama pull llava    # Vision model (optional)
@@ -38,6 +42,7 @@ Before running these notebooks, make sure to set up your environment:
 ### 1. Utilities Module (`utils.py`)
 
 This module provides shared functionality for all notebooks:
+
 - Terminal output formatting
 - Image handling with proper resizing
 - Model capability detection
@@ -46,7 +51,8 @@ This module provides shared functionality for all notebooks:
 ### 2. Prompt System Examples (`prompt_example.py`)
 
 Demonstrates working with the Enterprise AI prompt management system:
-- Loading built-in prompt templates 
+
+- Loading built-in prompt templates
 - Creating custom prompts
 - Formatting templates with variables
 
@@ -57,6 +63,7 @@ python prompt_example.py
 ### 3. Agent System Examples (`agent_example.py`)
 
 Explores the agent system capabilities:
+
 - Creating different types of specialized agents
 - Agent-to-agent communication
 - Task assignment and processing
@@ -68,6 +75,7 @@ python agent_example.py
 ### 4. Team System Examples (`team_example.py`)
 
 Shows how to work with the multi-agent team framework:
+
 - Creating teams with different structures
 - Building hierarchical organizations
 - Managing team communication and task workflow
@@ -79,6 +87,7 @@ python team_example.py
 ### 5. Memory System Examples (`memory_example.py`)
 
 Demonstrates the conversation memory system:
+
 - Using different memory implementations
 - Including images in conversation history
 - Testing sliding window memory with pruning
@@ -90,6 +99,7 @@ python memory_example.py
 ### 6. LLM Provider Examples (`llm_provider_example.py`)
 
 Tests the language model provider system:
+
 - Basic completion APIs
 - Streaming and async functionality
 - Vision capabilities (if available)
@@ -102,6 +112,7 @@ python llm_provider_example.py
 ### 7. Sandbox Examples (`sandbox_example.py`)
 
 Shows how to work with the secure execution environment:
+
 - Creating Docker sandboxes
 - Running code safely in containers
 - File operations and network access control
@@ -113,6 +124,7 @@ python sandbox_example.py
 ### 8. Complete End-to-End Demo (`enterprise_ai_demo.py`)
 
 A comprehensive demonstration of all components working together:
+
 - Builds a team of specialized AI agents
 - Creates a secure execution environment
 - Processes a multi-step data analysis project
