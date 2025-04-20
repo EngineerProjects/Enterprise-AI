@@ -25,7 +25,9 @@ dependencies = [
     "googlesearch-python>=1.3.0",
     "httpx>=0.28.1",
     "loguru>=0.7.3",
+    "markdownify>=0.14.1",
     "pillow>=11.1.0",
+    "playwright>=1.51.0",
     "pydantic>=2.10.6",
     "requests>=2.32.3",
     "setuptools>=78.1.0",
@@ -43,7 +45,12 @@ dev = [
     "ruff>=0.11.0",
 ]
 
+# Add scripts for post-installation setup
+[project.scripts]
+enterprise-ai-setup = "enterprise_ai.scripts.setup:main"
+
 [tool.hatch.build.targets.wheel]
+
 packages = ["enterprise_ai"]
 
 [tool.mypy]

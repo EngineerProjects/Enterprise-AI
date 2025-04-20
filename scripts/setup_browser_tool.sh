@@ -72,17 +72,6 @@ else
     echo "And standard browser dependencies for your OS."
 fi
 
-# Set up Python virtual environment (if it doesn't exist)
-if [ ! -d ".venv" ]; then
-    echo -e "\n=== Setting up Python virtual environment ==="
-    python -m venv .venv
-    echo "Virtual environment created at .venv/"
-fi
-
-# Activate virtual environment
-source .venv/bin/activate
-echo "Activated Python virtual environment"
-
 # Install Playwright browsers
 echo -e "\n=== Installing Playwright browsers ==="
 python -m playwright install
@@ -96,5 +85,3 @@ else
 fi
 
 echo -e "\n=== Browser tools setup complete! ==="
-echo "You can now run browser automation examples with:"
-echo "uv run notebooks/tests_tool/browser_example.py"
