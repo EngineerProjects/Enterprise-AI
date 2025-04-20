@@ -38,7 +38,6 @@ class _BashSession:
 
         self._process = await asyncio.create_subprocess_shell(
             self.command,
-            preexec_fn=os.setsid,
             shell=True,
             bufsize=0,
             stdin=asyncio.subprocess.PIPE,
@@ -82,15 +81,25 @@ class _BashSession:
         # read output from the process, until the sentinel is found
         try:
             async with asyncio.timeout(self._timeout):
+                output = ""
                 while True:
                     await asyncio.sleep(self._output_delay)
-                    # if we read directly from stdout/stderr, it will wait forever for
-                    # EOF. use the StreamReader buffer directly instead.
-                    output = self._process.stdout._buffer.decode()  # type: ignore
+
+                    # Read from stdout - safer approach that works with most Python versions
+                    chunk = await self._process.stdout.read(1024)
+                    if not chunk:
+                        break
+
+                    output += chunk.decode()
+
                     if self._sentinel in output:
                         # strip the sentinel and break
                         output = output[: output.index(self._sentinel)]
                         break
+
+                # Read any error output
+                error_bytes = await self._process.stderr.read(1024)
+                error = error_bytes.decode() if error_bytes else ""
         except asyncio.TimeoutError:
             self._timed_out = True
             raise ToolError(
@@ -100,13 +109,8 @@ class _BashSession:
         if output.endswith("\n"):
             output = output[:-1]
 
-        error = self._process.stderr._buffer.decode()  # type: ignore
         if error.endswith("\n"):
             error = error[:-1]
-
-        # clear the buffers so that the next output can be read correctly
-        self._process.stdout._buffer.clear()  # type: ignore
-        self._process.stderr._buffer.clear()  # type: ignore
 
         return CLIResult(output=output, error=error)
 

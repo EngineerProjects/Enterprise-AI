@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from enterprise_ai.exceptions import EnterpriseAIError
 
 # Fix for the LLM import issue - adjust this import path based on your project structure
-from enterprise_ai.llm.model import LLM  # type: ignore
+from enterprise_ai.llm.simple import LLM
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError
 from enterprise_ai.tool.core.result import ToolResult

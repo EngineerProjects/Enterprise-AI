@@ -13,7 +13,9 @@ from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from enterprise_ai.config import get_config
-from enterprise_ai.llm.simple import LLM  # Correct import path
+
+# Update import to match your project structure - based on the output, LLM might be in llm_provider.py
+from enterprise_ai.llm.simple import LLM  # Corrected import path
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError
 from enterprise_ai.tool.core.result import ToolResult

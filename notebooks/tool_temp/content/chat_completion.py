@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List, Optional, Type, Union, TypeVar, cast, get_args, get_origin
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from enterprise_ai.tool.core.base import BaseTool, ToolError
 from enterprise_ai.tool.core.result import ToolResult
@@ -28,18 +28,26 @@ class CreateChatCompletion(BaseTool):
         dict: "object",
         list: "array",
     }
-    response_type: Optional[Type] = None
-    required: List[str] = Field(default_factory=lambda: ["response"])
+
+    class Config:
+        """Configuration for this model."""
+
+        arbitrary_types_allowed = True
 
     def __init__(self, response_type: Optional[Type] = str) -> None:
         """Initialize with a specific response type."""
+        # Initialize BaseTool first with required attributes
+        super().__init__(
+            name=self.name,
+            description=self.description,
+            parameters=self._build_parameters(response_type),
+        )
         self.response_type = response_type
-        parameters = self._build_parameters()
-        super().__init__(name=self.name, description=self.description, parameters=parameters)
+        self.required = ["response"]
 
-    def _build_parameters(self) -> Dict[str, Any]:
+    def _build_parameters(self, response_type: Optional[Type] = None) -> Dict[str, Any]:
         """Build parameters schema based on response type."""
-        if self.response_type is str:
+        if response_type is str or response_type is None:
             return {
                 "type": "object",
                 "properties": {
@@ -48,18 +56,18 @@ class CreateChatCompletion(BaseTool):
                         "description": "The response text that should be delivered to the user.",
                     },
                 },
-                "required": self.required,
+                "required": ["response"],
             }
 
-        if isinstance(self.response_type, type) and issubclass(self.response_type, BaseModel):
-            schema = self.response_type.model_json_schema()
+        if isinstance(response_type, type) and issubclass(response_type, BaseModel):
+            schema = response_type.model_json_schema()
             return {
                 "type": "object",
-                "properties": schema["properties"],
-                "required": schema.get("required", self.required),
+                "properties": schema.get("properties", {}),
+                "required": schema.get("required", ["response"]),
             }
 
-        return self._create_type_schema(self.response_type)
+        return self._create_type_schema(response_type)
 
     def _create_type_schema(self, type_hint: Optional[Type]) -> Dict[str, Any]:
         """Create a JSON schema for the given type."""
@@ -72,7 +80,7 @@ class CreateChatCompletion(BaseTool):
                         "description": "Generic response content",
                     }
                 },
-                "required": self.required,
+                "required": ["response"],
             }
 
         origin = get_origin(type_hint)
@@ -88,7 +96,7 @@ class CreateChatCompletion(BaseTool):
                         "description": f"Response of type {getattr(type_hint, '__name__', 'unknown')}",
                     }
                 },
-                "required": self.required,
+                "required": ["response"],
             }
 
         # Handle List type
@@ -102,7 +110,7 @@ class CreateChatCompletion(BaseTool):
                         "items": self._get_type_info_safe(args[0] if args else Any),
                     }
                 },
-                "required": self.required,
+                "required": ["response"],
             }
 
         # Handle Dict type
@@ -118,7 +126,7 @@ class CreateChatCompletion(BaseTool):
                         ),
                     }
                 },
-                "required": self.required,
+                "required": ["response"],
             }
 
         # Handle Union type
@@ -133,7 +141,7 @@ class CreateChatCompletion(BaseTool):
                     "description": "Generic response content",
                 }
             },
-            "required": self.required,
+            "required": ["response"],
         }
 
     def _get_type_info(self, type_hint: Type) -> Dict[str, Any]:
@@ -179,7 +187,7 @@ class CreateChatCompletion(BaseTool):
         return {
             "type": "object",
             "properties": {"response": {"anyOf": [self._get_type_info_safe(t) for t in types]}},
-            "required": self.required,
+            "required": ["response"],
         }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
@@ -194,7 +202,7 @@ class CreateChatCompletion(BaseTool):
             Converted response based on response_type
         """
         # Extract the required fields parameter if provided
-        required_fields = kwargs.pop("required", None) or self.required
+        required_fields = kwargs.pop("required", None) or ["response"]
 
         # Handle case when required is a list
         if isinstance(required_fields, list) and len(required_fields) > 0:
@@ -209,7 +217,7 @@ class CreateChatCompletion(BaseTool):
             result = kwargs.get(required_field, "")
 
         # Type conversion logic
-        if self.response_type is str:
+        if self.response_type is str or self.response_type is None:
             return ToolResult(output=str(result))
 
         if isinstance(self.response_type, type) and issubclass(self.response_type, BaseModel):

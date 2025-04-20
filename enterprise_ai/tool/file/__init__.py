@@ -1,11 +1,13 @@
 """
-File management tools for Enterprise AI.
+File tools for Enterprise AI.
 
-This module provides tools for file and directory operations.
+This module provides tools for interacting with files and directories,
+including file reading, writing, and comprehensive editing functionality.
 """
 
-from enterprise_ai.tool.file.editor import StrReplaceEditor
+from enterprise_ai.tool.file.editor import FileEditor
 
 __all__ = [
-    "StrReplaceEditor",
+    # Comprehensive file editor
+    "FileEditor"
 ]

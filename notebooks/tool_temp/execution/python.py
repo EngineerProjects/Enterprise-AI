@@ -2,6 +2,7 @@
 
 import multiprocessing
 import sys
+import traceback
 from io import StringIO
 from typing import Any, Dict, Optional
 
@@ -37,17 +38,37 @@ class PythonExecute(BaseTool):
     ) -> None:
         """Execute Python code in a separate process with output capturing."""
         original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        output_buffer = StringIO()
+        error_buffer = StringIO()
+
         try:
-            output_buffer = StringIO()
             sys.stdout = output_buffer
-            exec(code, safe_globals, safe_globals)
-            result_dict["output"] = output_buffer.getvalue()
-            result_dict["success"] = True
-        except Exception as e:
-            result_dict["output"] = str(e)
-            result_dict["success"] = False
+            sys.stderr = error_buffer
+
+            # Execute the code
+            try:
+                exec(code, safe_globals, safe_globals)
+                result_dict["output"] = output_buffer.getvalue()
+                error_output = error_buffer.getvalue()
+                result_dict["error"] = error_output if error_output else None
+                result_dict["success"] = True
+            except SyntaxError as e:
+                # Capture syntax errors with traceback
+                error_msg = f"SyntaxError: {str(e)}\n{traceback.format_exc()}"
+                result_dict["output"] = output_buffer.getvalue()
+                result_dict["error"] = error_msg
+                result_dict["success"] = False
+            except Exception as e:
+                # Capture other exceptions
+                error_msg = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+                result_dict["output"] = output_buffer.getvalue()
+                result_dict["error"] = error_msg
+                result_dict["success"] = False
+
         finally:
             sys.stdout = original_stdout
+            sys.stderr = original_stderr
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """
@@ -69,7 +90,7 @@ class PythonExecute(BaseTool):
         timeout = kwargs.get("timeout", 5)
 
         with multiprocessing.Manager() as manager:
-            result = manager.dict({"output": "", "success": False})
+            result = manager.dict({"output": "", "error": None, "success": False})
 
             # Create a safe globals dictionary
             if isinstance(__builtins__, dict):
@@ -94,4 +115,4 @@ class PythonExecute(BaseTool):
                 return ToolResult(output=result["output"])
             else:
                 # Return error result
-                return ToolResult(error=f"Execution error: {result['output']}")
+                return ToolResult(error=f"Execution error: {result['error']}")

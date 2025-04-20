@@ -1,45 +1,103 @@
-# Enterprise AI Tool System Restructuring Plan
+# Enterprise AI Tool Implementation Structure
+
+Here's the complete file structure, organized by implementation priority. This structure respects your original organization while providing a clear implementation roadmap:
 
 ```
 tool/
 ├── __init__.py                   # Main exports and auto-discovery
-├── core/                         # Core infrastructure 
+├── core/                         # PHASE 0: Core infrastructure (already implemented)
 │   ├── __init__.py               # Exports core components
 │   ├── base.py                   # BaseTool abstract class
 │   ├── collection.py             # ToolCollection implementation
 │   ├── registry.py               # Tool registration system
 │   └── result.py                 # Result classes (ToolResult, CLIResult, ToolFailure)
-├── execution/                    # Code and command execution tools
+│
+├── file/                         # PHASE 1: File operations (implement first)
+│   ├── __init__.py               # Auto-registers file tools
+│   ├── reader.py                 # File reading with directory traversal
+│   ├── editor.py                 # File editing (str_replace_editor)
+│   └── analyzer.py               # Code/content analysis (implement in Phase 2)
+│
+├── execution/                    # PHASE 1: Code execution tools
 │   ├── __init__.py               # Auto-registers execution tools
+│   ├── python.py                 # Python code execution
 │   ├── bash.py                   # Bash command execution
-│   └── python.py                 # Python code execution
-├── planning/                     # Planning and organization tools
-│   ├── __init__.py               # Auto-registers planning tools
-│   └── planning.py               # Planning tool implementation
-├── browser/                      # Browser automation tools
-│   ├── __init__.py               # Auto-registers browser tools
-│   └── browser.py                # Browser automation implementation
-├── research/                     # Research and information gathering
+│   └── code_generator.py         # Code generation (implement in Phase 4)
+│
+├── content/                      # PHASE 2: Content generation
+│   ├── __init__.py               # Auto-registers content tools
+│   ├── chat_completion.py        # Structured chat completion
+│   └── formatter.py              # Content formatting utilities
+│
+├── research/                     # PHASE 2-3: Research tools
 │   ├── __init__.py               # Auto-registers research tools
-│   ├── web_search.py             # Web search implementation
-│   ├── deep_research.py          # Comprehensive research tool
-│   └── search/                   # Search engine implementations
+│   ├── web_search.py             # Basic web search (Phase 2)
+│   ├── deep_research.py          # Comprehensive research (Phase 3)
+│   └── search/                   # Search engines (Phase 3)
 │       ├── __init__.py           # Exports search engines
 │       ├── base.py               # Search engine base classes
+│       ├── duckduckgo_search.py  # DuckDuckGo search (implement first)
 │       ├── google_search.py      # Google search implementation
 │       ├── bing_search.py        # Bing search implementation
-│       ├── baidu_search.py       # Baidu search implementation
-│       └── duckduckgo_search.py  # DuckDuckGo search implementation
-├── content/                      # Content generation tools
-│   ├── __init__.py               # Auto-registers content tools
-│   └── chat_completion.py        # Structured chat completion
-├── file/                         # File management tools
-│   ├── __init__.py               # Auto-registers file tools
-│   └── editor.py                 # File editing (str_replace_editor)
-└── utility/                      # General utility tools
-    ├── __init__.py               # Auto-registers utility tools
-    └── terminate.py              # Termination tool
+│       └── baidu_search.py       # Baidu search implementation
+│
+├── planning/                     # PHASE 3: Planning tools
+│   ├── __init__.py               # Auto-registers planning tools
+│   ├── task_planner.py           # Task breakdown and planning
+│   └── project_organizer.py      # Project structure planning
+│
+├── utility/                      # PHASE 3-4: Utility tools
+│   ├── __init__.py               # Auto-registers utility tools
+│   ├── terminate.py              # Termination tool
+│   ├── text_processor.py         # Text manipulation utilities
+│   └── integration.py            # External API integration helpers (Phase 4)
+│
+└── browser/                      # PHASE 4: Browser automation (implement last)
+    ├── __init__.py               # Auto-registers browser tools
+    ├── browser.py                # Browser automation implementation
+    └── scraper.py                # Web content extraction
 ```
+
+## Implementation Steps by Phase
+
+### Phase 1: Core File and Execution Tools
+
+1. `file/reader.py` - File reading capabilities
+1. `file/editor.py` - File editing functionality
+1. `execution/python.py` - Python code execution
+1. `execution/bash.py` - Shell command execution
+
+### Phase 2: Information Tools
+
+5. `content/chat_completion.py` - LLM completion wrapper
+1. `research/web_search.py` - Basic search functionality
+1. `file/analyzer.py` - Code/content analysis
+
+### Phase 3: Advanced Tools
+
+8. `planning/task_planner.py` - Task breakdown
+1. `planning/project_organizer.py` - Project structuring
+1. `research/search/base.py` - Search engine foundation
+1. `research/search/duckduckgo_search.py` - First search implementation
+1. `research/deep_research.py` - Multi-source research
+1. `utility/text_processor.py` - Text processing utilities
+
+### Phase 4: Specialized Tools
+
+14. `execution/code_generator.py` - Code generation
+01. `utility/integration.py` - External API integration
+01. `browser/browser.py` - Web automation
+01. `browser/scraper.py` - Content extraction
+
+Each tool module should include:
+
+- Tool class(es) implementation
+- Parameter schemas using Pydantic
+- Error handling
+- Registration with the tool registry
+- Unit tests in a parallel test directory
+
+This structure gives you a clear path forward, starting with foundational tools that others will build upon, while maintaining your original organizational design.
 
 # Enterprise AI - 200 Tool Integration Ideas
 
