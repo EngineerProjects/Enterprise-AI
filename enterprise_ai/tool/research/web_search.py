@@ -32,6 +32,7 @@ DEFAULT_RATE_LIMIT = 2  # requests per second
 DEFAULT_RATE_LIMIT_PERIOD = 60  # seconds between resets
 DEFAULT_MAX_REQUESTS = 100  # maximum requests in period
 
+
 class SearchResult(BaseModel):
     """Represents a single search result returned by a search engine."""
 
@@ -60,7 +61,9 @@ class SearchMetadata(BaseModel):
     language: str = Field(description="Language code used for the search")
     country: str = Field(description="Country code used for the search")
     time_taken: float = Field(default=0.0, description="Time taken for the search in seconds")
-    engines_tried: List[str] = Field(default_factory=list, description="Search engines that were tried")
+    engines_tried: List[str] = Field(
+        default_factory=list, description="Search engines that were tried"
+    )
 
 
 class SearchResponse(ToolResult):
@@ -123,7 +126,9 @@ class SearchResponse(ToolResult):
 class RateLimiter:
     """Rate limiter to prevent hitting API rate limits."""
 
-    def __init__(self, rate_limit: int = DEFAULT_RATE_LIMIT, period: int = DEFAULT_RATE_LIMIT_PERIOD):
+    def __init__(
+        self, rate_limit: int = DEFAULT_RATE_LIMIT, period: int = DEFAULT_RATE_LIMIT_PERIOD
+    ):
         """Initialize rate limiter.
 
         Args:
@@ -165,9 +170,11 @@ class WebContentFetcher:
         period = get_config("search.rate_limit_period", DEFAULT_RATE_LIMIT_PERIOD)
         self.rate_limiter = RateLimiter(rate_limit, period)
         self.session = requests.Session()
-        self.session.headers.update({
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-        })
+        self.session.headers.update(
+            {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+            }
+        )
 
     async def fetch_content(self, url: str, timeout: int = 10) -> Optional[str]:
         """
@@ -204,15 +211,15 @@ class WebContentFetcher:
                 return None
 
             # Get content type from headers
-            content_type = response.headers.get('Content-Type', '').lower()
+            content_type = response.headers.get("Content-Type", "").lower()
 
             # Skip non-text content
-            if 'text/html' not in content_type and 'text/' not in content_type:
+            if "text/html" not in content_type and "text/" not in content_type:
                 logger.debug(f"Skipping non-text content: {content_type} for {url}")
                 return None
 
             # Try different parsers in case of failure
-            parsers = ['html.parser', 'lxml', 'html5lib']
+            parsers = ["html.parser", "lxml", "html5lib"]
             extracted_text = None
 
             for parser in parsers:
@@ -221,7 +228,9 @@ class WebContentFetcher:
                     soup = BeautifulSoup(response.text, parser)
 
                     # Remove script and style elements
-                    for tag in soup(['script', 'style', 'header', 'footer', 'nav', 'iframe', 'meta', 'link']):
+                    for tag in soup(
+                        ["script", "style", "header", "footer", "nav", "iframe", "meta", "link"]
+                    ):
                         tag.decompose()
 
                     # Get text content
@@ -297,7 +306,9 @@ class WebSearch(BaseTool):
 
     def __init__(self) -> None:
         """Initialize the WebSearch tool with search engines."""
-        super().__init__(name="web_search", description=self.description, parameters=self.parameters)
+        super().__init__(
+            name="web_search", description=self.description, parameters=self.parameters
+        )
 
         # Initialize search engines
         self._search_engines: Dict[str, WebSearchEngine] = {}
@@ -383,7 +394,7 @@ class WebSearch(BaseTool):
                     return SearchResponse(
                         query=query,
                         error=f"Specified search engine '{search_engine}' is not available.",
-                        results=[]
+                        results=[],
                     )
             else:
                 engines_to_try = self._get_engine_order()
@@ -400,7 +411,9 @@ class WebSearch(BaseTool):
 
                 try:
                     engine = self._search_engines[engine_name]
-                    search_items = await self._perform_search_with_engine(engine, query, num_results, search_params)
+                    search_items = await self._perform_search_with_engine(
+                        engine, query, num_results, search_params
+                    )
 
                     if search_items:
                         # Transform search items into structured results
@@ -414,7 +427,9 @@ class WebSearch(BaseTool):
                             )
                             for i, item in enumerate(search_items)
                         ]
-                        logger.info(f"Search with {engine_name} successful, found {len(results)} results")
+                        logger.info(
+                            f"Search with {engine_name} successful, found {len(results)} results"
+                        )
                         break
                 except Exception as e:
                     logger.error(f"Error with {engine_name} search engine: {str(e)}")
@@ -432,7 +447,7 @@ class WebSearch(BaseTool):
                         country=country,
                         time_taken=time.time() - start_time,
                         engines_tried=engines_tried,
-                    )
+                    ),
                 )
 
             # Fetch content if requested
@@ -449,7 +464,7 @@ class WebSearch(BaseTool):
                     country=country,
                     time_taken=time.time() - start_time,
                     engines_tried=engines_tried,
-                )
+                ),
             )
 
             # Cache the results
@@ -466,7 +481,7 @@ class WebSearch(BaseTool):
             return SearchResponse(
                 query=kwargs.get("query", ""),
                 error=f"An unexpected error occurred: {str(e)}",
-                results=[]
+                results=[],
             )
 
     def _check_cache(self, cache_key: str) -> Optional[SearchResponse]:
@@ -482,10 +497,7 @@ class WebSearch(BaseTool):
 
     def _update_cache(self, cache_key: str, response: SearchResponse) -> None:
         """Add search results to cache."""
-        self._results_cache[cache_key] = {
-            "timestamp": time.time(),
-            "response": response
-        }
+        self._results_cache[cache_key] = {"timestamp": time.time(), "response": response}
 
         # Clean expired entries
         for key in list(self._results_cache.keys()):
@@ -540,7 +552,7 @@ class WebSearch(BaseTool):
     @retry(
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
-        retry=retry_if_exception_type((requests.RequestException, ConnectionError, TimeoutError))
+        retry=retry_if_exception_type((requests.RequestException, ConnectionError, TimeoutError)),
     )
     async def _perform_search_with_engine(
         self,

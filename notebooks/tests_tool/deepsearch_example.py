@@ -64,12 +64,12 @@ class MockResearchSummary(ToolResult):
 
 class MockDeepResearch:
     """Mock implementation of the DeepResearch tool."""
-    
+
     def __init__(self):
         """Initialize the mock deep research tool."""
         # Simulated sources for our mock implementation
         self._domains = [
-            "research.org", "academic.edu", "sciencedaily.com", 
+            "research.org", "academic.edu", "sciencedaily.com",
             "journal.science", "knowledge-base.net", "insights.io",
             "scholar-source.edu", "tech-review.com", "data-analysis.org"
         ]
@@ -82,67 +82,67 @@ class MockDeepResearch:
         results_per_search = min(kwargs.get("results_per_search", 5), 5)  # Cap at 5
         max_insights = min(kwargs.get("max_insights", 20), 20)  # Cap at 20
         time_limit_seconds = kwargs.get("time_limit_seconds", 120)
-        
+
         # Validate input
         if not query:
             return ToolResult(error="Query parameter is required")
-        
+
         # Track research process
         visited_urls = set()
         insights = []
         depth_reached = 0
-        
+
         # Start research process
         deadline = time.time() + time_limit_seconds
-        
+
         # Simulate optimizing the query
         optimized_query = self._optimize_query(query)
         print_info(f"Optimized query: '{optimized_query}'")
-        
+
         # Perform initial research (depth 0)
         await self._research_level(
-            optimized_query, 
-            insights, 
-            visited_urls, 
+            optimized_query,
+            insights,
+            visited_urls,
             results_per_search,
             deadline
         )
         depth_reached = 0
-        
+
         # Perform follow-up research if allowed by depth and time
         follow_up_queries = self._generate_follow_ups(insights, query)
-        
+
         for depth in range(1, max_depth):
             if time.time() >= deadline or not follow_up_queries:
                 break
-                
+
             print_info(f"Researching at depth {depth+1}...")
-            
+
             # Take only a few follow-up queries at each level
             for follow_up in follow_up_queries[:2]:
                 if time.time() >= deadline:
                     break
-                    
+
                 await self._research_level(
-                    follow_up, 
-                    insights, 
+                    follow_up,
+                    insights,
                     visited_urls,
                     max(1, results_per_search - depth),  # Reduce results as we go deeper
                     deadline
                 )
-            
+
             depth_reached = depth
-            
+
             # Generate new follow-ups based on accumulated insights
             follow_up_queries = self._generate_follow_ups(insights, query)
-        
+
         # Limit insights by relevance and max_insights
         sorted_insights = sorted(insights, key=lambda x: x.relevance_score, reverse=True)
         selected_insights = sorted_insights[:max_insights]
-        
+
         # Generate output summary
         output = self._format_research_summary(query, selected_insights, visited_urls, depth_reached)
-        
+
         # Create a proper MockResearchSummary instead of ToolResult with added attributes
         result = MockResearchSummary(
             output=output,
@@ -151,14 +151,14 @@ class MockDeepResearch:
             visited_urls=visited_urls,
             depth_reached=depth_reached
         )
-        
+
         return result
-        
+
     def _optimize_query(self, query):
         """Simulate query optimization."""
         # In a real implementation, this would use LLM to improve the query
         optimized = query
-        
+
         # Add specificity to make it more "optimized"
         if "comparison" not in query.lower() and random.random() > 0.7:
             optimized += " comparison"
@@ -166,47 +166,47 @@ class MockDeepResearch:
             optimized += " benefits"
         elif "examples" not in query.lower() and random.random() > 0.7:
             optimized += " examples"
-            
+
         return optimized
-        
+
     async def _research_level(self, query, insights, visited_urls, results_count, deadline):
         """Simulate research at one level."""
         # Simulate web search
         await asyncio.sleep(0.5)  # Simulate search delay
-        
+
         # Generate mock search results
         for i in range(results_count):
             if time.time() >= deadline:
                 break
-                
+
             # Create a mock URL
             domain = random.choice(self._domains)
             path = query.lower().replace(" ", "-")
             url = f"https://{domain}/article/{path}-{i+1}"
-            
+
             # Skip if already visited
             if url in visited_urls:
                 continue
-                
+
             visited_urls.add(url)
-            
+
             # Simulate content analysis
             await asyncio.sleep(0.3)  # Simulate analysis delay
-            
+
             # Generate 1-3 insights from this "source"
             insight_count = random.randint(1, 3)
             for j in range(insight_count):
                 if time.time() >= deadline:
                     break
-                    
+
                 # Generate insight with random relevance
                 relevance = round(random.uniform(0.4, 1.0), 1)
                 insight = self._generate_insight(query, url, j, relevance)
                 insights.append(insight)
-                
+
                 # Simulate insight extraction delay
                 await asyncio.sleep(0.1)
-    
+
     def _generate_insight(self, query, url, index, relevance):
         """Generate a mock insight."""
         topics = {
@@ -235,10 +235,10 @@ class MockDeepResearch:
                 "Regulatory frameworks for gene editing technologies vary significantly across different countries."
             ]
         }
-        
+
         # Find the closest topic
         best_topic = max(topics.keys(), key=lambda k: sum(1 for word in k.split() if word in query))
-        
+
         # If no good match, use a generic insight
         if not any(word in query for word in best_topic.split()):
             content = f"Research on {query} shows promising developments in recent years."
@@ -246,7 +246,7 @@ class MockDeepResearch:
             # Pick an insight from the matched topic
             options = topics[best_topic]
             content = options[index % len(options)]
-        
+
         # Create the insight
         site_name = url.split("//")[1].split("/")[0]
         return MockInsight(
@@ -255,12 +255,12 @@ class MockDeepResearch:
             source_title=f"Article on {query} - {site_name}",
             relevance_score=relevance
         )
-    
+
     def _generate_follow_ups(self, insights, original_query):
         """Generate follow-up queries based on insights."""
         if not insights:
             return []
-            
+
         # Extract key terms from insights
         terms = set()
         for insight in insights:
@@ -268,37 +268,37 @@ class MockDeepResearch:
             for word in words:
                 if len(word) > 5 and word.isalpha():
                     terms.add(word.lower())
-        
+
         # Generate potential follow-ups
         follow_ups = []
-        
+
         # Add "advantages" query
         if "advantages" not in original_query.lower() and "benefits" not in original_query.lower():
             follow_ups.append(f"{original_query} advantages and benefits")
-            
+
         # Add "limitations" query
         if "limitations" not in original_query.lower() and "challenges" not in original_query.lower():
             follow_ups.append(f"{original_query} limitations and challenges")
-            
+
         # Add specific term queries
         for term in list(terms)[:3]:  # Use up to 3 terms
             if term not in original_query.lower() and len(term) > 5:
                 follow_ups.append(f"{original_query} {term}")
-                
+
         return follow_ups
-    
+
     def _format_research_summary(self, query, insights, visited_urls, depth_reached):
         """Format research summary as markdown."""
         # Group insights by relevance
         key_findings = [i for i in insights if i.relevance_score >= 0.8]
         additional_info = [i for i in insights if 0.5 <= i.relevance_score < 0.8]
         supplementary = [i for i in insights if i.relevance_score < 0.5]
-        
+
         sections = [
             f"# Research: {query}\n",
             f"**Sources**: {len(visited_urls)} | **Depth**: {depth_reached + 1}\n",
         ]
-        
+
         # Add key findings
         if key_findings:
             sections.append("## Key Findings")
@@ -307,7 +307,7 @@ class MockDeepResearch:
                     insight.content,
                     f"> Source: [{insight.source_title}]({insight.source_url})\n"
                 ])
-                
+
         # Add additional information
         if additional_info:
             sections.append("## Additional Information")
@@ -316,7 +316,7 @@ class MockDeepResearch:
                     insight.content,
                     f"> Source: [{insight.source_title}]({insight.source_url})\n"
                 ])
-                
+
         # Add supplementary information
         if supplementary:
             sections.append("## Supplementary Information")
@@ -325,7 +325,7 @@ class MockDeepResearch:
                     insight.content,
                     f"> Source: [{insight.source_title}]({insight.source_url})\n"
                 ])
-                
+
         return "\n".join(sections)
 
 
@@ -340,7 +340,7 @@ async def basic_research_example() -> None:
         # Perform basic research on a topic
         print_info("Researching 'quantum computing applications'...")
         print_info("This may take a minute as it performs multiple searches and analyzes content...")
-        
+
         async with AsyncTimer("Basic research"):
             result = await research_tool.execute(
                 query="quantum computing applications",
@@ -355,7 +355,7 @@ async def basic_research_example() -> None:
             else:
                 # Print structured output
                 print(result.output)
-                
+
                 # Print summary info
                 if hasattr(result, "depth_reached"):
                     print_info(f"\nResearch depth reached: {result.depth_reached + 1}")
@@ -381,10 +381,10 @@ async def research_depth_example() -> None:
         print("- Depth 1: Initial research only")
         print("- Depth 2: Initial + one level of follow-up queries")
         print("- Depth 3+: Multiple levels of follow-up exploration")
-        
+
         # For demonstration, we'll use a shallow depth with a focused topic
         print_info("\nPerforming focused research with depth=1...")
-        
+
         async with AsyncTimer("Depth-controlled research"):
             result = await research_tool.execute(
                 query="CRISPR gene editing ethics",
@@ -402,7 +402,7 @@ async def research_depth_example() -> None:
                 if hasattr(result, "query") and hasattr(result, "insights"):
                     print_info(f"Research on: {result.query}")
                     print_info(f"Found {len(result.insights)} insights")
-                    
+
                     # Show the first few insights with sources
                     print("\nSample insights:")
                     for i, insight in enumerate(result.insights[:3], 1):
@@ -410,7 +410,7 @@ async def research_depth_example() -> None:
                         relevance = f"(relevance: {insight.relevance_score:.1f})"
                         print(f"{i}. {insight.content} {relevance}")
                         print(f"   Source: {source}")
-                        
+
                     # Explain the research process
                     print("\nResearch process:")
                     print("1. Query optimization: The original query is refined for better results")
@@ -436,9 +436,9 @@ async def research_customization_example() -> None:
         print("- results_per_search: Number of search results to analyze per query")
         print("- max_insights: Maximum number of insights to return")
         print("- time_limit_seconds: Time cap for the research process")
-        
+
         print_info("\nPerforming time-limited research (15 seconds)...")
-        
+
         async with AsyncTimer("Time-limited research"):
             result = await research_tool.execute(
                 query="renewable energy trends",
@@ -453,14 +453,14 @@ async def research_customization_example() -> None:
                 print_error(f"Error: {result.error}")
             else:
                 print_info("Research completed within time limit")
-                
+
                 # Show how many sources were consulted in the limited time
                 if hasattr(result, "visited_urls"):
                     print_info(f"Sources consulted: {len(result.visited_urls)}")
                     print("Sample sources:")
                     for url in list(result.visited_urls)[:3]:
                         print(f"- {url}")
-                
+
                 print_info("\nNote about customization:")
                 print("When using DeepResearch in production:")
                 print("- For quick overviews: Use depth=1, time_limit=60")
@@ -481,7 +481,7 @@ async def research_summary_example() -> None:
     try:
         print_info("DeepResearch returns structured research summaries...")
         print_info("Researching 'machine learning frameworks'...")
-        
+
         async with AsyncTimer("Research summary generation"):
             result = await research_tool.execute(
                 query="machine learning frameworks comparison",
@@ -497,12 +497,12 @@ async def research_summary_example() -> None:
             else:
                 # Display the structured summary
                 print(result.output)
-                
+
                 print_info("\nResearch summaries are structured by relevance:")
                 print("- Key Findings: High-relevance insights (score ≥ 0.8)")
                 print("- Additional Information: Medium-relevance insights (0.5-0.8)")
                 print("- Supplementary Information: Lower-relevance insights (<0.5)")
-                
+
                 print_info("\nEach insight includes:")
                 print("- Content: The actual information extracted")
                 print("- Source: Where the information was found")
@@ -522,7 +522,7 @@ async def error_handling_example() -> None:
     try:
         # Empty query
         print_info("Attempting research with empty query...")
-        
+
         async with AsyncTimer("Empty query"):
             result = await research_tool.execute(
                 query="",
@@ -542,7 +542,7 @@ async def error_handling_example() -> None:
         print("- Content analysis issues")
         print("- Timeouts (returning partial results)")
         print("- Resource limitations")
-        
+
         print_info("\nWhen errors occur, the tool will:")
         print("1. Return as many insights as were discovered")
         print("2. Provide clear error information")

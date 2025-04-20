@@ -48,58 +48,58 @@ async def manual_browser_test() -> None:
 
         # Create browser instance directly instead of through BrowserUseTool
         print_info("Creating browser instance directly...")
-        
+
         # Get configuration values
         headless = get_config("browser_config.headless", False)
         disable_security = get_config("browser_config.disable_security", True)
         extra_args = get_config("browser_config.extra_chromium_args", [])
-        
+
         # Set up browser configuration
         browser_config_kwargs = {
             "headless": False, # headless,
             "disable_security": disable_security,
         }
-        
+
         if extra_args:
             browser_config_kwargs["extra_chromium_args"] = extra_args
-        
+
         # Create the browser
         browser = BrowserUseBrowser(BrowserConfig(**browser_config_kwargs))
         print_success("Browser created successfully")
-        
+
         # Create browser context
         print_info("Creating browser context...")
         context = await browser.new_context(BrowserContextConfig())
         print_success("Browser context created")
-        
+
         # Get current page
         print_info("Getting current page...")
         page = await context.get_current_page()
         print_success("Page retrieved")
-        
+
         # Navigate to example.com
         print_info("Navigating to example.com...")
         await page.goto("https://fr.wikipedia.org/wiki/Vie_extraterrestre")
         await page.wait_for_load_state()
         print_success("Navigation successful!")
-        
+
         # Get page content for verification
         content = await page.content()
         print_info(f"Page title: {await page.title()}")
         print_info(f"Content length: {len(content)} characters")
-        
+
         # Try a simple DOM operation
         print_info("Checking for elements on the page...")
         h1_elements = await page.query_selector_all("h1")
         p_elements = await page.query_selector_all("p")
-        
+
         print_info(f"Found {len(h1_elements)} h1 elements and {len(p_elements)} p elements")
-        
+
         # Take a screenshot
         print_info("Taking a screenshot...")
         screenshot = await page.screenshot(full_page=True)
         print_success(f"Screenshot taken, size: {len(screenshot)} bytes")
-        
+
         # Clean up resources
         print_info("Cleaning up browser resources...")
         await context.close()

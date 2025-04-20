@@ -179,12 +179,13 @@ class BingSearchEngine(WebSearchEngine):
             if isinstance(element, Tag):
                 attr_value = element.get(attr)
                 if attr_value and isinstance(attr_value, str):
-                    return attr_value.strip()
+                    return cast(str, attr_value).strip()
+
             # Fallback: try direct attribute access if .get isn't available
             elif hasattr(element, attr):
                 attr_value = getattr(element, attr)
                 if attr_value and isinstance(attr_value, str):
-                    return attr_value.strip()
+                    return cast(str, attr_value).strip()
             return ""
         except Exception:
             return ""

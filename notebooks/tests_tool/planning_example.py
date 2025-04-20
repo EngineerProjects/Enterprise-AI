@@ -70,7 +70,7 @@ async def create_plan_example() -> None:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-        
+
         # Create another plan for demonstration
         print_info("\nCreating a second plan...")
         async with AsyncTimer("Second plan creation"):

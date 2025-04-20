@@ -50,13 +50,13 @@ class MockSearchResult:
 
 class MockWebSearch:
     """Mock version of the WebSearch tool to demonstrate concepts."""
-    
+
     def __init__(self):
         """Initialize the mock search tool."""
         self.name = "web_search"
         self.description = """Search the web for real-time information about any topic.
 This tool returns comprehensive search results with relevant information, URLs, titles, and descriptions."""
-    
+
     async def execute(self, **kwargs):
         """Simulate execution of a web search."""
         # Extract parameters
@@ -66,42 +66,42 @@ This tool returns comprehensive search results with relevant information, URLs, 
         search_engine = kwargs.get("search_engine", "auto")
         lang = kwargs.get("lang", "en")
         country = kwargs.get("country", "us")
-        
+
         # Validate input
         if not query:
             return ToolResult(error="Query parameter is required")
-        
+
         if search_engine not in ["auto", "google", "bing", "duckduckgo", "baidu"]:
             return ToolResult(error=f"Invalid search engine: {search_engine}")
-        
+
         # Simulate search delay
         await asyncio.sleep(0.5 + random.random())
-        
+
         # Generate mock results
         mock_results = self._generate_mock_results(query, num_results, search_engine)
-        
+
         # Fetch content if requested
         if fetch_content:
             await self._add_mock_content(mock_results)
-        
+
         # Format the output
         output = self._format_search_output(query, mock_results, search_engine, lang, country)
-        
+
         # Return results
         return ToolResult(output=output)
-    
+
     def _generate_mock_results(self, query, num_results, engine):
         """Generate mock search results."""
         results = []
-        domains = ["example.com", "informative-site.org", "knowledgebase.net", 
+        domains = ["example.com", "informative-site.org", "knowledgebase.net",
                   "learning-portal.edu", "reference.io"]
-        
+
         for i in range(num_results):
             domain = random.choice(domains)
             url = f"https://www.{domain}/article-{i+1}"
             title = f"Information about {query.title()} - Article {i+1}"
             description = f"This page contains detailed information about {query} with explanations, examples, and references."
-            
+
             results.append(MockSearchResult(
                 position=i+1,
                 url=url,
@@ -109,15 +109,15 @@ This tool returns comprehensive search results with relevant information, URLs, 
                 description=description,
                 source=engine
             ))
-            
+
         return results
-    
+
     async def _add_mock_content(self, results):
         """Add mock content to search results."""
         for result in results:
             # Simulate content retrieval delay
             await asyncio.sleep(0.2)
-            
+
             # Generate mock content
             content = f"""<!DOCTYPE html>
 <html>
@@ -127,8 +127,8 @@ This tool returns comprehensive search results with relevant information, URLs, 
 <body>
     <h1>{result.title}</h1>
     <p>{result.description}</p>
-    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt 
-    ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation 
+    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt
+    ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation
     ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
     <h2>Key Points</h2>
     <ul>
@@ -138,31 +138,31 @@ This tool returns comprehensive search results with relevant information, URLs, 
     </ul>
 </body>
 </html>"""
-            
+
             result.raw_content = content
-    
+
     def _format_search_output(self, query, results, engine, lang, country):
         """Format search results into readable output."""
         output = [f"Search results for '{query}':"]
-        
+
         for i, result in enumerate(results, 1):
             # Add title with position number
             title = result.title.strip() or "No title"
             output.append(f"\n{i}. {title}")
-            
+
             # Add URL with proper indentation
             output.append(f"   URL: {result.url}")
-            
+
             # Add description if available
             if result.description:
                 desc = result.description.strip()
                 output.append(f"   Description: {desc}")
-            
+
             # Add content preview if available
             if result.raw_content:
                 content_preview = result.raw_content.replace("\n", " ")[:100]
                 output.append(f"   Content Preview: {content_preview}...")
-        
+
         # Add metadata
         output.extend([
             "\nMetadata:",
@@ -172,7 +172,7 @@ This tool returns comprehensive search results with relevant information, URLs, 
             f"- Engine used: {engine}",
             f"- Time taken: {0.5 + random.random():.2f} seconds"
         ])
-        
+
         return "\n".join(output)
 
 
