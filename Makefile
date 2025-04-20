@@ -8,7 +8,7 @@ install-uv:
 	@curl -LsSf https://astral.sh/uv/install.sh | sh
 	@echo "UV installed successfully!"
 
-setup:
+setup_uv:
 	@if ! command -v uv >/dev/null 2>&1; then \
 		${MAKE} install-uv; \
 	fi
@@ -16,6 +16,11 @@ setup:
 	@uv venv $(VENV)
 	@uv pip install --python $(PYTHON) -e ".[dev]"
 	@echo "Development environment setup complete!"
+
+setup-browser:
+	@echo "Setting up browser automation tools..."
+	chmod +x ./scripts/setup_browser_tools.sh
+	./scripts/setup_browser_tools.sh
 
 install:
 	@uv pip install --python $(PYTHON) -e .
@@ -67,11 +72,15 @@ notebook:
 	@echo "Launching Jupyter Notebook..."
 	@$(VENV)/bin/jupyter notebook
 
+
 all: lint test pre-commit coverage
+setup: setup_uv setup-browser
+
 help:
 	@echo "Enterprise-AI Development Makefile"
 	@echo "=================================="
-	@echo "setup          - Create virtual env and install deps"
+	@echo "setup_uv          - Create virtual env and install deps"
+	@echo "setup-browser  - Setup browser automation tools"
 	@echo "install        - Install package in dev mode"
 	@echo "test           - Run tests with verbose output"
 	@echo "lint           - Run static analysis checks"
@@ -83,3 +92,4 @@ help:
 	@echo "pre-commit     - Run all pre-commit checks"
 	@echo "notebook       - Launch Jupyter Notebook"
 	@echo "all            - Run full quality checks (lint + test + coverage)"
+	@echo "setup         - Setup development environment"

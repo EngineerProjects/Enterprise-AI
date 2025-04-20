@@ -147,7 +147,7 @@ class CreateChatCompletion(BaseTool):
     def _get_type_info(self, type_hint: Type) -> Dict[str, Any]:
         """Get type information for a single type."""
         if isinstance(type_hint, type) and issubclass(type_hint, BaseModel):
-            return type_hint.model_json_schema()
+            return cast(Dict[str, Any], type_hint.model_json_schema())
 
         return {
             "type": self.type_mapping.get(type_hint, "string"),

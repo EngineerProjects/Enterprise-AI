@@ -159,7 +159,7 @@ class RateLimiter:
 class WebContentFetcher:
     """Utility class for fetching web content."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the content fetcher with rate limiter."""
         rate_limit = get_config("search.rate_limit", DEFAULT_RATE_LIMIT)
         period = get_config("search.rate_limit_period", DEFAULT_RATE_LIMIT_PERIOD)
@@ -474,7 +474,7 @@ class WebSearch(BaseTool):
         if cache_key in self._results_cache:
             entry = self._results_cache[cache_key]
             if time.time() - entry["timestamp"] < self._cache_expiry:
-                return entry["response"]
+                return cast(SearchResponse, entry["response"])
             else:
                 # Expired entry
                 del self._results_cache[cache_key]
