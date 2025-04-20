@@ -38,10 +38,10 @@ from enterprise_ai.tool.execution import PythonExecute
 async def python_basic_example() -> None:
     """Example of basic Python code execution."""
     print_section("Basic Python Code Execution")
-    
+
     # Create the Python execution tool
     py_exec = PythonExecute()
-    
+
     try:
         # Execute a simple print statement
         print_info("Running a simple print statement...")
@@ -49,16 +49,16 @@ async def python_basic_example() -> None:
 print("Hello from the Python execution tool!")
 print("This is a simple example of code execution.")
         """
-        
+
         async with AsyncTimer("Simple print"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.output:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-                
+
         # Variables and expressions
         print_info("\nRunning code with variables and expressions...")
         code = """
@@ -83,16 +83,16 @@ if x < y:
 else:
     print("x is greater than or equal to y")
         """
-        
+
         async with AsyncTimer("Variables and expressions"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.output:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-                
+
         # Lists and loops
         print_info("\nRunning code with lists and loops...")
         code = """
@@ -113,16 +113,16 @@ total = sum(numbers)
 average = total / len(numbers)
 print(f"Sum: {total}, Average: {average:.2f}")
         """
-        
+
         async with AsyncTimer("Lists and loops"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.output:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-                
+
     except Exception as e:
         print_error(f"Error in basic Python example: {e}")
 
@@ -130,10 +130,10 @@ print(f"Sum: {total}, Average: {average:.2f}")
 async def python_functions_example() -> None:
     """Example of Python code with functions."""
     print_section("Python Functions")
-    
+
     # Create the Python execution tool
     py_exec = PythonExecute()
-    
+
     try:
         # Define and use functions
         print_info("Running code with function definitions...")
@@ -161,16 +161,16 @@ print(f"Area of square with side 5: {calculate_area(5)}")
 print(f"Area of rectangle 4x6: {calculate_area(4, 6)}")
 print(f"Factorial of 5: {factorial(5)}")
         """
-        
+
         async with AsyncTimer("Function definitions"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.output:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-                
+
         # Lambda functions and higher-order functions
         print_info("\nRunning code with lambda and higher-order functions...")
         code = """
@@ -197,16 +197,16 @@ multiply = lambda x, y: x * y
 print(f"Apply add to 5, 3: {apply_operation(add, 5, 3)}")
 print(f"Apply multiply to 5, 3: {apply_operation(multiply, 5, 3)}")
         """
-        
+
         async with AsyncTimer("Lambda and higher-order functions"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.output:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-                
+
     except Exception as e:
         print_error(f"Error in Python functions example: {e}")
 
@@ -214,10 +214,10 @@ print(f"Apply multiply to 5, 3: {apply_operation(multiply, 5, 3)}")
 async def python_error_handling_example() -> None:
     """Example of handling errors in Python code."""
     print_section("Python Error Handling")
-    
+
     # Create the Python execution tool
     py_exec = PythonExecute()
-    
+
     try:
         # Syntax error
         print_info("Running code with syntax error...")
@@ -226,17 +226,17 @@ async def python_error_handling_example() -> None:
 if True
     print("This will not run")
         """
-        
+
         async with AsyncTimer("Syntax error"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.error:
                 print_error(f"Expected error occurred: {result.error}")
             else:
                 print_warning("Code unexpectedly ran without errors")
                 print(result.output)
-                
+
         # Runtime error
         print_info("\nRunning code with runtime error (division by zero)...")
         code = """
@@ -247,17 +247,17 @@ print(f"Attempting to divide {x} by {y}...")
 result = x / y
 print(f"Result: {result}")  # This line will not be reached
         """
-        
+
         async with AsyncTimer("Runtime error"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.error:
                 print_error(f"Expected error occurred: {result.error}")
             else:
                 print_warning("Code unexpectedly ran without errors")
                 print(result.output)
-                
+
         # Handling exceptions with try/except
         print_info("\nRunning code with try/except error handling...")
         code = """
@@ -290,16 +290,16 @@ for val in values:
     except Exception as e:
         print(f"Unexpected error: {e}")
         """
-        
+
         async with AsyncTimer("Try/except handling"):
             result = await py_exec.execute(code=code)
-        
+
         if isinstance(result, ToolResult):
             if result.output:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-                
+
     except Exception as e:
         print_error(f"Error in Python error handling example: {e}")
 
@@ -307,10 +307,10 @@ for val in values:
 async def python_timeout_example() -> None:
     """Example of handling timeouts in Python code execution."""
     print_section("Python Execution Timeouts")
-    
+
     # Create the Python execution tool
     py_exec = PythonExecute()
-    
+
     try:
         # Code that completes quickly
         print_info("Running code that completes quickly...")
@@ -321,16 +321,16 @@ print("Starting fast execution...")
 time.sleep(1)  # Sleep for 1 second
 print("Completed fast execution!")
         """
-        
+
         async with AsyncTimer("Fast execution"):
             result = await py_exec.execute(code=code, timeout=5)
-        
+
         if isinstance(result, ToolResult):
             if result.output:
                 print(result.output)
             if result.error:
                 print_error(f"Error: {result.error}")
-                
+
         # Code that would time out
         print_info("\nRunning code that would time out (with 2 second timeout)...")
         code = """
@@ -341,10 +341,10 @@ print("This will sleep for 10 seconds, but timeout is set to 2 seconds")
 time.sleep(10)  # Sleep for 10 seconds
 print("This line should not be printed due to timeout!")
         """
-        
+
         async with AsyncTimer("Timeout execution"):
             result = await py_exec.execute(code=code, timeout=2)
-        
+
         if isinstance(result, ToolResult):
             if result.error and "timeout" in result.error.lower():
                 print_success(f"Expected timeout occurred: {result.error}")
@@ -353,7 +353,7 @@ print("This line should not be printed due to timeout!")
             else:
                 print_warning("Code unexpectedly completed without timing out")
                 print(result.output)
-                
+
         # Code with a loop that would time out
         print_info("\nRunning code with a loop that would time out...")
         code = """
@@ -363,15 +363,15 @@ while True:
     counter += 1
     if counter % 1000000 == 0:
         print(f"Iteration {counter}")
-    
+
     # This would allow it to exit eventually, but timeout should happen first
     if counter >= 1000000000:
         break
         """
-        
+
         async with AsyncTimer("Loop timeout"):
             result = await py_exec.execute(code=code, timeout=3)
-        
+
         if isinstance(result, ToolResult):
             if result.error and "timeout" in result.error.lower():
                 print_success(f"Expected timeout occurred: {result.error}")
@@ -380,7 +380,7 @@ while True:
             else:
                 print_warning("Code unexpectedly completed without timing out")
                 print(result.output)
-                
+
     except Exception as e:
         print_error(f"Error in Python timeout example: {e}")
 
