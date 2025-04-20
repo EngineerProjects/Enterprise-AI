@@ -23,7 +23,7 @@ from enterprise_ai.tool.research.search import (
     SearchItem,
     WebSearchEngine,
 )
-from enterprise_ai.tool.core.registry import register_tool 
+from enterprise_ai.tool.core.registry import register_tool
 
 logger = get_logger("tool.research.web_search")
 
@@ -125,7 +125,7 @@ class RateLimiter:
 
     def __init__(self, rate_limit: int = DEFAULT_RATE_LIMIT, period: int = DEFAULT_RATE_LIMIT_PERIOD):
         """Initialize rate limiter.
-        
+
         Args:
             rate_limit: Maximum requests per second
             period: Time period in seconds for rate limiting
@@ -139,10 +139,10 @@ class RateLimiter:
         """Acquire permission to make a request, waiting if necessary."""
         async with self.lock:
             now = time.time()
-            
+
             # Remove old timestamps
             self.request_times = [t for t in self.request_times if now - t < self.period]
-            
+
             # Check if we're at the limit
             if len(self.request_times) >= self.rate_limit:
                 # Calculate wait time
@@ -151,7 +151,7 @@ class RateLimiter:
                 if wait_time > 0:
                     logger.debug(f"Rate limit reached, waiting {wait_time:.2f} seconds")
                     await asyncio.sleep(wait_time)
-            
+
             # Add current time and allow request
             self.request_times.append(time.time())
 
@@ -193,7 +193,7 @@ class WebContentFetcher:
         try:
             # Wait for rate limiter
             await self.rate_limiter.acquire()
-            
+
             # Use asyncio to run requests in a thread pool
             response = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.session.get(url, timeout=timeout)
@@ -205,7 +205,7 @@ class WebContentFetcher:
 
             # Get content type from headers
             content_type = response.headers.get('Content-Type', '').lower()
-            
+
             # Skip non-text content
             if 'text/html' not in content_type and 'text/' not in content_type:
                 logger.debug(f"Skipping non-text content: {content_type} for {url}")
@@ -214,35 +214,35 @@ class WebContentFetcher:
             # Try different parsers in case of failure
             parsers = ['html.parser', 'lxml', 'html5lib']
             extracted_text = None
-            
+
             for parser in parsers:
                 try:
                     # Parse HTML with BeautifulSoup
                     soup = BeautifulSoup(response.text, parser)
-                    
+
                     # Remove script and style elements
                     for tag in soup(['script', 'style', 'header', 'footer', 'nav', 'iframe', 'meta', 'link']):
                         tag.decompose()
-                    
+
                     # Get text content
                     text = soup.get_text(separator="\n", strip=True)
-                    
+
                     # Clean up whitespace
                     lines = [line.strip() for line in text.splitlines() if line.strip()]
                     extracted_text = "\n".join(lines)
-                    
+
                     # If we got content, break the loop
                     if extracted_text:
                         break
                 except Exception as e:
                     logger.debug(f"Parser {parser} failed: {e}")
                     continue
-            
+
             # Final check and limit size (100KB max)
             if not extracted_text:
                 logger.warning(f"Could not extract text from {url}")
                 return None
-                
+
             return extracted_text[:100000]  # Limit to 100KB
 
         except Exception as e:
@@ -298,14 +298,14 @@ class WebSearch(BaseTool):
     def __init__(self) -> None:
         """Initialize the WebSearch tool with search engines."""
         super().__init__(name="web_search", description=self.description, parameters=self.parameters)
-        
+
         # Initialize search engines
         self._search_engines: Dict[str, WebSearchEngine] = {}
         self._initialize_search_engines()
-        
+
         # Create content fetcher
         self.content_fetcher = WebContentFetcher()
-        
+
         # Results cache to avoid repeated searches
         self._results_cache: Dict[str, Dict[str, Any]] = {}
         self._cache_expiry = get_config("search.cache_expiry", 300)  # 5 minutes by default
@@ -318,7 +318,7 @@ class WebSearch(BaseTool):
             ("duckduckgo", DuckDuckGoSearchEngine),
             ("baidu", BaiduSearchEngine),
         ]
-        
+
         for name, engine_class in engines_to_init:
             try:
                 self._search_engines[name] = engine_class()
@@ -343,7 +343,7 @@ class WebSearch(BaseTool):
             A structured response containing search results and metadata
         """
         start_time = time.time()
-        
+
         # Extract parameters from kwargs
         try:
             query = kwargs.get("query")
@@ -363,7 +363,7 @@ class WebSearch(BaseTool):
 
             if country is None:
                 country = get_config("search.country", "us")
-                
+
             # Check cache for existing results
             cache_key = f"{query}:{num_results}:{lang}:{country}:{fetch_content}"
             cached_result = self._check_cache(cache_key)
@@ -375,7 +375,7 @@ class WebSearch(BaseTool):
 
             # Determine engines to try
             engines_tried = []
-            
+
             if search_engine != "auto":
                 if search_engine in self._search_engines:
                     engines_to_try = [search_engine]
@@ -395,13 +395,13 @@ class WebSearch(BaseTool):
                 if engine_name not in self._search_engines:
                     logger.warning(f"Search engine {engine_name} not available, skipping.")
                     continue
-                    
+
                 logger.info(f"🔎 Attempting search with {engine_name.capitalize()}...")
-                
+
                 try:
                     engine = self._search_engines[engine_name]
                     search_items = await self._perform_search_with_engine(engine, query, num_results, search_params)
-                    
+
                     if search_items:
                         # Transform search items into structured results
                         results = [
@@ -451,12 +451,12 @@ class WebSearch(BaseTool):
                     engines_tried=engines_tried,
                 )
             )
-            
+
             # Cache the results
             self._update_cache(cache_key, response)
-            
+
             return response
-            
+
         except ToolError as e:
             # Known errors
             return SearchResponse(query=kwargs.get("query", ""), error=str(e), results=[])
@@ -464,8 +464,8 @@ class WebSearch(BaseTool):
             # Unexpected errors
             logger.error(f"Unexpected error in web search: {str(e)}", exc_info=True)
             return SearchResponse(
-                query=kwargs.get("query", ""), 
-                error=f"An unexpected error occurred: {str(e)}", 
+                query=kwargs.get("query", ""),
+                error=f"An unexpected error occurred: {str(e)}",
                 results=[]
             )
 
@@ -486,7 +486,7 @@ class WebSearch(BaseTool):
             "timestamp": time.time(),
             "response": response
         }
-        
+
         # Clean expired entries
         for key in list(self._results_cache.keys()):
             if time.time() - self._results_cache[key]["timestamp"] > self._cache_expiry:
@@ -538,7 +538,7 @@ class WebSearch(BaseTool):
         return engine_order
 
     @retry(
-        stop=stop_after_attempt(3), 
+        stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=10),
         retry=retry_if_exception_type((requests.RequestException, ConnectionError, TimeoutError))
     )

@@ -44,28 +44,28 @@ from enterprise_ai.tool.file import FileEditor
 async def view_example() -> None:
     """Example of viewing files and directories."""
     print_section("Viewing Files and Directories")
-    
+
     # Create the editor
     editor = FileEditor()
-    
+
     # Initialize the sandbox
     print_info("Initializing the sandbox environment...")
     sandbox = await editor._get_sandbox_client()
-    
+
     # Use UUID for truly unique filename
     unique_id = uuid.uuid4().hex
     test_file = f"/tmp/test_view_{unique_id}.txt"
-    
+
     test_content = "Line 1: This is a test file for viewing\n"
     test_content += "Line 2: It contains multiple lines\n"
     test_content += "Line 3: This line will be shown\n"
     test_content += "Line 4: Along with other lines\n"
     test_content += "Line 5: To demonstrate the view command\n"
-    
+
     # Write directly using sandbox client (bypassing the FileEditor validation)
     print_info(f"Creating a test file at {test_file}")
     await sandbox.write_file(test_file, test_content)
-    
+
     try:
         # View the entire file
         print_info("\nViewing the entire file:")
@@ -74,12 +74,12 @@ async def view_example() -> None:
                 command="view",
                 path=test_file
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
         else:
             print_error(f"Unexpected result type: {type(result)}")
-        
+
         # View a specific range of lines
         print_info("\nViewing a specific range of lines (2-4):")
         async with AsyncTimer("Viewing line range"):
@@ -88,12 +88,12 @@ async def view_example() -> None:
                 path=test_file,
                 view_range=[2, 4]  # Show lines 2-4
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
         else:
             print_error(f"Unexpected result type: {type(result)}")
-        
+
         # View a directory
         print_info("\nViewing directory /tmp:")
         async with AsyncTimer("Viewing directory"):
@@ -101,13 +101,13 @@ async def view_example() -> None:
                 command="view",
                 path="/tmp"
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output.split("\n")[:10])  # Show first 10 lines to avoid cluttering output
             print("... (output truncated)")
         else:
             print_error(f"Unexpected result type: {type(result)}")
-            
+
     except Exception as e:
         print_error(f"Error in view example: {e}")
 
@@ -115,27 +115,27 @@ async def view_example() -> None:
 async def str_replace_example() -> None:
     """Example of exact string replacement."""
     print_section("String Replacement")
-    
+
     # Create the editor
     editor = FileEditor()
-    
+
     # Initialize the sandbox
     sandbox = await editor._get_sandbox_client()
-    
+
     # Use UUID for truly unique filename
     unique_id = uuid.uuid4().hex
     test_file = f"/tmp/test_replace_{unique_id}.txt"
-    
+
     # Modified content to ensure REPLACE_ME appears exactly once
     test_content = "This is a test file for string replacement.\n"
     test_content += "It contains the text that will be replaced.\n"
     test_content += "The string REPLACE_ME should be unique in the file.\n"
     test_content += "This way we can target it specifically.\n"
-    
+
     # Write directly using sandbox client
     print_info(f"Creating a test file at {test_file}")
     await sandbox.write_file(test_file, test_content)
-    
+
     try:
         # View the original file
         print_info("\nOriginal file content:")
@@ -143,10 +143,10 @@ async def str_replace_example() -> None:
             command="view",
             path=test_file
         )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-        
+
         # Perform string replacement
         print_info("\nReplacing 'REPLACE_ME' with 'NEW_VALUE'...")
         async with AsyncTimer("String replacement"):
@@ -157,22 +157,22 @@ async def str_replace_example() -> None:
                 new_str="NEW_VALUE",
                 make_backup=True
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-            
+
             # View the modified file
             print_info("\nVerifying the changes:")
             result = await editor.execute(
                 command="view",
                 path=test_file
             )
-            
+
             if isinstance(result, CLIResult):
                 print(result.output)
         else:
             print_error(f"Replacement failed: {result}")
-            
+
     except Exception as e:
         print_error(f"Error in string replacement example: {e}")
 
@@ -180,26 +180,26 @@ async def str_replace_example() -> None:
 async def regex_replace_example() -> None:
     """Example of regex pattern replacement."""
     print_section("Regex Pattern Replacement")
-    
+
     # Create the editor
     editor = FileEditor()
-    
+
     # Initialize the sandbox
     sandbox = await editor._get_sandbox_client()
-    
+
     # Use UUID for truly unique filename
     unique_id = uuid.uuid4().hex
     test_file = f"/tmp/test_regex_{unique_id}.txt"
-    
+
     test_content = "Date: 2023-01-15 - User: john_doe - Status: active\n"
     test_content += "Date: 2023-02-20 - User: jane_smith - Status: pending\n"
     test_content += "Date: 2023-03-10 - User: bob_jones - Status: inactive\n"
     test_content += "Date: 2023-04-05 - User: alice_wonder - Status: active\n"
-    
+
     # Write directly using sandbox client
     print_info(f"Creating a test file at {test_file}")
     await sandbox.write_file(test_file, test_content)
-    
+
     try:
         # View the original file
         print_info("\nOriginal file content:")
@@ -207,10 +207,10 @@ async def regex_replace_example() -> None:
             command="view",
             path=test_file
         )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-        
+
         # Perform regex replacement to reformat dates
         print_info("\nReformatting dates from YYYY-MM-DD to MM/DD/YYYY...")
         async with AsyncTimer("Regex replacement"):
@@ -225,10 +225,10 @@ async def regex_replace_example() -> None:
                 },
                 make_backup=True
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-            
+
             # Perform another regex replacement to anonymize usernames
             print_info("\nAnonymizing usernames...")
             result = await editor.execute(
@@ -242,24 +242,24 @@ async def regex_replace_example() -> None:
                 },
                 make_backup=True
             )
-            
+
             if isinstance(result, CLIResult):
                 print(result.output)
-                
+
                 # View the modified file
                 print_info("\nVerifying all changes:")
                 result = await editor.execute(
                     command="view",
                     path=test_file
                 )
-                
+
                 if isinstance(result, CLIResult):
                     print(result.output)
             else:
                 print_error(f"Username anonymization failed: {result}")
         else:
             print_error(f"Date reformatting failed: {result}")
-            
+
     except Exception as e:
         print_error(f"Error in regex replacement example: {e}")
 
@@ -267,28 +267,28 @@ async def regex_replace_example() -> None:
 async def line_edit_example() -> None:
     """Example of line-based editing operations."""
     print_section("Line Editing")
-    
+
     # Create the editor
     editor = FileEditor()
-    
+
     # Initialize the sandbox
     sandbox = await editor._get_sandbox_client()
-    
+
     # Use UUID for truly unique filename
     unique_id = uuid.uuid4().hex
     test_file = f"/tmp/test_line_edit_{unique_id}.txt"
-    
+
     test_content = "Line 1: Introduction to line editing\n"
     test_content += "Line 2: This line will be kept\n"
     test_content += "Line 3: We'll delete this line\n"
     test_content += "Line 4: Another line to keep\n"
     test_content += "Line 5: TODO: Replace this line\n"
     test_content += "Line 6: Final line of the file\n"
-    
+
     # Write directly using sandbox client
     print_info(f"Creating a test file at {test_file}")
     await sandbox.write_file(test_file, test_content)
-    
+
     try:
         # View the original file
         print_info("\nOriginal file content:")
@@ -296,10 +296,10 @@ async def line_edit_example() -> None:
             command="view",
             path=test_file
         )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-        
+
         # Delete a specific line
         print_info("\nDeleting line 3...")
         async with AsyncTimer("Line deletion"):
@@ -313,12 +313,12 @@ async def line_edit_example() -> None:
                 },
                 make_backup=True
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
         else:
             print_error(f"Line deletion failed: {result}")
-            
+
         # Replace a line matching a pattern
         print_info("\nReplacing line containing 'TODO'...")
         async with AsyncTimer("Pattern-based replacement"):
@@ -333,12 +333,12 @@ async def line_edit_example() -> None:
                 },
                 make_backup=True
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
         else:
             print_error(f"Pattern replacement failed: {result}")
-            
+
         # Insert a line before a specific line
         print_info("\nInserting new line before the final line...")
         async with AsyncTimer("Line insertion"):
@@ -353,22 +353,22 @@ async def line_edit_example() -> None:
                 },
                 make_backup=True
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-            
+
             # View the final result
             print_info("\nVerifying all line edits:")
             result = await editor.execute(
                 command="view",
                 path=test_file
             )
-            
+
             if isinstance(result, CLIResult):
                 print(result.output)
         else:
             print_error(f"Line insertion failed: {result}")
-            
+
     except Exception as e:
         print_error(f"Error in line editing example: {e}")
 
@@ -376,25 +376,25 @@ async def line_edit_example() -> None:
 async def insert_example() -> None:
     """Example of inserting content at lines or character positions."""
     print_section("Content Insertion")
-    
+
     # Create the editor
     editor = FileEditor()
-    
+
     # Initialize the sandbox
     sandbox = await editor._get_sandbox_client()
-    
+
     # Use UUID for truly unique filename
     unique_id = uuid.uuid4().hex
     test_file = f"/tmp/test_insert_{unique_id}.txt"
-    
+
     test_content = "This is a test file for insertion operations.\n"
     test_content += "We will insert content at specific line numbers.\n"
     test_content += "And also insert content at specific character positions.\n"
-    
+
     # Write directly using sandbox client
     print_info(f"Creating a test file at {test_file}")
     await sandbox.write_file(test_file, test_content)
-    
+
     try:
         # View the original file
         print_info("\nOriginal file content:")
@@ -402,10 +402,10 @@ async def insert_example() -> None:
             command="view",
             path=test_file
         )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-        
+
         # Insert at a specific line
         print_info("\nInserting content at line 2...")
         async with AsyncTimer("Line insertion"):
@@ -416,16 +416,16 @@ async def insert_example() -> None:
                 new_str="-- INSERTED LINE --\nThis line was inserted after line 2.\n",
                 make_backup=True
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
         else:
             print_error(f"Line insertion failed: {result}")
-            
+
         # Find a specific character position to insert at
         original_content = await sandbox.read_file(test_file)
         position = original_content.find("specific character")
-        
+
         if position != -1:
             # Insert at character position
             print_info(f"\nInserting content at character position {position}...")
@@ -437,24 +437,24 @@ async def insert_example() -> None:
                     new_str="[EXACT] ",
                     make_backup=True
                 )
-            
+
             if isinstance(result, CLIResult):
                 print(result.output)
             else:
                 print_error(f"Character insertion failed: {result}")
         else:
             print_error("Could not find the target insertion point in the file")
-            
+
         # View the final result
         print_info("\nVerifying all insertions:")
         result = await editor.execute(
             command="view",
             path=test_file
         )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-            
+
     except Exception as e:
         print_error(f"Error in insertion example: {e}")
 
@@ -462,25 +462,25 @@ async def insert_example() -> None:
 async def undo_example() -> None:
     """Example of undoing edits."""
     print_section("Undo Functionality")
-    
+
     # Create the editor
     editor = FileEditor()
-    
+
     # Initialize the sandbox
     sandbox = await editor._get_sandbox_client()
-    
+
     # Use UUID for truly unique filename
     unique_id = uuid.uuid4().hex
     test_file = f"/tmp/test_undo_{unique_id}.txt"
-    
+
     test_content = "This is the original content of the file.\n"
     test_content += "We will make changes and then undo them.\n"
     test_content += "The undo operation will restore this text.\n"
-    
+
     # Write directly using sandbox client
     print_info(f"Creating a test file at {test_file}")
     await sandbox.write_file(test_file, test_content)
-    
+
     try:
         # View the original file
         print_info("\nOriginal file content:")
@@ -488,10 +488,10 @@ async def undo_example() -> None:
             command="view",
             path=test_file
         )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-        
+
         # Make a change to the file
         print_info("\nMaking a change to the file...")
         async with AsyncTimer("String replacement"):
@@ -502,20 +502,20 @@ async def undo_example() -> None:
                 new_str="MODIFIED content",
                 make_backup=True
             )
-        
+
         if isinstance(result, CLIResult):
             print(result.output)
-            
+
             # View the modified file
             print_info("\nModified file content:")
             result = await editor.execute(
                 command="view",
                 path=test_file
             )
-            
+
             if isinstance(result, CLIResult):
                 print(result.output)
-                
+
                 # Undo the change
                 print_info("\nUndoing the change...")
                 async with AsyncTimer("Undo operation"):
@@ -523,17 +523,17 @@ async def undo_example() -> None:
                         command="undo_edit",
                         path=test_file
                     )
-                
+
                 if isinstance(result, CLIResult):
                     print(result.output)
-                    
+
                     # Verify the file has been restored
                     print_info("\nVerifying the file has been restored:")
                     result = await editor.execute(
                         command="view",
                         path=test_file
                     )
-                    
+
                     if isinstance(result, CLIResult):
                         print(result.output)
                 else:
@@ -542,7 +542,7 @@ async def undo_example() -> None:
                 print_error("Failed to view modified file")
         else:
             print_error(f"String replacement failed: {result}")
-            
+
     except Exception as e:
         print_error(f"Error in undo example: {e}")
 
