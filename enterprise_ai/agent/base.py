@@ -6,6 +6,7 @@ the AgentProtocol defined in types.py.
 """
 
 import abc
+import asyncio
 import time
 import uuid
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
@@ -35,6 +36,9 @@ from enterprise_ai.agent.types import (
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message
 from enterprise_ai.types import MessageProtocol
+from enterprise_ai.agent.tooling import AgentToolManager
+from enterprise_ai.tool.core.base import BaseTool
+from enterprise_ai.tool.core.result import ToolResult
 
 logger = get_logger("agent.base")
 
@@ -79,6 +83,9 @@ class BaseAgent(AgentProtocol):
             self._state.role = create_role(role_type, **(role_kwargs or {}))
 
         logger.info(f"Initialized agent: {self._id} ({self._name})")
+
+        # Initialize tool manager
+        self._tool_manager = AgentToolManager(self._id)
 
     @property
     def id(self) -> str:
@@ -130,6 +137,19 @@ class BaseAgent(AgentProtocol):
         self._state.role = role
         logger.info(f"Assigned role to agent {self._id}: {role.name}")
 
+    # Add tool management methods
+    def add_tool(self, tool: BaseTool) -> None:
+        """Add a tool to the agent's toolkit."""
+        self._tool_manager.add_tool(tool)
+
+    def list_tools(self) -> List[str]:
+        """List all tools available to this agent."""
+        return self._tool_manager.list_tools()
+
+    async def execute_tool(self, tool_name: str, **kwargs: Any) -> ToolResult:
+        """Execute a tool with the given parameters."""
+        return await self._tool_manager.execute_tool(tool_name, **kwargs)
+
     def process_message(self, message: AgentMessage) -> Optional[AgentMessage]:
         """Process a message and optionally return a response.
 
@@ -143,7 +163,7 @@ class BaseAgent(AgentProtocol):
             Optional response message
         """
         # Log message receipt
-        _ = getattr(message, "message_id", "unknown_id")
+        message_id = getattr(message, "message_id", "unknown_id")
         is_broadcast = getattr(message, "is_broadcast", False)
 
         logger.debug(
@@ -154,6 +174,66 @@ class BaseAgent(AgentProtocol):
         # Store message in conversation history if using ConversationState
         if isinstance(self._state, ConversationState):
             self._state.add_message(message, conversation_id=message.sender_id)
+
+        # Extract metadata for possible tool execution
+        metadata = getattr(message, "metadata", {}) or {}
+
+        # Check if message is a tool execution request
+        if metadata.get("request_type") == "tool_execution":
+            tool_name = metadata.get("tool_name")
+            tool_params = metadata.get("tool_params", {})
+
+            if tool_name and hasattr(self, "_tool_manager"):
+                # For synchronous response, execute the tool immediately
+                if not metadata.get("async_execution", False):
+                    try:
+                        # Create asyncio event loop if needed and run tool execution
+                        loop = asyncio.get_event_loop()
+                        tool_result = loop.run_until_complete(
+                            self._tool_manager.execute_tool(tool_name, **tool_params)
+                        )
+
+                        return ResponseMessage(
+                            self._id,
+                            message.sender_id,
+                            tool_result.output
+                            if not tool_result.error
+                            else f"Error: {tool_result.error}",
+                            message_id,
+                            metadata={
+                                "tool_name": tool_name,
+                                "tool_result": tool_result.to_dict()
+                                if hasattr(tool_result, "to_dict")
+                                else {},
+                                "success": tool_result.error is None,
+                            },
+                        )
+                    except Exception as e:
+                        return ErrorMessage(
+                            self._id,
+                            message.sender_id,
+                            f"Tool execution failed: {str(e)}",
+                            "TOOL_EXECUTION_ERROR",
+                        )
+                else:
+                    # For async execution, return acknowledgment and execute in background
+                    asyncio.create_task(
+                        self._handle_async_tool_execution(
+                            message.sender_id,
+                            message_id,
+                            tool_name,
+                            tool_params,
+                            metadata.get("task_id"),
+                        )
+                    )
+
+                    return TaskUpdateMessage(
+                        self._id,
+                        message.sender_id,
+                        metadata.get("task_id", "unknown"),
+                        "IN_PROGRESS",
+                        f"Tool execution started: {tool_name}",
+                    )
 
         # Handle message based on type
         message_type = message.message_type.upper() if message.message_type else "UNKNOWN"
@@ -175,6 +255,60 @@ class BaseAgent(AgentProtocol):
         else:
             # Default handling for unknown message types
             return self._handle_unknown_message(message)
+
+    async def _handle_async_tool_execution(
+        self,
+        sender_id: str,
+        message_id: str,
+        tool_name: str,
+        params: Dict[str, Any],
+        task_id: Optional[str] = None,
+    ) -> None:
+        """Handle tool execution asynchronously."""
+        try:
+            result = await self._tool_manager.execute_tool(tool_name, **params)
+
+            # Create a response message with the tool result
+            response = ResponseMessage(
+                self._id,
+                sender_id,
+                result.output if not result.error else f"Error: {result.error}",
+                message_id,
+                metadata={
+                    "tool_name": tool_name,
+                    "tool_result": result.to_dict() if hasattr(result, "to_dict") else {},
+                    "success": result.error is None,
+                    "task_id": task_id,
+                },
+            )
+
+            # Send the response
+            self.send_message(
+                message_type="RESPONSE",
+                receiver_id=sender_id,
+                content=response.content,
+                metadata=response.metadata,
+                reply_to=message_id,
+            )
+
+        except Exception as e:
+            # Send error response
+            _ = ErrorMessage(
+                self._id,
+                sender_id,
+                f"Tool execution failed: {str(e)}",
+                "TOOL_EXECUTION_ERROR",
+                metadata={"task_id": task_id} if task_id else {},
+            )
+
+            self.send_message(
+                message_type="ERROR",
+                receiver_id=sender_id,
+                content=str(e),
+                metadata={"error_code": "TOOL_EXECUTION_ERROR", "task_id": task_id}
+                if task_id
+                else {"error_code": "TOOL_EXECUTION_ERROR"},
+            )
 
     def _handle_task_assignment(self, message: AgentMessage) -> Optional[AgentMessage]:
         """Handle task assignment message.

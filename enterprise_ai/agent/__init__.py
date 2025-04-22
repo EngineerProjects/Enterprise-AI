@@ -64,6 +64,9 @@ from enterprise_ai.agent.factory import (
     create_researcher_agent,
 )
 
+from enterprise_ai.agent.tooling import AgentToolManager
+
+
 __all__ = [
     # Types
     "AgentProtocol",
@@ -109,4 +112,6 @@ __all__ = [
     "create_developer_agent",
     "create_manager_agent",
     "create_researcher_agent",
+    # Tooling
+    "AgentToolManager",
 ]

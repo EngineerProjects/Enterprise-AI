@@ -87,7 +87,7 @@ enterprise_ai/
 │   └── utils.py               # Helper functions
 ```
 
-### Feature Module Structure
+### Feature Module Structure (structure example)
 
 ```
 enterprise_ai/
