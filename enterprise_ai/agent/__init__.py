@@ -62,9 +62,37 @@ from enterprise_ai.agent.factory import (
     create_developer_agent,
     create_manager_agent,
     create_researcher_agent,
+    create_tool_agent,
 )
 
 from enterprise_ai.agent.tooling import AgentToolManager
+
+# Import reasoning framework components
+from enterprise_ai.agent.reasoning.base import (
+    ReasoningFramework,
+    ToolBasedReasoning,
+    BaseReasoning,
+    register_framework,
+    get_framework,
+    list_frameworks,
+    get_framework_descriptions,
+)
+
+# Import specific reasoning implementations
+from enterprise_ai.agent.reasoning import (
+    ReActReasoning,
+    ChainOfThoughtReasoning,
+    ToolAugmentedCoT,
+    SoftwareEngineeringReasoning,
+    MCPReasoning,
+)
+
+# Import tool integration utilities
+from enterprise_ai.agent.tool_integration import (
+    parse_message_for_tool_calls,
+    format_tool_response_message,
+    get_tool_prompt_for_reasoning,
+)
 
 
 __all__ = [
@@ -112,6 +140,25 @@ __all__ = [
     "create_developer_agent",
     "create_manager_agent",
     "create_researcher_agent",
+    "create_tool_agent",
     # Tooling
     "AgentToolManager",
+    # Reasoning frameworks
+    "ReasoningFramework",
+    "ToolBasedReasoning",
+    "BaseReasoning",
+    "register_framework",
+    "get_framework",
+    "list_frameworks",
+    "get_framework_descriptions",
+    # Reasoning implementations
+    "ReActReasoning",
+    "ChainOfThoughtReasoning",
+    "ToolAugmentedCoT",
+    "SoftwareEngineeringReasoning",
+    "MCPReasoning",
+    # Tool integration
+    "parse_message_for_tool_calls",
+    "format_tool_response_message",
+    "get_tool_prompt_for_reasoning",
 ]

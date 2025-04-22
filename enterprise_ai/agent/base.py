@@ -40,6 +40,9 @@ from enterprise_ai.agent.tooling import AgentToolManager
 from enterprise_ai.tool.core.base import BaseTool
 from enterprise_ai.tool.core.result import ToolResult
 
+# Import reasoning framework components
+from enterprise_ai.agent.reasoning.base import ReasoningFramework, BaseReasoning, get_framework
+
 logger = get_logger("agent.base")
 
 
@@ -209,6 +212,7 @@ class BaseAgent(AgentProtocol):
                             },
                         )
                     except Exception as e:
+                        logger.error(f"Error executing tool {tool_name}: {e}")
                         return ErrorMessage(
                             self._id,
                             message.sender_id,
@@ -696,10 +700,10 @@ class BaseAgent(AgentProtocol):
 
 
 class LLMAgent(BaseAgent):
-    """LLM-powered agent implementation.
+    """LLM-powered agent implementation with tool capabilities.
 
-    This class extends BaseAgent with LLM capabilities for more
-    advanced reasoning and communication.
+    This class extends BaseAgent with LLM capabilities and reasoning
+    frameworks for more advanced reasoning and tool-enabled communication.
     """
 
     def __init__(
@@ -711,8 +715,13 @@ class LLMAgent(BaseAgent):
         state_type: str = "conversation",
         state_kwargs: Optional[Dict[str, Any]] = None,
         llm_provider: Optional[Any] = None,
+        reasoning_framework: str = "base",
+        use_tools: bool = False,
+        enable_mcp: bool = False,
+        tool_categories: Optional[List[str]] = None,
+        tool_names: Optional[List[str]] = None,
     ) -> None:
-        """Initialize an LLM agent.
+        """Initialize an LLM agent with tool capabilities.
 
         Args:
             agent_id: Optional unique identifier (generated if not provided)
@@ -722,6 +731,11 @@ class LLMAgent(BaseAgent):
             state_type: State implementation type
             state_kwargs: Optional arguments for state creation
             llm_provider: Optional LLM provider instance
+            reasoning_framework: Name of the reasoning framework to use
+            use_tools: Whether to enable tool usage
+            enable_mcp: Whether to enable MCP for tool discovery
+            tool_categories: Optional categories of tools to include
+            tool_names: Optional specific tool names to include
         """
         # Ensure we use conversation state for LLM agents
         if state_type != "conversation":
@@ -740,33 +754,65 @@ class LLMAgent(BaseAgent):
             state_kwargs,
         )
 
-        # LLM provider setup will need to be improved when LLM
-        # integration is more fully implemented
+        # LLM provider setup
         self._llm_provider = llm_provider
+
+        # Initialize reasoning framework
+        self._reasoning_framework_name = reasoning_framework
+        self._reasoning_framework = get_framework(reasoning_framework)
+        logger.info(f"Using reasoning framework: {self._reasoning_framework.name}")
+
+        # Enable tools and MCP if requested
+        self._use_tools = use_tools
+        if use_tools:
+            if enable_mcp:
+                # Run in event loop to enable MCP
+                loop = asyncio.get_event_loop()
+                success = loop.run_until_complete(
+                    self._tool_manager.enable_mcp(
+                        tool_categories=tool_categories, tool_names=tool_names
+                    )
+                )
+                if success:
+                    logger.info(f"Enabled MCP for agent {self._id}")
+                else:
+                    logger.warning(f"Failed to enable MCP for agent {self._id}")
 
         # Store system prompt in state
         self._update_system_prompt()
 
     def _update_system_prompt(self) -> None:
-        """Update the system prompt based on role and configuration."""
-        system_prompt = [f"You are {self._name}, an AI assistant."]
+        """Update the system prompt based on role, reasoning, and tools."""
+        base_prompt = f"You are {self._name}, an AI assistant."
 
         # Add role information if available
         role = self.role
         if role:
-            system_prompt.append(f"Your role is: {role.name}")
-            system_prompt.append(f"Role description: {role.description}")
-
-            # Add role instructions
-            system_prompt.append(role.get_instructions())
+            role_instructions = role.get_instructions()
+            base_prompt = f"{base_prompt}\n\nYour role is: {role.name}\n{role.description}\n\n{role_instructions}"
 
             # Add capabilities
             if role.capabilities:
                 capabilities = ", ".join(role.capabilities)
-                system_prompt.append(f"Your capabilities include: {capabilities}")
+                base_prompt = f"{base_prompt}\n\nYour capabilities include: {capabilities}"
+
+        # Format with reasoning framework
+        if self._reasoning_framework and self._use_tools:
+            # Get tools description if tools are enabled
+            tools_description = ""
+            if hasattr(self._tool_manager, "get_formatted_tool_descriptions"):
+                tools_description = self._tool_manager.get_formatted_tool_descriptions()
+
+            # Format with reasoning framework and tools
+            system_prompt = self._reasoning_framework.format_system_prompt(
+                self, base_prompt, tools_description=tools_description
+            )
+        else:
+            # Just use base prompt if no tools or reasoning
+            system_prompt = base_prompt
 
         # Store the combined system prompt in memory
-        self._state.memory.add("system_prompt", "\n\n".join(system_prompt))
+        self._state.memory.add("system_prompt", system_prompt)
 
     def _get_messages_for_llm(
         self, conversation_id: str = "default", limit: int = 10
@@ -818,7 +864,8 @@ class LLMAgent(BaseAgent):
     def process_message(self, message: AgentMessage) -> Optional[AgentMessage]:
         """Process a message and optionally return a response.
 
-        LLMAgent implementation that uses the LLM for generating responses.
+        Enhanced LLMAgent implementation that uses reasoning frameworks
+        for generating responses, with tool support when enabled.
 
         Args:
             message: Message to process
@@ -849,8 +896,23 @@ class LLMAgent(BaseAgent):
             )
             messages.append(cast(MessageProtocol, user_msg))
 
-            # Get LLM response
-            response = self._llm_provider.complete(messages)
+            # Get LLM response using the current reasoning framework
+            if self._use_tools and self._reasoning_framework.requires_tools:
+                # Get tools description if needed
+                tools_description = ""
+                if hasattr(self._tool_manager, "get_formatted_tool_descriptions"):
+                    tools_description = self._tool_manager.get_formatted_tool_descriptions()
+
+                # Use reasoning framework to process with tools
+                response = self._reasoning_framework.process_input(
+                    self,
+                    messages,
+                    llm_provider=self._llm_provider,
+                    tools_description=tools_description,
+                )
+            else:
+                # Simple processing without tools
+                response = self._llm_provider.complete(messages)
 
             # Create agent message from LLM response
             message_id = getattr(message, "message_id", str(uuid.uuid4()))
@@ -871,7 +933,7 @@ class LLMAgent(BaseAgent):
             )
 
     def process_task(self) -> TaskStatus:
-        """Process the current task using LLM capabilities.
+        """Process the current task using LLM capabilities with tool support.
 
         Returns:
             Updated task status
@@ -886,32 +948,147 @@ class LLMAgent(BaseAgent):
             return super().process_task()
 
         try:
-            # Create message history for LLM
-            messages = self._get_messages_for_llm(limit=5)
+            # Use the reasoning framework to process the task if tools are enabled
+            if self._use_tools and self._reasoning_framework.requires_tools:
+                # Get tools description if needed
+                tools_description = ""
+                if hasattr(self._tool_manager, "get_formatted_tool_descriptions"):
+                    tools_description = self._tool_manager.get_formatted_tool_descriptions()
 
-            # Add task as a message
-            task_msg = (
-                f"Task ID: {task.id}\n"
-                f"Description: {task.description}\n"
-                f"Please complete this task to the best of your abilities."
-            )
-            user_msg = Message.user_message(task_msg)
-            messages.append(cast(MessageProtocol, user_msg))
+                # Process task with reasoning framework
+                return self._reasoning_framework.process_task(
+                    self, task, llm_provider=self._llm_provider, tools_description=tools_description
+                )
+            else:
+                # Simple processing without tools
+                messages = self._get_messages_for_llm(limit=5)
 
-            # Get LLM response
-            response = self._llm_provider.complete(messages)
+                # Add task as a message
+                task_msg = (
+                    f"Task ID: {task.id}\n"
+                    f"Description: {task.description}\n"
+                    f"Please complete this task to the best of your abilities."
+                )
+                user_msg = Message.user_message(task_msg)
+                messages.append(cast(MessageProtocol, user_msg))
 
-            # Store response in task metadata
-            if not task.metadata:
-                task.metadata = {}
-            task.metadata["llm_response"] = response.content
+                # Get LLM response
+                response = self._llm_provider.complete(messages)
 
-            # Mark task as completed
-            task.status = TaskStatus.COMPLETED
-            logger.info(f"Agent {self._id} completed task {task.id}")
+                # Store response in task metadata
+                if not task.metadata:
+                    task.metadata = {}
+                task.metadata["llm_response"] = response.content
 
-            return TaskStatus.COMPLETED
+                # Mark task as completed
+                task.status = TaskStatus.COMPLETED
+                logger.info(f"Agent {self._id} completed task {task.id}")
+
+                return TaskStatus.COMPLETED
         except Exception as e:
             logger.error(f"Error using LLM to process task: {e}")
             task.status = TaskStatus.FAILED
             return TaskStatus.FAILED
+
+    def set_reasoning_framework(self, framework_name: str) -> bool:
+        """Change the agent's reasoning framework.
+
+        Args:
+            framework_name: Name of the reasoning framework to use
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            new_framework = get_framework(framework_name)
+
+            # Check if the framework requires tools
+            if new_framework.requires_tools and not self._use_tools:
+                logger.warning(
+                    f"Framework {framework_name} requires tools, but tools are not enabled for agent {self._id}"
+                )
+                return False
+
+            # Update framework
+            self._reasoning_framework_name = framework_name
+            self._reasoning_framework = new_framework
+
+            # Update system prompt
+            self._update_system_prompt()
+
+            logger.info(f"Agent {self._id} switched to reasoning framework: {framework_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Error switching reasoning framework: {e}")
+            return False
+
+    def enable_tools(
+        self,
+        enable_mcp: bool = False,
+        tool_categories: Optional[List[str]] = None,
+        tool_names: Optional[List[str]] = None,
+    ) -> bool:
+        """Enable tools for this agent.
+
+        Args:
+            enable_mcp: Whether to enable MCP for tool discovery
+            tool_categories: Optional categories of tools to include
+            tool_names: Optional specific tool names to include
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self._use_tools = True
+
+            if enable_mcp:
+                # Run in event loop to enable MCP
+                loop = asyncio.get_event_loop()
+                success = loop.run_until_complete(
+                    self._tool_manager.enable_mcp(
+                        tool_categories=tool_categories, tool_names=tool_names
+                    )
+                )
+                if not success:
+                    logger.warning(f"Failed to enable MCP for agent {self._id}")
+
+            # If current reasoning framework doesn't support tools, switch to ReAct
+            if not self._reasoning_framework.requires_tools:
+                react_framework = get_framework("react")
+                self._reasoning_framework_name = "react"
+                self._reasoning_framework = react_framework
+                logger.info(f"Switched agent {self._id} to ReAct reasoning for tool support")
+
+            # Update system prompt
+            self._update_system_prompt()
+
+            logger.info(f"Enabled tools for agent {self._id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error enabling tools: {e}")
+            return False
+
+    def disable_tools(self) -> bool:
+        """Disable tools for this agent.
+
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            self._use_tools = False
+
+            # If current reasoning framework requires tools, switch to base
+            if self._reasoning_framework.requires_tools:
+                base_framework = get_framework("base")
+                self._reasoning_framework_name = "base"
+                self._reasoning_framework = base_framework
+                logger.info(f"Switched agent {self._id} to base reasoning due to tool disabling")
+
+            # Update system prompt
+            self._update_system_prompt()
+
+            logger.info(f"Disabled tools for agent {self._id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error disabling tools: {e}")
+            return False

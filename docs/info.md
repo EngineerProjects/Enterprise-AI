@@ -60,7 +60,7 @@ enterprise_ai/
 │   │   │   └── planning.prompt (new)
 │   │   ├── composite/ (existing with new composite prompts)
 │   │   │   ├── developer_with_tools.prompt (update)
-│   │   │   ├── researcher_with_tools.prompt (new) 
+│   │   │   ├── researcher_with_tools.prompt (new)
 │   │   │   ├── browser_agent.prompt (new)
 │   │   │   ├── planner_with_tools.prompt (new)
 │   │   │   └── all_capable_agent.prompt (new)
@@ -73,12 +73,13 @@ enterprise_ai/
 A good approach is to:
 
 1. Create composite templates for your core agent types
-2. Use dynamic composition for custom variants and special cases
-3. Have your AgentFactory/AgentBuilder support both approaches:
+1. Use dynamic composition for custom variants and special cases
+1. Have your AgentFactory/AgentBuilder support both approaches:
    - Use composite templates by default for standard agent types
    - Fall back to dynamic composition for custom configurations
 
 So in summary: Composite templates aren't redundant with your composition methods - they serve complementary purposes. The composite templates provide high-quality blueprints for common agent types, while the composition methods provide flexibility for customization.
+
 ______________________________________________________________________
 
 #### git ingest
