@@ -33,7 +33,9 @@ from enterprise_ai.prompt import (
     PromptLibrary,
     get_prompt_library,
     get_prompt,
-    format_prompt
+    format_prompt,
+    create_composite_prompt,
+    combine_prompts
 )
 
 def test_default_prompts():
@@ -232,6 +234,42 @@ $output_format
     print_info("\nComplex prompt template created programmatically:")
     print(formatted2)
 
+def test_composite_prompts():
+    """Test combining role and system prompts."""
+    print_section("Testing Composite Prompts")
+
+    # Get the prompt library
+    library = get_prompt_library()
+
+    # Use the new combine_prompts function
+    combined = combine_prompts(
+        ["system.with_tools", "roles.developer"],
+        tools_description="search: Search the web\ncode_exec: Execute code",
+        additional_context="Focus on Python best practices."
+    )
+
+    if combined:
+        print_success("Successfully combined system and role prompts")
+        print_info("Combined prompt:")
+        print(combined)
+    else:
+        print_error("Failed to combine prompts")
+
+    # Use the new create_composite_prompt function
+    composite = create_composite_prompt(
+        "developer",
+        "with_tools",
+        tools_description="search: Search the web\ncode_exec: Execute code",
+        additional_context="Focus on Python best practices."
+    )
+
+    if composite:
+        print_success("Successfully created composite prompt")
+        print_info("Composite prompt:")
+        print(composite)
+    else:
+        print_error("Failed to create composite prompt")
+
 def main():
     """Run all prompt examples."""
     print_title("Enterprise AI Prompt System Examples")
@@ -246,6 +284,10 @@ def main():
 
     # Create programmatic templates
     create_prompt_template_programmatically()
+    separator()
+
+    # Test composite prompts
+    test_composite_prompts()
     separator()
 
     print_success("All prompt examples completed!")

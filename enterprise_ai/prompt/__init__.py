@@ -11,6 +11,8 @@ from enterprise_ai.prompt.base import (
     get_prompt_library,
     get_prompt,
     format_prompt,
+    combine_prompts,
+    create_composite_prompt,
 )
 
 __all__ = [
@@ -19,4 +21,6 @@ __all__ = [
     "get_prompt_library",
     "get_prompt",
     "format_prompt",
+    "combine_prompts",
+    "create_composite_prompt",
 ]

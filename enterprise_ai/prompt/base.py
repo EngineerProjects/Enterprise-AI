@@ -1,14 +1,15 @@
 """
-Base prompt management functionality.
+Enhanced prompt management functionality.
 
 This module provides the core functionality for loading, formatting,
-and managing prompts throughout the Enterprise AI system.
+and managing prompts throughout the Enterprise AI system with support
+for composite prompts and tool integration.
 """
 
 import os
 from pathlib import Path
 from string import Template
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, Tuple
 
 from enterprise_ai.config import get_config
 from enterprise_ai.logger import get_logger
@@ -85,7 +86,8 @@ class PromptLibrary:
                             content = f.read()
 
                         self._prompts[prompt_id] = PromptTemplate(
-                            content, metadata={"source_file": file_path}
+                            content,
+                            metadata={"source_file": file_path, "category": os.path.basename(root)},
                         )
                         logger.debug(f"Loaded prompt: {prompt_id}")
                     except Exception as e:
@@ -117,6 +119,60 @@ class PromptLibrary:
             return prompt.format(**kwargs)
         return None
 
+    def combine_prompts(self, prompt_ids: List[str], **kwargs: Any) -> Optional[str]:
+        """Combine multiple prompts and format them.
+
+        Args:
+            prompt_ids: List of prompt identifiers to combine
+            **kwargs: Values for template variables
+
+        Returns:
+            Combined and formatted prompt string if all prompts found, None otherwise
+        """
+        prompt_templates = []
+        for prompt_id in prompt_ids:
+            prompt = self.get_prompt(prompt_id)
+            if not prompt:
+                logger.error(f"Prompt not found: {prompt_id}")
+                return None
+            prompt_templates.append(prompt)
+
+        # Combine the templates
+        combined_template = "\n\n".join(pt.template_str for pt in prompt_templates)
+        combined_prompt = PromptTemplate(combined_template)
+
+        # Format the combined template
+        return combined_prompt.format(**kwargs)
+
+    def create_composite_prompt(self, role_id: str, system_id: str, **kwargs: Any) -> Optional[str]:
+        """Create a composite prompt combining a role and system prompt.
+
+        Args:
+            role_id: Role prompt identifier
+            system_id: System prompt identifier
+            **kwargs: Values for template variables
+
+        Returns:
+            Combined and formatted prompt string if both prompts found, None otherwise
+        """
+        role_prompt = self.get_prompt(f"roles.{role_id}")
+        system_prompt = self.get_prompt(f"system.{system_id}")
+
+        if not role_prompt:
+            logger.error(f"Role prompt not found: {role_id}")
+            return None
+
+        if not system_prompt:
+            logger.error(f"System prompt not found: {system_id}")
+            return None
+
+        # Combine the templates
+        combined_template = f"{system_prompt.template_str}\n\n{role_prompt.template_str}"
+        combined_prompt = PromptTemplate(combined_template)
+
+        # Format the combined template
+        return combined_prompt.format(**kwargs)
+
     def add_prompt(
         self, prompt_id: str, template: str, metadata: Optional[Dict[str, Any]] = None
     ) -> None:
@@ -129,13 +185,21 @@ class PromptLibrary:
         """
         self._prompts[prompt_id] = PromptTemplate(template, metadata)
 
-    def list_prompts(self) -> List[str]:
-        """List available prompt IDs.
+    def list_prompts(self) -> Dict[str, List[str]]:
+        """List available prompt IDs grouped by category.
 
         Returns:
-            List of prompt IDs
+            Dictionary of prompt IDs grouped by category
         """
-        return list(self._prompts.keys())
+        categories: Dict[str, List[str]] = {}
+
+        for prompt_id, prompt in self._prompts.items():
+            category = prompt.metadata.get("category", "uncategorized")
+            if category not in categories:
+                categories[category] = []
+            categories[category].append(prompt_id)
+
+        return categories
 
 
 # Global prompt library instance
@@ -177,3 +241,30 @@ def format_prompt(prompt_id: str, **kwargs: Any) -> Optional[str]:
         Formatted prompt string if found, None otherwise
     """
     return get_prompt_library().format_prompt(prompt_id, **kwargs)
+
+
+def combine_prompts(prompt_ids: List[str], **kwargs: Any) -> Optional[str]:
+    """Combine multiple prompts and format them.
+
+    Args:
+        prompt_ids: List of prompt identifiers to combine
+        **kwargs: Values for template variables
+
+    Returns:
+        Combined and formatted prompt string if all prompts found, None otherwise
+    """
+    return get_prompt_library().combine_prompts(prompt_ids, **kwargs)
+
+
+def create_composite_prompt(role_id: str, system_id: str, **kwargs: Any) -> Optional[str]:
+    """Create a composite prompt combining a role and system prompt.
+
+    Args:
+        role_id: Role prompt identifier
+        system_id: System prompt identifier
+        **kwargs: Values for template variables
+
+    Returns:
+        Combined and formatted prompt string if both prompts found, None otherwise
+    """
+    return get_prompt_library().create_composite_prompt(role_id, system_id, **kwargs)

@@ -44,7 +44,6 @@ __all__ = [
     "register_tool",
     "get_registry",
     "ToolRegistry",
-    
     # Tool modules
     "browser",
     "content",
