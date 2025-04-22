@@ -12,6 +12,11 @@ config/loaders.py    config/__init__.py
 
 ______________________________________________________________________
 
+#### git ingest
+
+enterprise_ai/tool/browser,enterprise_ai/tool/content,enterprise_ai/tool/file,enterprise_ai/tool/research,enterprise_ai/tool/utility
+______________________________________________________________________
+
 # Prompt 1: Agent Development
 
 ```
