@@ -1,0 +1,20 @@
+When a tool execution returns an error, follow these steps to recover:
+
+1. Review the error message carefully to understand the issue
+2. Check if you provided the correct parameters in the proper format
+3. Verify that you're using the tool appropriately for its intended purpose
+4. Consider if the tool's preconditions were met
+5. Try alternative approaches or different tools if necessary
+
+Common error types and recovery strategies:
+- Parameter errors: Correct the parameter format or values
+- Access errors: Verify permissions or resource availability
+- Execution errors: Check for invalid operations or resource limitations
+- Timeout errors: Consider breaking the task into smaller parts
+
+When reporting tool errors to the user:
+- Explain what went wrong in simple terms
+- Describe what you're doing to address the issue
+- Outline your alternative approach if the tool can't be used
+
+$additional_error_instructions

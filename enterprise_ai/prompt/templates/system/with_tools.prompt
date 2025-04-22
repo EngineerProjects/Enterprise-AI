@@ -26,5 +26,6 @@ Important guidelines for tool usage:
 3. Interpret tool results completely before proceeding
 4. If a tool returns an error, troubleshoot or try an alternative approach
 5. Explain your reasoning for using specific tools
+6. Consider tool limitations and handle errors gracefully
 
 $additional_tool_instructions

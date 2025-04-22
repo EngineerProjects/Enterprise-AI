@@ -1,0 +1,46 @@
+# Planning Tool Guide
+
+This tool helps you create and manage plans for complex tasks.
+Use it to break down tasks, track progress, and manage execution.
+
+## Key Actions:
+- `create`: Create a new plan with steps
+- `update`: Update an existing plan
+- `list`: List all current plans
+- `get`: Get details of a specific plan
+- `set_active`: Set a plan as active
+- `mark_step`: Mark a step as complete or incomplete
+- `delete`: Delete a plan
+
+## Best Practices:
+1. Plan Creation:
+   - Break tasks into clear, actionable steps
+   - Include enough detail for execution
+   - Set realistic priorities
+   - Consider dependencies between steps
+   - Include verification steps for critical tasks
+
+2. Plan Management:
+   - Update plans as you gain new information
+   - Track progress consistently
+   - Mark steps as complete as you finish them
+   - Review and adjust if circumstances change
+
+3. Step Design:
+   - Make steps concrete and verifiable
+   - Avoid steps that are too broad or too granular
+   - Include clear success criteria
+   - Estimate effort required when possible
+
+4. Execution Strategy:
+   - Focus on one plan at a time
+   - Execute steps in dependency order
+   - Adapt to obstacles as they arise
+   - Document outcomes and lessons learned
+
+5. Communication:
+   - Share plan updates with stakeholders
+   - Be clear about progress and blockers
+   - Document key decisions and changes
+
+$additional_planning_tool_instructions

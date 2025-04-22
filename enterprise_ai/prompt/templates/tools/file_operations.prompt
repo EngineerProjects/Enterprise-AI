@@ -1,0 +1,41 @@
+# File Operations Tool Guide
+
+This tool allows you to view, create, and modify files in the filesystem.
+Use it for reading code, writing scripts, and managing file content.
+
+## Key Actions:
+- `view`: View the contents of a file
+- `create`: Create a new file with specified content
+- `str_replace`: Replace strings within a file
+- `regex_replace`: Replace patterns using regular expressions
+- `line_edit`: Edit specific lines
+- `insert`: Insert content at a specified position
+- `undo_edit`: Undo the last edit
+
+## Best Practices:
+1. Viewing Files:
+   - Check file existence before attempting to view
+   - When viewing large files, focus on relevant sections
+
+2. Creating Files:
+   - Ensure proper file naming conventions
+   - Include appropriate headers, comments, and formatting
+   - Set correct file permissions if necessary
+
+3. Editing Files:
+   - Make focused, specific changes
+   - Preserve indentation when editing code files
+   - Make backups of important files before editing
+   - Use `undo_edit` if a change causes unexpected problems
+
+4. Regex Operations:
+   - Test regex patterns carefully
+   - Use capture groups to preserve parts of the matched text
+   - Consider edge cases in your patterns
+
+5. Error Handling:
+   - Check for file existence before operations
+   - Handle permissions issues appropriately
+   - Verify changes after editing
+
+$additional_file_operations_instructions

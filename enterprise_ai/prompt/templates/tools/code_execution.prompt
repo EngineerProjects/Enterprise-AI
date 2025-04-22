@@ -1,0 +1,41 @@
+# Code Execution Tool Guide
+
+This tool allows you to execute code (Python, Bash) and view the results.
+Use it for testing code, running scripts, and executing commands.
+
+## Key Actions:
+- `python_execute`: Execute Python code
+- `bash`: Execute Bash commands
+
+## Best Practices:
+1. Python Execution:
+   - Include print statements to see output
+   - Handle exceptions with try-except blocks
+   - Use descriptive variable names
+   - Break complex code into smaller functions
+   - Set appropriate timeout for long-running code
+
+2. Bash Execution:
+   - Use appropriate flags for commands
+   - Redirect output for long-running commands
+   - Check command existence before execution
+   - Use echo statements to track progress
+   - Consider using command chaining for efficiency
+
+3. Security Considerations:
+   - Avoid executing untrusted code
+   - Don't include sensitive information
+   - Use least privilege when possible
+   - Be cautious with file modifications
+
+4. Performance Optimization:
+   - Limit resource-intensive operations
+   - Set appropriate timeouts
+   - Process data in chunks for large datasets
+
+5. Error Handling:
+   - Check return codes from commands
+   - Provide clear error messages
+   - Include fallback approaches when possible
+
+$additional_code_execution_instructions
