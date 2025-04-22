@@ -12,6 +12,75 @@ config/loaders.py    config/__init__.py
 
 ______________________________________________________________________
 
+# New File Structure for Agent Feature Integration
+
+Here's the comprehensive file structure for implementing the agent feature with tool integration:
+
+```
+enterprise_ai/
+├── agent/
+│   ├── __init__.py (update to expose new modules)
+│   ├── base.py (modify to enhance LLMAgent with tool capabilities)
+│   ├── factory.py (modify to support tool-enabled agent creation)
+│   ├── tool_integration.py (new - implement tool integration layer)
+│   ├── tooling.py (modify to connect with MCP server)
+│   ├── reasoning/
+│   │   ├── __init__.py (new - reasoning framework registry)
+│   │   ├── base.py (new - reasoning framework base class)
+│   │   ├── react.py (new - ReAct framework implementation)
+│   │   ├── cot.py (new - Chain-of-Thought implementation)
+│   │   ├── swe.py (new - Software Engineering framework)
+│   │   └── mcp.py (new - MCP framework implementation)
+├── mcp/
+│   ├── __init__.py (new - expose MCP functionality)
+│   ├── server.py (new - MCP server implementation)
+│   ├── client.py (new - client for connecting to MCP server)
+│   └── utils.py (new - MCP utility functions)
+├── prompt/
+│   ├── templates/
+│   │   ├── system/ (existing with new prompt files)
+│   │   │   ├── base.prompt (update)
+│   │   │   ├── with_tools.prompt (update)
+│   │   │   ├── react.prompt (new)
+│   │   │   ├── cot.prompt (new)
+│   │   │   ├── mcp.prompt (new)
+│   │   │   ├── swe.prompt (new)
+│   │   │   ├── tool_error.prompt (new)
+│   │   │   └── planning.prompt (new)
+│   │   ├── roles/ (existing with new roles)
+│   │   │   ├── developer.prompt (update)
+│   │   │   ├── researcher.prompt (update)
+│   │   │   ├── browser_agent.prompt (new)
+│   │   │   └── planner.prompt (new)
+│   │   ├── tools/ (new directory for tool-specific prompts)
+│   │   │   ├── browser.prompt (new)
+│   │   │   ├── file_operations.prompt (new)
+│   │   │   ├── code_execution.prompt (new)
+│   │   │   ├── research.prompt (new)
+│   │   │   └── planning.prompt (new)
+│   │   ├── composite/ (existing with new composite prompts)
+│   │   │   ├── developer_with_tools.prompt (update)
+│   │   │   ├── researcher_with_tools.prompt (new) 
+│   │   │   ├── browser_agent.prompt (new)
+│   │   │   ├── planner_with_tools.prompt (new)
+│   │   │   └── all_capable_agent.prompt (new)
+```
+
+### Composite vs. Dynamic Composition
+
+### Best Practice
+
+A good approach is to:
+
+1. Create composite templates for your core agent types
+2. Use dynamic composition for custom variants and special cases
+3. Have your AgentFactory/AgentBuilder support both approaches:
+   - Use composite templates by default for standard agent types
+   - Fall back to dynamic composition for custom configurations
+
+So in summary: Composite templates aren't redundant with your composition methods - they serve complementary purposes. The composite templates provide high-quality blueprints for common agent types, while the composition methods provide flexibility for customization.
+______________________________________________________________________
+
 #### git ingest
 
 enterprise_ai/tool/planning,enterprise_ai/tool/content,enterprise_ai/tool/file,enterprise_ai/tool/research,enterprise_ai/tool/utility
