@@ -299,7 +299,7 @@ def get_tool_prompt_for_reasoning(reasoning_type: str, tools_description: str) -
         logger.warning(f"Error formatting fallback tool prompt: {e}")
 
     # Final fallback - a minimal tools description
-    return f"""You have access to tools that extend your capabilities. 
+    return f"""You have access to tools that extend your capabilities.
 
 Available tools:
 {tools_description}

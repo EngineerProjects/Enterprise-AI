@@ -2,14 +2,16 @@
 Role and team registry system for Enterprise AI.
 
 This module provides registries for managing agent roles and teams,
-enabling centralized management, discovery, and assignment.
+enabling centralized management, discovery, and assignment with
+tool sharing capabilities.
 """
 
 from typing import Any, Dict, List, Optional, Set, Union, cast
 
 from enterprise_ai.agent.types import AgentRole
 from enterprise_ai.agent.role import create_role
-from enterprise_ai.team.types import TeamProtocol
+from enterprise_ai.team.types import TeamProtocol, ToolCapableTeamProtocol
+from enterprise_ai.tool.core.base import BaseTool
 from enterprise_ai.logger import get_logger
 
 logger = get_logger("team.registry")
@@ -172,7 +174,8 @@ class TeamRegistry:
     """Registry for managing and retrieving teams.
 
     This class maintains a collection of teams that can be accessed and
-    managed throughout the system, supporting team lookup by ID or capabilities.
+    managed throughout the system, supporting team lookup by ID, capability,
+    or tool requirements.
     """
 
     def __init__(self) -> None:
@@ -180,14 +183,18 @@ class TeamRegistry:
         self._teams: Dict[str, TeamProtocol] = {}
         self._capabilities_index: Dict[str, Set[str]] = {}  # Capability to team IDs mapping
         self._tags_index: Dict[str, Set[str]] = {}  # Tag to team IDs mapping
+        self._tool_index: Dict[str, Set[str]] = {}  # Tool name to team IDs mapping
         logger.info("Initialized team registry")
 
-    def register_team(self, team: TeamProtocol, tags: Optional[List[str]] = None) -> None:
+    def register_team(
+        self, team: TeamProtocol, tags: Optional[List[str]] = None, register_tools: bool = True
+    ) -> None:
         """Register a team with the registry.
 
         Args:
             team: Team to register
             tags: Optional list of tags for categorizing the team
+            register_tools: Whether to index the team's tools
 
         Raises:
             ValueError: If a team with the same ID already exists
@@ -204,6 +211,18 @@ class TeamRegistry:
                 if tag not in self._tags_index:
                     self._tags_index[tag] = set()
                 self._tags_index[tag].add(team.id)
+
+        # Index team's tool capabilities
+        if register_tools and hasattr(team, "get_available_tools"):
+            try:
+                tool_map = team.get_available_tools()
+                for agent_tools in tool_map.values():
+                    for tool_name in agent_tools:
+                        if tool_name not in self._tool_index:
+                            self._tool_index[tool_name] = set()
+                        self._tool_index[tool_name].add(team.id)
+            except Exception as e:
+                logger.warning(f"Error indexing tools for team {team.id}: {e}")
 
         logger.info(f"Registered team: {team.id} ({team.name})")
 
@@ -227,6 +246,10 @@ class TeamRegistry:
         # Remove from tags index
         for tag_set in self._tags_index.values():
             tag_set.discard(team_id)
+
+        # Remove from tool index
+        for tool_set in self._tool_index.values():
+            tool_set.discard(team_id)
 
         # Remove team
         del self._teams[team_id]
@@ -312,6 +335,59 @@ class TeamRegistry:
 
         return result
 
+    def find_teams_by_tool(self, tool_name: str) -> List[TeamProtocol]:
+        """
+        Find teams that have access to a specific tool.
+
+        Args:
+            tool_name: Name of the tool to search for
+
+        Returns:
+            List of teams with access to the specified tool
+        """
+        if tool_name not in self._tool_index:
+            return []
+
+        team_ids = self._tool_index[tool_name]
+        return [self._teams[team_id] for team_id in team_ids if team_id in self._teams]
+
+    def update_team_tools(self, team_id: str) -> bool:
+        """
+        Update the tool index for a specific team.
+
+        Args:
+            team_id: ID of the team to update
+
+        Returns:
+            True if update was successful, False otherwise
+        """
+        if team_id not in self._teams:
+            logger.warning(f"Team with ID {team_id} not found in registry")
+            return False
+
+        team = self._teams[team_id]
+
+        # Remove team from all tool entries
+        for tool_teams in self._tool_index.values():
+            tool_teams.discard(team_id)
+
+        # Re-index team's tools
+        if hasattr(team, "get_available_tools"):
+            try:
+                tool_map = team.get_available_tools()
+                for agent_tools in tool_map.values():
+                    for tool_name in agent_tools:
+                        if tool_name not in self._tool_index:
+                            self._tool_index[tool_name] = set()
+                        self._tool_index[tool_name].add(team_id)
+
+                logger.info(f"Updated tool index for team {team_id}")
+                return True
+            except Exception as e:
+                logger.warning(f"Error updating tool index for team {team_id}: {e}")
+
+        return False
+
     def add_team_tags(self, team_id: str, tags: List[str]) -> bool:
         """Add tags to a team.
 
@@ -357,6 +433,46 @@ class TeamRegistry:
 
         logger.info(f"Removed tags {tags} from team {team_id}")
         return True
+
+    def register_tool_with_team(self, team_id: str, tool: BaseTool, owner_id: str) -> bool:
+        """
+        Register a tool with a specific team.
+
+        Args:
+            team_id: ID of the team
+            tool: Tool to register
+            owner_id: ID of the agent that owns the tool
+
+        Returns:
+            True if registration was successful, False otherwise
+        """
+        if team_id not in self._teams:
+            logger.warning(f"Team with ID {team_id} not found in registry")
+            return False
+
+        team = self._teams[team_id]
+
+        # Check if team supports tool registration
+        if hasattr(team, "register_team_tool"):
+            try:
+                success = team.register_team_tool(tool, owner_id)
+
+                if success:
+                    # Update tool index
+                    if tool.name not in self._tool_index:
+                        self._tool_index[tool.name] = set()
+                    self._tool_index[tool.name].add(team_id)
+
+                    logger.info(f"Registered tool {tool.name} with team {team_id}")
+                    return True
+                else:
+                    logger.warning(f"Failed to register tool {tool.name} with team {team_id}")
+            except Exception as e:
+                logger.error(f"Error registering tool {tool.name} with team {team_id}: {e}")
+        else:
+            logger.warning(f"Team {team_id} does not support tool registration")
+
+        return False
 
 
 # Singleton instances for global registries
