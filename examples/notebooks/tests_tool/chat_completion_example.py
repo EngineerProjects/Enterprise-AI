@@ -16,7 +16,7 @@ from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 
 # Import common utilities
-from notebooks.utils import (
+from examples.notebooks.utils import (
     setup_project_path,
     print_title,
     print_section,
