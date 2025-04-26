@@ -35,4 +35,4 @@ jobs:
           uv run --python .venv/bin/python mypy --show-error-codes enterprise_ai/
 
       - name: Run tests
-        run: uv run --python .venv/bin/python pytest -xvs tests/
+        run: uv run --python .venv/bin/python pytest -xvs examples/tests/
