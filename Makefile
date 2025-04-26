@@ -27,7 +27,7 @@ install:
 
 test:
 	@echo "Running tests..."
-	@uv run --python $(PYTHON) pytest -xvs examples/tests/
+	@uv run --python $(PYTHON) pytest -xvs tests/
 
 lint:
 	@echo "Running linters..."
