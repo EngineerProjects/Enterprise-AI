@@ -1,19 +1,14 @@
 #!/usr/bin/env python
 """
-Enterprise AI WebSearch Examples (Mock Implementation)
+Enterprise AI WebSearch Examples (Real Implementation)
 
-This script demonstrates how to use the WebSearch tool conceptually:
-- Basic web searching
-- Using different search engines
-- Fetching and analyzing web content
-- Controlling search parameters
-- Error handling
+This script demonstrates how to use the WebSearch tool via direct object creation
+and manipulation, bypassing Pydantic validation issues.
 """
 
 import asyncio
 import sys
-import time
-import random
+import uuid
 from typing import Dict, List, Optional, Any
 
 # Import common utilities
@@ -27,7 +22,7 @@ from examples.notebooks.utils import (
     print_warning,
     separator,
     AsyncTimer,
-    run_async
+    run_async,
 )
 
 # Set up project path
@@ -35,161 +30,99 @@ project_root = setup_project_path()
 
 # Import enterprise_ai modules
 from enterprise_ai.tool.core.result import ToolResult
+from enterprise_ai.mcp.client import MCPClient
+from enterprise_ai.mcp.server import get_mcp_server
+from enterprise_ai.tool.core.base import BaseTool
+
+# Import WebSearch directly - we'll fix it later
+from enterprise_ai.tool.research.web_search import WebSearch
 
 
-class MockSearchResult:
-    """Mock search result for demonstrations."""
-    def __init__(self, position, url, title, description, source):
-        self.position = position
-        self.url = url
-        self.title = title
-        self.description = description
-        self.source = source
-        self.raw_content = None
-
-
-class MockWebSearch:
-    """Mock version of the WebSearch tool to demonstrate concepts."""
+# Create an adapter that avoids inheritance problems with Pydantic
+class WebSearchAdapter:
+    """An adapter for WebSearch that avoids Pydantic validation issues."""
 
     def __init__(self):
-        """Initialize the mock search tool."""
+        """Initialize the adapter with WebSearch name/description/parameters."""
+        # Get the class static attributes
         self.name = "web_search"
         self.description = """Search the web for real-time information about any topic.
-This tool returns comprehensive search results with relevant information, URLs, titles, and descriptions."""
+        This tool returns comprehensive search results with relevant information, URLs, titles, and descriptions.
+        If the primary search engine fails, it automatically falls back to alternative engines."""
+        self.parameters = getattr(WebSearch, "parameters", {})
 
     async def execute(self, **kwargs):
-        """Simulate execution of a web search."""
-        # Extract parameters
-        query = kwargs.get("query", "")
-        num_results = kwargs.get("num_results", 5)
-        fetch_content = kwargs.get("fetch_content", False)
-        search_engine = kwargs.get("search_engine", "auto")
-        lang = kwargs.get("lang", "en")
-        country = kwargs.get("country", "us")
+        """Execute the search by manually creating and initializing WebSearch."""
+        try:
+            # Create a minimal but working WebSearch instance
+            from enterprise_ai.tool.research.web_search import WebContentFetcher
+            from enterprise_ai.config import get_config
 
-        # Validate input
-        if not query:
-            return ToolResult(error="Query parameter is required")
+            # This is our secret trick - create a new WebSearch instance
+            # but DON'T call __init__ which causes problems
+            websearch = WebSearch.__new__(WebSearch)
 
-        if search_engine not in ["auto", "google", "bing", "duckduckgo", "baidu"]:
-            return ToolResult(error=f"Invalid search engine: {search_engine}")
+            # Set required BaseTool attributes using object.__setattr__
+            # to bypass Pydantic validation
+            object.__setattr__(websearch, "name", self.name)
+            object.__setattr__(websearch, "description", self.description)
+            object.__setattr__(websearch, "parameters", self.parameters)
 
-        # Simulate search delay
-        await asyncio.sleep(0.5 + random.random())
+            # Initialize other needed attributes
+            object.__setattr__(websearch, "_search_engines", {})
+            # Call the initialization method
+            websearch._initialize_search_engines()
 
-        # Generate mock results
-        mock_results = self._generate_mock_results(query, num_results, search_engine)
+            # Set up content fetcher
+            object.__setattr__(websearch, "content_fetcher", WebContentFetcher())
 
-        # Fetch content if requested
-        if fetch_content:
-            await self._add_mock_content(mock_results)
+            # Set up results cache
+            object.__setattr__(websearch, "_results_cache", {})
+            object.__setattr__(websearch, "_cache_expiry", get_config("search.cache_expiry", 300))
 
-        # Format the output
-        output = self._format_search_output(query, mock_results, search_engine, lang, country)
+            # Now that our WebSearch is fully initialized, execute the search
+            return await websearch.execute(**kwargs)
 
-        # Return results
-        return ToolResult(output=output)
+        except Exception as e:
+            print_error(f"WebSearch execution error: {e}")
+            import traceback
 
-    def _generate_mock_results(self, query, num_results, engine):
-        """Generate mock search results."""
-        results = []
-        domains = ["example.com", "informative-site.org", "knowledgebase.net",
-                  "learning-portal.edu", "reference.io"]
+            traceback.print_exc()
+            return ToolResult(error=f"Error: {str(e)}")
 
-        for i in range(num_results):
-            domain = random.choice(domains)
-            url = f"https://www.{domain}/article-{i+1}"
-            title = f"Information about {query.title()} - Article {i+1}"
-            description = f"This page contains detailed information about {query} with explanations, examples, and references."
 
-            results.append(MockSearchResult(
-                position=i+1,
-                url=url,
-                title=title,
-                description=description,
-                source=engine
-            ))
+# ===== TEST EXAMPLES =====
 
-        return results
 
-    async def _add_mock_content(self, results):
-        """Add mock content to search results."""
-        for result in results:
-            # Simulate content retrieval delay
-            await asyncio.sleep(0.2)
+async def run_search_example(session_id, query, **kwargs):
+    """Run a search query using our adapter."""
+    try:
+        # Create the WebSearchAdapter
+        search_adapter = WebSearchAdapter()
 
-            # Generate mock content
-            content = f"""<!DOCTYPE html>
-<html>
-<head>
-    <title>{result.title}</title>
-</head>
-<body>
-    <h1>{result.title}</h1>
-    <p>{result.description}</p>
-    <p>Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt
-    ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation
-    ullamco laboris nisi ut aliquip ex ea commodo consequat.</p>
-    <h2>Key Points</h2>
-    <ul>
-        <li>Important information about the topic</li>
-        <li>Relevant facts and figures</li>
-        <li>Historical context and background</li>
-    </ul>
-</body>
-</html>"""
+        # Execute search directly through adapter
+        return await search_adapter.execute(query=query, **kwargs)
+    except Exception as e:
+        print_error(f"Search execution error: {e}")
+        import traceback
 
-            result.raw_content = content
-
-    def _format_search_output(self, query, results, engine, lang, country):
-        """Format search results into readable output."""
-        output = [f"Search results for '{query}':"]
-
-        for i, result in enumerate(results, 1):
-            # Add title with position number
-            title = result.title.strip() or "No title"
-            output.append(f"\n{i}. {title}")
-
-            # Add URL with proper indentation
-            output.append(f"   URL: {result.url}")
-
-            # Add description if available
-            if result.description:
-                desc = result.description.strip()
-                output.append(f"   Description: {desc}")
-
-            # Add content preview if available
-            if result.raw_content:
-                content_preview = result.raw_content.replace("\n", " ")[:100]
-                output.append(f"   Content Preview: {content_preview}...")
-
-        # Add metadata
-        output.extend([
-            "\nMetadata:",
-            f"- Total results: {len(results)}",
-            f"- Language: {lang}",
-            f"- Country: {country}",
-            f"- Engine used: {engine}",
-            f"- Time taken: {0.5 + random.random():.2f} seconds"
-        ])
-
-        return "\n".join(output)
+        traceback.print_exc()
+        return ToolResult(error=f"Error: {str(e)}")
 
 
 async def basic_search_example() -> None:
     """Example of basic web search functionality."""
     print_section("Basic Web Search")
 
-    # Create the mock WebSearch tool
-    search_tool = MockWebSearch()
-
     try:
-        # Basic search with default parameters
+        # Create a unique session ID
+        session_id = f"test-session-{uuid.uuid4()}"
+
+        # Run a basic search
         print_info("Performing a basic search for 'Enterprise AI frameworks'...")
         async with AsyncTimer("Basic search"):
-            result = await search_tool.execute(
-                query="Enterprise AI frameworks",
-                num_results=3
+            result = await run_search_example(
+                session_id=session_id, query="Enterprise AI frameworks", num_results=3
             )
 
         if isinstance(result, ToolResult):
@@ -202,16 +135,19 @@ async def basic_search_example() -> None:
 
     except Exception as e:
         print_error(f"Error in basic search example: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 async def search_engines_example() -> None:
     """Example of using different search engines."""
     print_section("Different Search Engines")
 
-    # Create the mock WebSearch tool
-    search_tool = MockWebSearch()
-
     try:
+        # Create a unique session ID
+        session_id = f"test-session-{uuid.uuid4()}"
+
         # Try different search engines for the same query
         engines = ["google", "bing", "duckduckgo", "auto"]
         query = "Python programming language"
@@ -220,10 +156,8 @@ async def search_engines_example() -> None:
             print_info(f"\nSearching with {engine.capitalize()} engine...")
             try:
                 async with AsyncTimer(f"{engine.capitalize()} search"):
-                    result = await search_tool.execute(
-                        query=query,
-                        num_results=2,
-                        search_engine=engine
+                    result = await run_search_example(
+                        session_id=session_id, query=query, num_results=2, search_engine=engine
                     )
 
                 if isinstance(result, ToolResult):
@@ -240,23 +174,27 @@ async def search_engines_example() -> None:
 
     except Exception as e:
         print_error(f"Error in search engines example: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 async def content_fetch_example() -> None:
     """Example of fetching and analyzing content from search results."""
     print_section("Content Fetching")
 
-    # Create the mock WebSearch tool
-    search_tool = MockWebSearch()
-
     try:
+        # Create a unique session ID
+        session_id = f"test-session-{uuid.uuid4()}"
+
         # Perform a search with content fetching enabled
         print_info("Searching for 'climate change solutions' with content fetching...")
         async with AsyncTimer("Content fetch search"):
-            result = await search_tool.execute(
+            result = await run_search_example(
+                session_id=session_id,
                 query="climate change solutions",
                 num_results=2,
-                fetch_content=True
+                fetch_content=True,
             )
 
         if isinstance(result, ToolResult):
@@ -264,7 +202,7 @@ async def content_fetch_example() -> None:
                 print_error(f"Error: {result.error}")
             else:
                 print(result.output)
-                print_info("\nNote: When content fetching is enabled, the WebSearch tool will:")
+                print_info("\nWhen content fetching is enabled, the WebSearch tool will:")
                 print("1. Retrieve the full HTML content of each result page")
                 print("2. Extract relevant text content for analysis")
                 print("3. Include content previews in the results")
@@ -272,24 +210,28 @@ async def content_fetch_example() -> None:
 
     except Exception as e:
         print_error(f"Error in content fetch example: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 async def search_parameters_example() -> None:
     """Example of controlling search parameters."""
     print_section("Search Parameters")
 
-    # Create the mock WebSearch tool
-    search_tool = MockWebSearch()
-
     try:
+        # Create a unique session ID
+        session_id = f"test-session-{uuid.uuid4()}"
+
         # Example with language and country parameters
         print_info("Searching in French (fr) from France (fr)...")
         async with AsyncTimer("French search"):
-            result = await search_tool.execute(
+            result = await run_search_example(
+                session_id=session_id,
                 query="actualités politiques",  # "political news" in French
                 num_results=3,
                 lang="fr",
-                country="fr"
+                country="fr",
             )
 
         if isinstance(result, ToolResult):
@@ -301,9 +243,7 @@ async def search_parameters_example() -> None:
                 if len(output_lines) > 15:
                     print("... (output truncated)")
 
-        # Example with different result count
-        print_info("\nControlling the number of search results:")
-        print_info("Note: The WebSearch tool provides these parameters:")
+        print_info("\nThe WebSearch tool provides these parameters:")
         print("- num_results: Controls how many search results to return")
         print("- lang: Sets the language code for results (e.g., 'en', 'fr', 'de')")
         print("- country: Sets the country code for results (e.g., 'us', 'fr', 'de')")
@@ -312,22 +252,23 @@ async def search_parameters_example() -> None:
 
     except Exception as e:
         print_error(f"Error in search parameters example: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 async def error_handling_example() -> None:
     """Example of handling search errors and edge cases."""
     print_section("Error Handling")
 
-    # Create the mock WebSearch tool
-    search_tool = MockWebSearch()
-
     try:
+        # Create a unique session ID
+        session_id = f"test-session-{uuid.uuid4()}"
+
         # Empty query
         print_info("Attempting search with empty query...")
         async with AsyncTimer("Empty query"):
-            result = await search_tool.execute(
-                query=""
-            )
+            result = await run_search_example(session_id=session_id, query="")
 
         if isinstance(result, ToolResult):
             if result.error:
@@ -339,9 +280,8 @@ async def error_handling_example() -> None:
         # Invalid search engine
         print_info("\nAttempting search with invalid search engine...")
         async with AsyncTimer("Invalid engine"):
-            result = await search_tool.execute(
-                query="test query",
-                search_engine="invalid_engine"
+            result = await run_search_example(
+                session_id=session_id, query="test query", search_engine="invalid_engine"
             )
 
         if isinstance(result, ToolResult):
@@ -351,7 +291,7 @@ async def error_handling_example() -> None:
                 print_error("Command unexpectedly succeeded")
                 print(result.output)
 
-        print_info("\nNote: The WebSearch tool handles these common errors:")
+        print_info("\nThe WebSearch tool handles these common errors:")
         print("- Empty or invalid queries")
         print("- Invalid search engine specifications")
         print("- Connection failures (with automatic fallback to other engines)")
@@ -360,6 +300,9 @@ async def error_handling_example() -> None:
 
     except Exception as e:
         print_error(f"Error in error handling example: {e}")
+        import traceback
+
+        traceback.print_exc()
 
 
 async def run_examples() -> None:
@@ -382,13 +325,16 @@ async def run_examples() -> None:
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 def main():
     """Main entry point for web search examples."""
-    print_title("Enterprise AI Web Search Examples (Mock Implementation)")
-    print_info("Note: This script demonstrates WebSearch concepts using a mock implementation")
-    print_info("The actual WebSearch tool provides real web search results")
+    print_title("Enterprise AI Web Search Examples (Real Implementation)")
+    print_info(
+        "This script demonstrates the actual WebSearch tool functionality with real searches"
+    )
 
     try:
         # Run all examples asynchronously
@@ -398,7 +344,9 @@ def main():
     except Exception as e:
         print_error(f"Error running examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

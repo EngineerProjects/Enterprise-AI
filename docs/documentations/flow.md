@@ -548,11 +548,11 @@ def analyze_sentiment(context):
     # Simple sentiment analysis
     positive_words = ["good", "great", "excellent"]
     negative_words = ["bad", "terrible", "awful"]
-    
+
     words = text.lower().split()
     positive_count = sum(1 for word in words if word in positive_words)
     negative_count = sum(1 for word in words if word in negative_words)
-    
+
     sentiment = "positive" if positive_count > negative_count else "negative" if negative_count > positive_count else "neutral"
     return {"sentiment": sentiment}
 
@@ -752,7 +752,7 @@ from enterprise_ai.agent import create_agent
 # Create agents
 researcher = create_agent(agent_type="llm", name="Researcher", role_type="researcher")
 developer = create_agent(agent_type="llm", name="Developer", role_type="developer")
-marketer = create_agent(agent_type="llm", name="Marketer", role_type="custom", 
+marketer = create_agent(agent_type="llm", name="Marketer", role_type="custom",
                         role_kwargs={"name": "Marketing Specialist"})
 
 # Create a workflow with conditional branching
@@ -930,15 +930,15 @@ async def run_workflow():
         wait_for_completion=True,
         initial_context={"priority": "high"}
     )
-    
+
     print(f"Execution status: {status.name}")
     print(f"Result: {result}")
-    
+
     # Get execution history
     history = manager.get_workflow_execution_history(workflow_id)
     print(f"Execution count: {len(history)}")
     print(f"Last execution duration: {history[-1]['duration']:.2f} seconds")
-    
+
     # Get all workflows
     all_workflows = manager.get_all_workflows()
     print(f"Total workflows: {len(all_workflows)}")
@@ -955,7 +955,7 @@ from enterprise_ai.team import create_team
 
 # Create specialized agents
 document_processor = create_agent(agent_type="llm", name="Document Processor", role_type="analyst")
-language_translator = create_agent(agent_type="llm", name="Translator", role_type="custom", 
+language_translator = create_agent(agent_type="llm", name="Translator", role_type="custom",
                                   role_kwargs={"name": "Language Specialist"})
 data_extractor = create_agent(agent_type="llm", name="Data Extractor", role_type="analyst")
 summary_writer = create_agent(agent_type="llm", name="Summary Writer", role_type="writer")
@@ -973,7 +973,7 @@ workflow = (WorkflowBuilder("Document Processing Pipeline")
         name="Load Document",
         function=lambda ctx: {"document": "Sample quarterly financial report..."}
     )
-    
+
     # Document preprocessing
     .add_agent_task(
         name="Document Cleanup",
@@ -981,7 +981,7 @@ workflow = (WorkflowBuilder("Document Processing Pipeline")
         task_description="Clean and normalize this document: {document}",
         result_key="cleaned_document"
     )
-    
+
     # Language detection and potential translation
     .add_condition(
         name="Check Language",
@@ -997,7 +997,7 @@ workflow = (WorkflowBuilder("Document Processing Pipeline")
             function=lambda ctx: {"translated_document": ctx["cleaned_document"]}
         )
     )
-    
+
     # Extract structured data
     .add_agent_task(
         name="Extract Data",
@@ -1005,7 +1005,7 @@ workflow = (WorkflowBuilder("Document Processing Pipeline")
         task_description="Extract key financial metrics from this document: {translated_document}",
         result_key="extracted_data"
     )
-    
+
     # Parallel analysis
     .add_parallel(
         name="Multi-faceted Analysis",
@@ -1037,24 +1037,24 @@ workflow = (WorkflowBuilder("Document Processing Pipeline")
         ],
         merge_results=True
     )
-    
+
     # Create comprehensive report
     .add_agent_task(
         name="Generate Summary Report",
         agent=summary_writer,
         task_description="""Create a comprehensive executive summary based on the following analyses:
-        
+
         Financial Analysis: {financial_analysis}
-        
+
         Business Impact: {business_analysis}
-        
+
         Risk Assessment: {risk_assessment}
-        
+
         Include key metrics, trends, opportunities, and potential risks.
         """,
         result_key="executive_summary"
     )
-    
+
     # Finalize and format document
     .add_function(
         name="Format Final Report",
@@ -1451,20 +1451,20 @@ async def run_workflows():
         wait_for_completion=False,
         initial_context={"priority": "high"}
     )
-    
+
     # Monitor status
     status = manager.get_workflow_status(workflow_id1)
     print(f"Workflow status: {status.name}")
-    
+
     # Control execution if needed
     if some_condition:
         manager.pause_workflow(workflow_id1)
         # Later...
         manager.resume_workflow(workflow_id1)
-    
+
     # Execute another workflow and wait for completion
     status, result = await manager.execute_workflow(workflow_id2)
-    
+
     # Get execution history
     history = manager.get_workflow_execution_history(workflow_id1)
     print(f"Execution count: {len(history)}")

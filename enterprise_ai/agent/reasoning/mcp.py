@@ -51,8 +51,8 @@ class MCPReasoning(ToolBasedReasoning):
         Returns:
             Response message
         """
-        # Extract LLM provider
-        llm_provider = kwargs.get("llm_provider")
+        # Extract LLM provider and remove from kwargs to avoid serialization issues
+        llm_provider = kwargs.pop("llm_provider", None)
         if not llm_provider:
             logger.error(f"No LLM provider available for agent {agent.id}")
             return cast(
@@ -161,7 +161,9 @@ class MCPReasoning(ToolBasedReasoning):
         # Generate response from LLM
         try:
             # Use function calling if supported by the model
-            function_calling = llm_provider.supports_feature("function_calling")
+            function_calling = False
+            if hasattr(llm_provider, "supports_feature"):
+                function_calling = llm_provider.supports_feature("function_calling")
 
             # Get available tools if function calling is supported
             tools_schema = []
@@ -175,10 +177,11 @@ class MCPReasoning(ToolBasedReasoning):
                     tools_schema = loop.run_until_complete(tool_manager.get_tool_schemas())
 
             # Add tools to kwargs if available
+            sanitized_kwargs = {k: v for k, v in kwargs.items() if not str(k) == "llm_provider"}
             if tools_schema:
-                kwargs["tools"] = tools_schema
+                sanitized_kwargs["tools"] = tools_schema
 
-            response = llm_provider.complete(messages, **kwargs)
+            response = llm_provider.complete(messages, **sanitized_kwargs)
             return cast(MessageProtocol, response)
         except Exception as e:
             logger.error(f"Error in MCP reasoning for agent {agent.id}: {e}")

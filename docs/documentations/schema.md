@@ -262,17 +262,17 @@ class SimpleAgent:
     def __init__(self, system_prompt):
         self.memory = InMemoryConversation(system_prompt=system_prompt)
         self.options = CompletionOptions(temperature=0.7, max_tokens=1024)
-    
+
     def respond_to_user(self, user_input):
         # Add user message to memory
         self.memory.add_user_message(user_input)
-        
+
         # Get conversation history
         messages = self.memory.get_messages()
-        
+
         # Generate response using LLM (simplified)
         # response = llm.complete(messages, self.options)
-        
+
         # Add assistant response to memory
         # self.memory.add_assistant_message(response)
         # return response

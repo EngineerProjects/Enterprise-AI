@@ -25,7 +25,7 @@ from examples.notebooks.utils import (
     print_warning,
     separator,
     AsyncTimer,
-    run_async
+    run_async,
 )
 
 # Set up project path
@@ -57,9 +57,7 @@ class SimpleBash:
         try:
             # Use asyncio.create_subprocess_shell to run the command
             process = await asyncio.create_subprocess_shell(
-                command,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
 
             # Wait for the command to complete with timeout
@@ -148,12 +146,16 @@ async def bash_file_operations_example() -> None:
         # Create a file - simple command
         print_info(f"Creating a test file at {test_file}")
         async with AsyncTimer("File creation"):
-            result = await bash.execute(command=f"echo 'This is a test file created by the Bash utility' > {test_file}")
+            result = await bash.execute(
+                command=f"echo 'This is a test file created by the Bash utility' > {test_file}"
+            )
 
         if isinstance(result, CLIResult) and not result.error:
             print_success("File created successfully")
         else:
-            print_error(f"File creation failed: {result.error if isinstance(result, CLIResult) else 'Unknown error'}")
+            print_error(
+                f"File creation failed: {result.error if isinstance(result, CLIResult) else 'Unknown error'}"
+            )
             return
 
         # View the file contents
@@ -189,10 +191,12 @@ async def bash_background_process_example() -> None:
 
     try:
         # Create a simple file to demonstrate background processing
-        print_info(f"Creating a demonstration file for background processes...")
+        print_info("Creating a demonstration file for background processes...")
         async with AsyncTimer("File creation"):
             # Create a simple file
-            result = await bash.execute(command=f"echo 'This demonstrates background processing' > {output_file}")
+            result = await bash.execute(
+                command=f"echo 'This demonstrates background processing' > {output_file}"
+            )
 
         if isinstance(result, CLIResult) and not result.error:
             print_success(f"File created at {output_file}")
@@ -286,7 +290,9 @@ async def run_examples() -> None:
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 def main():
     """Main entry point for Bash execution examples."""
@@ -300,7 +306,9 @@ def main():
     except Exception as e:
         print_error(f"Error running examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

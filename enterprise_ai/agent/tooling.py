@@ -187,18 +187,27 @@ class AgentToolManager:
         Returns:
             String with formatted tool descriptions
         """
-        # If using MCP client, use its formatter
-        if self._mcp_client and self._mcp_initialized:
-            tools = self._mcp_client.discover_tools()
-            return format_tool_descriptions(tools)
+        try:
+            # If using MCP client, use its formatter
+            if self._mcp_client and self._mcp_initialized:
+                tools = self._mcp_client.discover_tools()
+                return format_tool_descriptions(tools)
 
-        # Format local tools
-        tools_list = []
-        for name, tool in self._tools.items():
-            tool_dict = tool.to_param()
-            tools_list.append(tool_dict)
+            # Format local tools
+            tools_list = []
+            for name, tool in self._tools.items():
+                try:
+                    if hasattr(tool, "to_param"):
+                        tool_dict = tool.to_param()
+                        tools_list.append(tool_dict)
+                except Exception as e:
+                    logger.warning(f"Error formatting tool {name}: {e}")
+                    # Skip this tool and continue with others
 
-        return format_tool_descriptions(tools_list)
+            return format_tool_descriptions(tools_list)
+        except Exception as e:
+            logger.error(f"Error formatting tool descriptions: {e}")
+            return ""
 
     async def get_tool_schemas(self) -> List[Dict[str, Any]]:
         """Get schemas for all available tools.

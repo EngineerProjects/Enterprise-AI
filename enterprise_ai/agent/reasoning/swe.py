@@ -52,8 +52,8 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
         Returns:
             Response message
         """
-        # Extract LLM provider
-        llm_provider = kwargs.get("llm_provider")
+        # Extract LLM provider and remove from kwargs to avoid serialization issues
+        llm_provider = kwargs.pop("llm_provider", None)
         if not llm_provider:
             logger.error(f"No LLM provider available for agent {agent.id}")
             return cast(
@@ -160,7 +160,9 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
 
         # Generate response from LLM
         try:
-            response = llm_provider.complete(messages, **kwargs)
+            # Remove any provider reference that might have been added back
+            sanitized_kwargs = {k: v for k, v in kwargs.items() if not str(k) == "llm_provider"}
+            response = llm_provider.complete(messages, **sanitized_kwargs)
             return cast(MessageProtocol, response)
         except Exception as e:
             logger.error(f"Error in SWE reasoning for agent {agent.id}: {e}")

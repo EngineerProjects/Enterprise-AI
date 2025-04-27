@@ -24,7 +24,7 @@ from examples.notebooks.utils import (
     print_warning,
     separator,
     AsyncTimer,
-    run_async
+    run_async,
 )
 
 # Set up project path
@@ -402,7 +402,9 @@ async def run_examples() -> None:
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 def main():
     """Main entry point for Python execution examples."""
@@ -416,7 +418,9 @@ def main():
     except Exception as e:
         print_error(f"Error running examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

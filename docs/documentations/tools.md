@@ -78,13 +78,13 @@ class ToolRegistry:
 
     def register(self, tool_cls: Type["BaseTool"], category: Optional[str] = None) -> Type["BaseTool"]:
         """Register a tool class with the registry."""
-        
+
     def get_tool_class(self, name: str) -> Optional[Type["BaseTool"]]:
         """Get a tool class by name."""
-        
+
     def create_tool(self, name: str, **kwargs: Any) -> Optional["BaseTool"]:
         """Create a tool instance by name."""
-        
+
     def get_tools_by_category(self, category: str) -> List[Type["BaseTool"]]:
         """Get all tool classes in a category."""
 ```
@@ -108,10 +108,10 @@ class ToolCollection:
     def __init__(self, *tools: BaseTool):
         self.tools = tools
         self.tool_map = {tool.name: tool for tool in tools}
-        
+
     async def execute(self, *, name: str, tool_input: Optional[Dict[str, Any]] = None) -> ToolResult:
         """Execute a specific tool by name with provided input."""
-        
+
     def to_params(self) -> List[Dict[str, Any]]:
         """Convert all tools to function call format."""
 ```
@@ -809,17 +809,17 @@ async def research_and_analyze():
     # Create tools
     web_search = WebSearch()
     browser = BrowserUseTool()
-    
+
     # 1. Perform initial search
     search_result = await web_search.execute(
         query="enterprise ai framework best practices",
         num_results=5,
         fetch_content=True
     )
-    
+
     # 2. Extract URLs from search results
     urls = [result.url for result in search_result.results]
-    
+
     # 3. Use browser to interact with first result
     if urls:
         # Navigate to page
@@ -827,15 +827,15 @@ async def research_and_analyze():
             action="go_to_url",
             url=urls[0]
         )
-        
+
         # Extract detailed information
         content_result = await browser.execute(
             action="extract_content",
             goal="Identify key enterprise AI framework components and implementation strategies"
         )
-        
+
         return content_result
-        
+
     return search_result
 ```
 
@@ -846,7 +846,7 @@ async def develop_and_test_script():
     # Create tools
     file_editor = FileEditor()
     python_exec = PythonExecute()
-    
+
     # 1. Create a Python script
     script_content = """
 import statistics
@@ -864,19 +864,19 @@ test_data = [12, 34, 21, 56, 78, 43, 24]
 results = analyze_data(test_data)
 print(f"Analysis results: {results}")
 """
-    
+
     await file_editor.execute(
         command="create",
         path="/workspace/analyze.py",
         file_text=script_content
     )
-    
+
     # 2. Execute the script
     exec_result = await python_exec.execute(
         code=script_content,
         timeout=10
     )
-    
+
     # 3. Modify the script based on results
     if "Analysis results" in exec_result.output:
         # Add more functionality
@@ -887,7 +887,7 @@ print(f"Analysis results: {results}")
             new_str="stdev = statistics.stdev(data) if len(data) > 1 else 0\nreturn {",
             make_backup=True
         )
-        
+
         await file_editor.execute(
             command="str_replace",
             path="/workspace/analyze.py",
@@ -895,18 +895,18 @@ print(f"Analysis results: {results}")
             new_str="'range': max(data) - min(data),\n        'stdev': stdev",
             make_backup=False
         )
-        
+
         # 4. Execute the updated script
         updated_script = await file_editor.execute(
             command="view",
             path="/workspace/analyze.py"
         )
-        
+
         exec_result = await python_exec.execute(
             code=updated_script.output,
             timeout=10
         )
-    
+
     return exec_result
 ```
 
@@ -917,7 +917,7 @@ async def manage_research_project():
     # Create tools
     planning = PlanningTool()
     research = DeepResearch()
-    
+
     # 1. Create a research plan
     plan_result = await planning.execute(
         command="create",
@@ -933,7 +933,7 @@ async def manage_research_project():
             "Review and finalize"
         ]
     )
-    
+
     # 2. Mark initial step as completed
     await planning.execute(
         command="mark_step",
@@ -942,14 +942,14 @@ async def manage_research_project():
         step_status="completed",
         step_notes="Focus on quantum algorithms and advantage use cases"
     )
-    
+
     # 3. Conduct research based on defined scope
     research_result = await research.execute(
         query="Quantum algorithm advantage over classical algorithms",
         max_depth=2,
         results_per_search=5
     )
-    
+
     # 4. Update plan with research findings
     await planning.execute(
         command="mark_step",
@@ -958,13 +958,13 @@ async def manage_research_project():
         step_status="completed",
         step_notes="Identified key papers on Shor's and Grover's algorithms"
     )
-    
+
     # 5. Get updated plan status
     plan_status = await planning.execute(
         command="get",
         plan_id="quantum_research"
     )
-    
+
     return {
         "plan": plan_status,
         "research": research_result
@@ -1009,7 +1009,7 @@ async def manage_research_project():
    if search_result.results:
        first_url = search_result.results[0].url
        browser_result = await browser_tool.execute(
-           action="go_to_url", 
+           action="go_to_url",
            url=first_url
        )
    ```
@@ -1147,7 +1147,7 @@ from enterprise_ai.tool.core import BaseTool, ToolResult, register_tool
 @register_tool(category="custom")
 class CustomTool(BaseTool):
     """Custom tool description."""
-    
+
     name: str = "custom_tool"
     description: str = "Detailed description of what the tool does."
     parameters: dict = {
@@ -1161,21 +1161,21 @@ class CustomTool(BaseTool):
         },
         "required": ["param1"]
     }
-    
+
     async def execute(self, **kwargs: Any) -> ToolResult:
         """Execute the custom tool."""
         # Extract parameters
         param1 = kwargs.get("param1")
         if not param1:
             return ToolResult(error="Parameter 'param1' is required")
-            
+
         try:
             # Tool implementation logic
             result = self._process_input(param1)
             return ToolResult(output=result)
         except Exception as e:
             return ToolResult(error=f"Execution failed: {str(e)}")
-            
+
     def _process_input(self, input_value: str) -> str:
         """Process the input value (internal helper method)."""
         # Implementation details

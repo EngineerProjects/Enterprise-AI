@@ -32,11 +32,11 @@ The CMS would be designed as a layer that sits between agents and their underlyi
 graph TD
     A[Agent Layer] --> B[Context Management System]
     B --> C[LLM Provider Layer]
-    
+
     B --> D[Input Processor]
     B --> E[Memory Manager]
     B --> F[Output Generator]
-    
+
     D --- G[Context Strategies]
     E --- H[Memory Types]
     F --- I[Generation Strategies]
@@ -116,16 +116,16 @@ graph TD
     B --> C[Short-term Memory]
     B --> D[Working Memory]
     B --> E[Long-term Memory]
-    
+
     C --> F[Recent Messages]
     C --> G[Current Context]
-    
+
     D --> H[Active Task State]
     D --> I[Intermediate Results]
-    
+
     E --> J[Knowledge Base]
     E --> K[Critical Facts]
-    
+
     L[New Query/Task] --> M[Memory Retrieval]
     M --> N[Memory Reconstruction]
     N --> O[Contextualized Response]
@@ -146,22 +146,22 @@ The process of generating coherent, extended outputs:
 ```mermaid
 graph TD
     A[Generation Request] --> B[Output Strategy Selection]
-    
+
     B --> C[Continuation Process]
     B --> D[Outline-Based Process]
     B --> E[Sectional Process]
-    
+
     C --> F[Generate Initial Output]
     F --> G[Check Completion Status]
     G -->|Incomplete| H[Create Continuation Prompt]
     H --> I[Generate Next Segment]
     I --> G
     G -->|Complete| J[Final Output]
-    
+
     D --> K[Generate Structured Outline]
     K --> L[Generate Each Section]
     L --> M[Assemble Complete Output]
-    
+
     E --> N[Define Output Sections]
     N --> O[Generate Each Section Independently]
     O --> P[Integrate Sections]
@@ -194,11 +194,11 @@ graph TD
     A[Agent Receives Task] --> B[Task Size/Complexity Assessment]
     B -->|Standard Task| C[Regular Agent Processing]
     B -->|Complex/Large Task| D[CMS Processing]
-    
+
     D --> E[Context Processing]
     D --> F[Memory Enhancement]
     D --> G[Extended Generation]
-    
+
     E --> H[Enhanced Agent Understanding]
     F --> H
     H --> I[Agent Response Generation]
@@ -222,19 +222,19 @@ The CMS would enable teams to share and collaborate on large contexts:
 graph TD
     A[Team Task with Large Context] --> B[Shared Context Processing]
     B --> C[Context Distribution]
-    
+
     C --> D[Manager Context View]
     C --> E[Specialized Member Views]
-    
+
     D --> F[Task Delegation with Context References]
     F --> G[Member 1 with Relevant Context]
     F --> H[Member 2 with Relevant Context]
     F --> I[Member 3 with Relevant Context]
-    
+
     G --> J[Individual Results]
     H --> J
     I --> J
-    
+
     J --> K[Result Integration]
     K --> L[Comprehensive Team Response]
 ```
@@ -255,20 +255,20 @@ The Flow integration is particularly important and would maintain context contin
 ```mermaid
 graph TD
     A[Workflow Context Initialization] --> B[Context Flow Management]
-    
+
     B --> C[Node 1 Execution]
     C --> D[Context Update & Persistence]
     D --> E[Node 2 Execution]
     E --> F[Context Update & Persistence]
     F --> G[Node 3 Execution]
-    
+
     H[Context Augmentation] --- C
     H --- E
     H --- G
-    
+
     I[Context Pruning] --- D
     I --- F
-    
+
     J[Context Retrieval] --- C
     J --- E
     J --- G
@@ -312,17 +312,17 @@ This approach ensures that:
 graph TD
     A[Large Requirements Document] --> B[Context Processing]
     B --> C[System Understanding]
-    
+
     C --> D[Architecture Design Phase]
     D --> E[Component Specification Phase]
     E --> F[Implementation Phase]
     F --> G[Testing Phase]
-    
+
     H[Context Memory] --- D
     H --- E
     H --- F
     H --- G
-    
+
     D --> I[Architecture Documentation]
     E --> J[Component Specifications]
     F --> K[Implementation Code]
@@ -343,17 +343,17 @@ The process would enable:
 graph TD
     A[Multiple Research Papers] --> B[Context Processing]
     B --> C[Knowledge Integration]
-    
+
     C --> D[Literature Analysis]
     D --> E[Gap Identification]
     E --> F[Synthesis Development]
     F --> G[Conclusion Formulation]
-    
+
     H[Research Memory] --- D
     H --- E
     H --- F
     H --- G
-    
+
     D --> I[Literature Summary]
     E --> J[Research Gaps]
     F --> K[Synthesized Findings]

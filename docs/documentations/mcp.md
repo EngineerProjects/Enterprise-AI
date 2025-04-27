@@ -23,7 +23,7 @@ The `MCPServer` class is the central component of the MCP system, managing sessi
 ```python
 class MCPServer:
     """Model Context Protocol server that manages tool access."""
-    
+
     def create_session(
         self,
         session_id: str,
@@ -31,13 +31,13 @@ class MCPServer:
         tool_names: Optional[List[str]] = None,
     ) -> MCPSession:
         """Create a new MCP session with specific tools."""
-        
+
     def get_session(self, session_id: str) -> Optional[MCPSession]:
         """Get an existing MCP session."""
-        
+
     async def close_session(self, session_id: str) -> bool:
         """Close and cleanup an MCP session."""
-        
+
     def get_all_sessions(self) -> List[str]:
         """Get all active session IDs."""
 ```
@@ -63,22 +63,22 @@ The `MCPSession` class represents a tool execution context for a specific agent 
 ```python
 class MCPSession:
     """A session for interacting with tools via the MCP protocol."""
-    
+
     def register_tool(self, tool: BaseTool) -> None:
         """Register a tool with this session."""
-        
+
     def unregister_tool(self, tool_name: str) -> bool:
         """Unregister a tool from this session."""
-        
+
     def get_available_tools(self) -> List[Dict[str, Any]]:
         """Get all available tools with their descriptions."""
-        
+
     async def execute_tool(self, tool_name: str, **kwargs: Any) -> ToolResult:
         """Execute a tool with the given parameters."""
-        
+
     def get_history(self) -> List[Dict[str, Any]]:
         """Get the history of tool executions in this session."""
-        
+
     async def cleanup(self) -> None:
         """Clean up resources used by this session."""
 ```
@@ -97,16 +97,16 @@ The `MCPClient` class provides a client interface for connecting to the MCP serv
 ```python
 class MCPClient:
     """Client for interacting with the MCP server."""
-    
+
     def __init__(self, session_id: str, create_if_not_exists: bool = True):
         """Initialize an MCP client."""
-        
+
     def discover_tools(self) -> List[Dict[str, Any]]:
         """Discover available tools in this session."""
-        
+
     async def execute_tool(self, tool_name: str, **kwargs: Any) -> ToolResult:
         """Execute a tool with the given parameters."""
-        
+
     async def close(self) -> None:
         """Close the MCP client and session."""
 ```
@@ -125,7 +125,7 @@ The `AgentMCPClient` class extends the base client with agent-specific functiona
 ```python
 class AgentMCPClient(MCPClient):
     """An MCP client specifically for agent use."""
-    
+
     def __init__(
         self,
         agent_id: str,
@@ -133,7 +133,7 @@ class AgentMCPClient(MCPClient):
         tool_names: Optional[List[str]] = None,
     ):
         """Initialize an agent MCP client."""
-        
+
     async def update_tools(
         self,
         add_categories: Optional[List[str]] = None,
@@ -434,16 +434,16 @@ class Agent:
             agent_id=agent_id,
             tool_categories=["research", "browser", "utility"]
         )
-    
+
     async def initialize(self):
         # Discover available tools
         self.tools = self.mcp_client.discover_tools()
         self.tool_descriptions = format_tool_descriptions(self.tools)
-        
+
     async def execute_tool(self, tool_name: str, **params):
         # Execute a tool via MCP
         return await self.mcp_client.execute_tool(tool_name, **params)
-        
+
     async def cleanup(self):
         # Clean up MCP resources
         await self.mcp_client.close()
@@ -497,35 +497,35 @@ class LLMAgent:
         self.agent_id = agent_id
         self.mcp_client = AgentMCPClient(agent_id=agent_id)
         self.llm = LLM()
-    
+
     async def process_query(self, query: str):
         # Get tool definitions for the LLM
         tools = self.mcp_client.discover_tools()
-        
+
         # Create messages with tool descriptions
         messages = [
             {"role": "system", "content": f"You have access to these tools:\n{format_tool_descriptions(tools)}"},
             {"role": "user", "content": query}
         ]
-        
+
         # Get LLM response with function calling
         response = await self.llm.complete(
             messages=messages,
             functions=tools,
             function_call="auto"
         )
-        
+
         # Extract function call if any
         if hasattr(response, "function_call"):
             tool_name = response.function_call.get("name")
             tool_args = json.loads(response.function_call.get("arguments", "{}"))
-            
+
             # Execute the tool via MCP
             tool_result = await self.mcp_client.execute_tool(tool_name, **tool_args)
-            
+
             # Process the result
             return tool_result
-        
+
         return response
 ```
 
@@ -644,7 +644,7 @@ Key integration points:
    # Validate required parameters before execution
    if not query:
        return ToolResult(error="Query parameter is required")
-       
+
    # Validate parameter types
    if not isinstance(num_results, int) or num_results < 1:
        return ToolResult(error="num_results must be a positive integer")
@@ -737,7 +737,7 @@ Key integration points:
    async def cleanup_old_sessions():
        server = get_mcp_server()
        sessions_info = get_all_sessions_info()
-       
+
        now = datetime.now()
        for session_id, info in sessions_info.items():
            # Example logic to determine old sessions

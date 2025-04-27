@@ -26,7 +26,7 @@ from examples.notebooks.utils import (
     print_warning,
     separator,
     AsyncTimer,
-    run_async
+    run_async,
 )
 
 # Set up project path
@@ -38,6 +38,7 @@ from enterprise_ai.tool.planning import PlanningTool
 
 # Create a SINGLE instance of the planning tool to use throughout all examples
 planning_tool = PlanningTool()
+
 
 async def create_plan_example() -> None:
     """Example of creating a basic plan."""
@@ -62,7 +63,7 @@ async def create_plan_example() -> None:
                     "Perform security audit",
                     "Deploy to staging environment",
                     "Conduct user acceptance testing",
-                ]
+                ],
             )
 
         if isinstance(result, ToolResult):
@@ -86,7 +87,7 @@ async def create_plan_example() -> None:
                     "Create data visualizations",
                     "Interpret results",
                     "Prepare final report",
-                ]
+                ],
             )
 
         if isinstance(result, ToolResult):
@@ -110,7 +111,7 @@ async def update_plan_example() -> None:
             result = await planning_tool.execute(
                 command="update",
                 plan_id="web-app-dev",
-                title="Web Application Development Plan v2.0"
+                title="Web Application Development Plan v2.0",
             )
 
         if isinstance(result, ToolResult):
@@ -138,8 +139,8 @@ async def update_plan_example() -> None:
                     "Conduct user acceptance testing",
                     "Fix reported issues",  # New step
                     "Deploy to production",  # New step
-                    "Monitor performance"  # New step
-                ]
+                    "Monitor performance",  # New step
+                ],
             )
 
         if isinstance(result, ToolResult):
@@ -160,9 +161,7 @@ async def list_plans_example() -> None:
         # List all plans
         print_info("Listing all available plans...")
         async with AsyncTimer("Plan listing"):
-            result = await planning_tool.execute(
-                command="list"
-            )
+            result = await planning_tool.execute(command="list")
 
         if isinstance(result, ToolResult):
             if result.output:
@@ -173,10 +172,7 @@ async def list_plans_example() -> None:
         # Get details of a specific plan
         print_info("\nGetting details of web-app-dev plan...")
         async with AsyncTimer("Plan retrieval"):
-            result = await planning_tool.execute(
-                command="get",
-                plan_id="web-app-dev"
-            )
+            result = await planning_tool.execute(command="get", plan_id="web-app-dev")
 
         if isinstance(result, ToolResult):
             if result.output:
@@ -196,10 +192,7 @@ async def active_plan_example() -> None:
         # Set a plan as active
         print_info("Setting data-analysis as the active plan...")
         async with AsyncTimer("Set active plan"):
-            result = await planning_tool.execute(
-                command="set_active",
-                plan_id="data-analysis"
-            )
+            result = await planning_tool.execute(command="set_active", plan_id="data-analysis")
 
         if isinstance(result, ToolResult):
             if result.output:
@@ -238,7 +231,7 @@ async def step_tracking_example() -> None:
                 plan_id="web-app-dev",
                 step_index=0,
                 step_status="in_progress",
-                step_notes="Started requirements gathering with stakeholders"
+                step_notes="Started requirements gathering with stakeholders",
             )
 
         if isinstance(result, ToolResult):
@@ -255,7 +248,7 @@ async def step_tracking_example() -> None:
                 plan_id="web-app-dev",
                 step_index=2,  # Set up environment
                 step_status="completed",
-                step_notes="Environment set up with Docker containers"
+                step_notes="Environment set up with Docker containers",
             )
 
         if isinstance(result, ToolResult):
@@ -272,7 +265,7 @@ async def step_tracking_example() -> None:
                 plan_id="web-app-dev",
                 step_index=4,  # Develop backend API
                 step_status="blocked",
-                step_notes="Waiting for database schema approval"
+                step_notes="Waiting for database schema approval",
             )
 
         if isinstance(result, ToolResult):
@@ -284,10 +277,7 @@ async def step_tracking_example() -> None:
         # View the updated plan
         print_info("\nViewing the updated plan with progress...")
         async with AsyncTimer("Get updated plan"):
-            result = await planning_tool.execute(
-                command="get",
-                plan_id="web-app-dev"
-            )
+            result = await planning_tool.execute(command="get", plan_id="web-app-dev")
 
         if isinstance(result, ToolResult):
             if result.output:
@@ -311,7 +301,7 @@ async def error_handling_example() -> None:
                 command="create",
                 plan_id="web-app-dev",  # This ID already exists
                 title="Another Web App Plan",
-                steps=["Step 1", "Step 2"]
+                steps=["Step 1", "Step 2"],
             )
 
         if isinstance(result, ToolResult):
@@ -324,10 +314,7 @@ async def error_handling_example() -> None:
         # Attempt to get a non-existent plan
         print_info("\nAttempting to get a non-existent plan...")
         async with AsyncTimer("Non-existent plan retrieval"):
-            result = await planning_tool.execute(
-                command="get",
-                plan_id="nonexistent-plan"
-            )
+            result = await planning_tool.execute(command="get", plan_id="nonexistent-plan")
 
         if isinstance(result, ToolResult):
             if result.error:
@@ -340,9 +327,7 @@ async def error_handling_example() -> None:
         print_info("\nAttempting to update a non-existent plan...")
         async with AsyncTimer("Non-existent plan update"):
             result = await planning_tool.execute(
-                command="update",
-                plan_id="nonexistent-plan",
-                title="Updated Title"
+                command="update", plan_id="nonexistent-plan", title="Updated Title"
             )
 
         if isinstance(result, ToolResult):
@@ -364,10 +349,7 @@ async def delete_plan_example() -> None:
         # Delete a plan
         print_info("Deleting the data-analysis plan...")
         async with AsyncTimer("Plan deletion"):
-            result = await planning_tool.execute(
-                command="delete",
-                plan_id="data-analysis"
-            )
+            result = await planning_tool.execute(command="delete", plan_id="data-analysis")
 
         if isinstance(result, ToolResult):
             if result.output:
@@ -378,9 +360,7 @@ async def delete_plan_example() -> None:
         # Verify the plan was deleted by listing all plans
         print_info("\nVerifying deletion by listing all plans...")
         async with AsyncTimer("List remaining plans"):
-            result = await planning_tool.execute(
-                command="list"
-            )
+            result = await planning_tool.execute(command="list")
 
         if isinstance(result, ToolResult):
             if result.output:
@@ -418,7 +398,9 @@ async def run_examples() -> None:
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 def main():
     """Main entry point for planning tool examples."""
@@ -432,7 +414,9 @@ def main():
     except Exception as e:
         print_error(f"Error running examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

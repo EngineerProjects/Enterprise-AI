@@ -219,22 +219,30 @@ def parse_message_for_tool_calls(message: MessageProtocol) -> List[Dict[str, Any
     Returns:
         List of tool calls with name and parameters
     """
-    message_dict: Dict[str, Any] = {"content": message.content}
+    if not message:
+        logger.warning("Empty message received in parse_message_for_tool_calls")
+        return []
 
-    # Add function_call if available
-    if hasattr(message, "function_call") and message.function_call:
-        message_dict["function_call"] = message.function_call
+    try:
+        message_dict: Dict[str, Any] = {"content": getattr(message, "content", "")}
 
-    # Add tool_calls if available
-    if hasattr(message, "tool_calls") and message.tool_calls:
-        message_dict["tool_calls"] = message.tool_calls
+        # Add function_call if available
+        if hasattr(message, "function_call") and message.function_call:
+            message_dict["function_call"] = message.function_call
 
-    # Add metadata if available
-    if hasattr(message, "metadata") and message.metadata:
-        # Explicitly annotate as Dict[str, Any] to fix type mismatch
-        message_dict["metadata"] = dict(message.metadata)
+        # Add tool_calls if available
+        if hasattr(message, "tool_calls") and message.tool_calls:
+            message_dict["tool_calls"] = message.tool_calls
 
-    return FunctionCallingFormatter.parse_tool_calls(message_dict)
+        # Add metadata if available
+        if hasattr(message, "metadata") and message.metadata:
+            # Explicitly annotate as Dict[str, Any] to fix type mismatch
+            message_dict["metadata"] = dict(message.metadata)
+
+        return FunctionCallingFormatter.parse_tool_calls(message_dict)
+    except Exception as e:
+        logger.error(f"Error parsing message for tool calls: {e}")
+        return []
 
 
 def format_tool_response_message(

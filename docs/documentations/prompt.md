@@ -25,7 +25,7 @@ The `PromptTemplate` class represents a single prompt template with variable sub
 class PromptTemplate:
     def __init__(self, template: str, metadata: Optional[Dict[str, Any]] = None):
         # Initialize with template string and optional metadata
-        
+
     def format(self, **kwargs: Any) -> str:
         # Format the template by substituting variables
 ```
@@ -44,16 +44,16 @@ The `PromptLibrary` class manages a collection of prompt templates, providing me
 class PromptLibrary:
     def __init__(self, prompt_dir: Optional[str] = None):
         # Initialize with directory containing prompt files
-        
+
     def get_prompt(self, prompt_id: str) -> Optional[PromptTemplate]:
         # Get a prompt template by ID
-        
+
     def format_prompt(self, prompt_id: str, **kwargs: Any) -> Optional[str]:
         # Format a prompt with variable substitution
-        
+
     def combine_prompts(self, prompt_ids: List[str], **kwargs: Any) -> Optional[str]:
         # Combine multiple prompts into one
-        
+
     def create_composite_prompt(self, role_id: str, system_id: str, **kwargs: Any) -> Optional[str]:
         # Create a composite prompt from role and system prompts
 ```
@@ -132,11 +132,11 @@ The prompt composition methods follow a template method pattern, where the struc
 def create_composite_prompt(role_id: str, system_id: str, **kwargs: Any) -> Optional[str]:
     role_prompt = get_prompt(f"roles.{role_id}")
     system_prompt = get_prompt(f"system.{system_id}")
-    
+
     # Combine in a specific structure
     combined_template = f"{system_prompt.template_str}\n\n{role_prompt.template_str}"
     combined_prompt = PromptTemplate(combined_template)
-    
+
     return combined_prompt.format(**kwargs)
 ```
 
@@ -242,7 +242,7 @@ library.add_prompt(
     template="""You are a specialized agent for $domain tasks.
     Your primary responsibilities include:
     $responsibilities
-    
+
     Follow these guidelines:
     $guidelines
     """,

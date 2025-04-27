@@ -26,7 +26,7 @@ from examples.notebooks.utils import (
     print_warning,
     separator,
     AsyncTimer,
-    run_async
+    run_async,
 )
 
 # Set up project path
@@ -39,6 +39,7 @@ from enterprise_ai.tool.core.result import ToolResult
 # Define Pydantic models for structured outputs
 class ProductReview(BaseModel):
     """Model for a product review."""
+
     product_name: str = Field(..., description="Name of the product being reviewed")
     rating: int = Field(..., description="Rating from 1-5 stars", ge=1, le=5)
     pros: List[str] = Field(..., description="List of positive aspects")
@@ -47,14 +48,17 @@ class ProductReview(BaseModel):
 
     def __str__(self) -> str:
         """String representation of the product review."""
-        return (f"Product Review: {self.product_name} - {self.rating}★\n"
-                f"Pros: {', '.join(self.pros)}\n"
-                f"Cons: {', '.join(self.cons)}\n"
-                f"Summary: {self.summary}")
+        return (
+            f"Product Review: {self.product_name} - {self.rating}★\n"
+            f"Pros: {', '.join(self.pros)}\n"
+            f"Cons: {', '.join(self.cons)}\n"
+            f"Summary: {self.summary}"
+        )
 
 
 class RecipeSummary(BaseModel):
     """Model for a recipe summary."""
+
     title: str = Field(..., description="Title of the recipe")
     cooking_time: str = Field(..., description="Total cooking time (e.g., '30 minutes')")
     difficulty: str = Field(..., description="Difficulty level (e.g., 'Easy', 'Medium', 'Hard')")
@@ -63,10 +67,12 @@ class RecipeSummary(BaseModel):
 
     def __str__(self) -> str:
         """String representation of the recipe summary."""
-        return (f"Recipe: {self.title}\n"
-                f"Time: {self.cooking_time} | Difficulty: {self.difficulty}\n"
-                f"Ingredients: {', '.join(self.ingredients)}\n"
-                f"Steps:\n" + "\n".join(f"  {i+1}. {step}" for i, step in enumerate(self.steps)))
+        return (
+            f"Recipe: {self.title}\n"
+            f"Time: {self.cooking_time} | Difficulty: {self.difficulty}\n"
+            f"Ingredients: {', '.join(self.ingredients)}\n"
+            f"Steps:\n" + "\n".join(f"  {i + 1}. {step}" for i, step in enumerate(self.steps))
+        )
 
 
 async def basic_completion_example() -> None:
@@ -81,10 +87,14 @@ async def basic_completion_example() -> None:
         print(response_text)
 
         # Note about tool usage
-        print_info("\nNote: The CreateChatCompletion tool needs to be used by LLMs rather than directly.")
+        print_info(
+            "\nNote: The CreateChatCompletion tool needs to be used by LLMs rather than directly."
+        )
         print("It defines a schema for the LLM to follow when generating responses,")
         print("but doesn't actually generate the responses itself.")
-        print("It would typically be used in agent workflows where the LLM creates structured outputs.")
+        print(
+            "It would typically be used in agent workflows where the LLM creates structured outputs."
+        )
 
     except Exception as e:
         print_error(f"Error in basic completion example: {e}")
@@ -105,13 +115,10 @@ async def structured_completion_example() -> None:
             "pros": [
                 "Excellent sound quality",
                 "Comfortable for long periods",
-                "Good battery life"
+                "Good battery life",
             ],
-            "cons": [
-                "Slightly expensive",
-                "Case is bulky"
-            ],
-            "summary": "A high-quality pair of headphones with great features, though a bit pricey."
+            "cons": ["Slightly expensive", "Case is bulky"],
+            "summary": "A high-quality pair of headphones with great features, though a bit pricey.",
         }
 
         # Create an instance of the model directly
@@ -126,8 +133,14 @@ async def structured_completion_example() -> None:
             "cooking_time": "25 minutes",
             "difficulty": "Easy",
             "ingredients": [
-                "Pasta", "Bell peppers", "Zucchini", "Cherry tomatoes",
-                "Olive oil", "Garlic", "Basil", "Parmesan cheese"
+                "Pasta",
+                "Bell peppers",
+                "Zucchini",
+                "Cherry tomatoes",
+                "Olive oil",
+                "Garlic",
+                "Basil",
+                "Parmesan cheese",
             ],
             "steps": [
                 "Boil pasta according to package instructions",
@@ -135,8 +148,8 @@ async def structured_completion_example() -> None:
                 "Sauté garlic in olive oil until fragrant",
                 "Add vegetables and cook until tender",
                 "Drain pasta and combine with vegetables",
-                "Top with fresh basil and grated parmesan"
-            ]
+                "Top with fresh basil and grated parmesan",
+            ],
         }
 
         recipe = RecipeSummary(**recipe_data)
@@ -163,10 +176,7 @@ async def different_types_example() -> None:
             "age": 32,
             "occupation": "Software Engineer",
             "skills": ["Python", "JavaScript", "Docker"],
-            "contact": {
-                "email": "john.smith@example.com",
-                "phone": "123-456-7890"
-            }
+            "contact": {"email": "john.smith@example.com", "phone": "123-456-7890"},
         }
         print(dict_example)
 
@@ -211,7 +221,7 @@ async def error_handling_example() -> None:
             "rating": "five stars",  # Should be an integer
             "pros": "Fast performance, beautiful display",  # Should be a list
             "cons": ["Expensive"],
-            "summary": "A great gaming laptop with impressive specifications."
+            "summary": "A great gaming laptop with impressive specifications.",
         }
 
         try:
@@ -253,7 +263,9 @@ async def run_examples() -> None:
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 def main():
     """Main entry point for chat completion examples."""
@@ -267,7 +279,9 @@ def main():
     except Exception as e:
         print_error(f"Error running examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

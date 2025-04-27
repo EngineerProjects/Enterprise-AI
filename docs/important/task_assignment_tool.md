@@ -38,19 +38,19 @@ graph TD
     B --> C[Skill Requirements]
     B --> D[Domain Knowledge]
     B --> E[Tool Requirements]
-    
+
     F[Agent Capability Analysis] --> G[Extract Agent Capabilities]
     G --> H[Agent Skills]
     G --> I[Domain Expertise]
     G --> J[Tool Access]
-    
+
     C --> K[Capability Matching Engine]
     D --> K
     E --> K
     H --> K
     I --> K
     J --> K
-    
+
     K --> L[Optimal Task Assignments]
 ```
 
@@ -70,12 +70,12 @@ graph TD
     A[Task Requirements] --> B[Prompt Template Selection]
     C[Agent Role] --> B
     D[Task Type] --> B
-    
+
     B --> E[Template Customization]
     F[Required Context] --> E
     G[Specific Instructions] --> E
     H[Expected Output Format] --> E
-    
+
     E --> I[Optimized Agent Prompt]
     I --> J[Communication Protocol Formatting]
     J --> K[Deliverable to Agent]
@@ -97,7 +97,7 @@ You could implement this as a specialized tool in your MCP system:
 class TaskAssignmentTool(BaseTool):
     name = "TaskAssignmentTool"
     description = "Analyzes tasks and team members to create optimized task assignments with structured prompts"
-    
+
     # Tool parameters would include:
     # - planned_tasks: Output from planning tool
     # - team_id: ID of the team

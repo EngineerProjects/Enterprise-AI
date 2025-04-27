@@ -900,16 +900,25 @@ class LLMAgent(BaseAgent):
             if self._use_tools and self._reasoning_framework.requires_tools:
                 # Get tools description if needed
                 tools_description = ""
-                if hasattr(self._tool_manager, "get_formatted_tool_descriptions"):
-                    tools_description = self._tool_manager.get_formatted_tool_descriptions()
+                try:
+                    if hasattr(self._tool_manager, "get_formatted_tool_descriptions"):
+                        tools_description = self._tool_manager.get_formatted_tool_descriptions()
+                except Exception as e:
+                    logger.warning(f"Error getting tool descriptions: {e}")
+                    # Continue with empty tools description
 
-                # Use reasoning framework to process with tools
-                response = self._reasoning_framework.process_input(
-                    self,
-                    messages,
-                    llm_provider=self._llm_provider,
-                    tools_description=tools_description,
-                )
+                try:
+                    # Use reasoning framework to process with tools
+                    response = self._reasoning_framework.process_input(
+                        self,
+                        messages,
+                        llm_provider=self._llm_provider,
+                        tools_description=tools_description,
+                    )
+                except Exception as e:
+                    logger.warning(f"Error processing with reasoning framework: {e}")
+                    # Fall back to simple completion without tools
+                    response = self._llm_provider.complete(messages)
             else:
                 # Simple processing without tools
                 response = self._llm_provider.complete(messages)

@@ -26,7 +26,7 @@ api_key = get_config("llm.openai.api_key")
 max_tokens = get_config("llm.max_tokens", 1024)
 
 # Use a specific configuration file
-custom_setting = get_config("custom.setting", 
+custom_setting = get_config("custom.setting",
                            default="default_value",
                            config_path="/path/to/custom_config.yml")
 ```
@@ -61,7 +61,7 @@ llm:
         temperature: 0.7
         max_tokens: 2048
         request_timeout: 60
-    
+
   # OpenAI configuration
     openai:
         api_key: "your-openai-api-key"
@@ -69,7 +69,7 @@ llm:
         temperature: 0.7
         max_tokens: 2048
         request_timeout: 60
-  
+
     # Anthropic configuration
     anthropic:
         api_key: "your-anthropic-api-key"
@@ -90,15 +90,15 @@ agent:
   memory:
     type: "dict"
     max_history: 50
-  
+
   # Default role settings
   roles:
     path: "./enterprise_ai/prompt/templates/roles"
-  
+
   # Reasoning frameworks
   reasoning:
     default_framework: "cot"
-    
+
   # State persistence
   state:
     save_dir: "./agent_states"
@@ -107,7 +107,7 @@ agent:
 # Team Configuration
 team:
   default_type: "hierarchical"
-  
+
   # Tool sharing policy
   tools:
     allow_lateral_sharing: true
@@ -122,10 +122,10 @@ flow:
 # Tool Configuration
 tool:
   registry_path: "./tools"
-  
+
   # Tool categories
   categories:
-    research: 
+    research:
       enabled: true
       description: "Research and knowledge retrieval tools"
     development:
@@ -140,7 +140,7 @@ tool:
     content:
       enabled: true
       description: "Content generation and manipulation"
-  
+
   # Browser tool configuration
   browser:
     user_agent: "Enterprise AI Browser/1.0"
@@ -152,7 +152,7 @@ mcp:
   server:
     max_sessions: 100
     session_timeout: 3600
-  
+
   client:
     reconnect_attempts: 3
     request_timeout: 30
@@ -165,7 +165,7 @@ sandbox:
   cpu_limit: 0.5
   timeout: 60
   network_enabled: false
-  
+
   # Allowed packages for installation
   allowed_packages:
     - "numpy"

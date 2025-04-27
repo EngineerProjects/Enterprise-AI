@@ -390,7 +390,7 @@ await tool_manager.enable_mcp(
 
 # Execute a tool
 result = await tool_manager.execute_tool(
-    "WebSearch", 
+    "WebSearch",
     query="Enterprise AI patterns"
 )
 
@@ -515,9 +515,9 @@ agent = create_agent(
 from enterprise_ai.agent.message import create_message
 
 msg = create_message(
-    "QUERY", 
-    "user-123", 
-    "thinking-agent", 
+    "QUERY",
+    "user-123",
+    "thinking-agent",
     "Explain the key differences between supervised and unsupervised learning."
 )
 response = agent.process_message(msg)
@@ -545,9 +545,9 @@ agent = create_agent(
 from enterprise_ai.agent.message import create_message
 
 msg = create_message(
-    "QUERY", 
-    "user-123", 
-    "dev-agent", 
+    "QUERY",
+    "user-123",
+    "dev-agent",
     "Create a Python function that calculates the Fibonacci sequence recursively."
 )
 response = agent.process_message(msg)
@@ -558,8 +558,8 @@ print(response.content)  # Will show thought process and code
 
 ```python
 from enterprise_ai.agent import (
-    create_developer_agent, 
-    create_manager_agent, 
+    create_developer_agent,
+    create_manager_agent,
     create_researcher_agent
 )
 
@@ -604,7 +604,7 @@ task = Task(
 if agent.assign_task(task):
     # Process the task
     status = agent.process_task()
-    
+
     # Check the result
     if status == TaskStatus.COMPLETED:
         task_result = agent.state.current_task.metadata.get("response")
@@ -686,7 +686,7 @@ import asyncio
 
 async def execute_tool():
     result = await agent._tool_manager.execute_tool(
-        "WebSearch", 
+        "WebSearch",
         query="Enterprise AI agents"
     )
     print(f"Tool result: {result.output}")
@@ -842,13 +842,13 @@ from enterprise_ai.agent import create_agent
 
 # Create agents for different workflow steps
 researcher = create_agent(
-    agent_type="llm", 
+    agent_type="llm",
     role_type="researcher",
     reasoning_framework="react"
 )
 
 developer = create_agent(
-    agent_type="llm", 
+    agent_type="llm",
     role_type="developer",
     reasoning_framework="swe"
 )

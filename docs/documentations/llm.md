@@ -94,13 +94,13 @@ The `LLM` class provides a simplified interface for tools and components that ne
 
 ```python
 class LLM:
-    def __init__(self, provider_name: Optional[str] = None, model_name: Optional[str] = None, 
+    def __init__(self, provider_name: Optional[str] = None, model_name: Optional[str] = None,
                  provider: Optional[LLMProvider] = None, **kwargs: Any):
         # Initialize with optional provider and model specifications
-        
+
     def complete(self, messages: List[Any], **kwargs: Any) -> Any:
         # Generate completion synchronously
-        
+
     async def acomplete(self, messages: List[Any], **kwargs: Any) -> Any:
         # Generate completion asynchronously
 ```
@@ -116,7 +116,7 @@ Key features:
 The module exposes a high-level API for simple interactions:
 
 ```python
-def complete(messages: List[Union[Message, str]], options: Optional[CompletionOptions] = None, 
+def complete(messages: List[Union[Message, str]], options: Optional[CompletionOptions] = None,
              provider: Optional[LLMProvider] = None) -> MessageProtocol:
     # Generate a completion for messages using the specified options and provider
 ```
@@ -189,7 +189,7 @@ The provider registry uses a singleton pattern to ensure a single global registr
 ```python
 class ProviderRegistry:
     _instance = None
-    
+
     def __new__(cls) -> "ProviderRegistry":
         if cls._instance is None:
             cls._instance = super().__new__(cls)
@@ -290,7 +290,7 @@ from enterprise_ai.llm import create_provider, complete
 
 # Create a specific provider
 ollama_provider = create_provider(
-    "ollama", 
+    "ollama",
     model_name="llama2",
     server_url="http://localhost:11434"
 )
@@ -338,12 +338,12 @@ from enterprise_ai.schema import Message
 
 async def generate_async():
     llm = LLM(model_name="llama2")
-    
+
     messages = [
         Message.system_message("You are a helpful AI assistant."),
         Message.user_message("Explain asynchronous programming in Python.")
     ]
-    
+
     # Asynchronous completion
     response = await llm.acomplete(messages)
     return response.content
@@ -471,7 +471,7 @@ class SummarizationTool(Tool):
         super().__init__()
         # Create an LLM instance specifically for this tool
         self.llm = LLM(model_name="llama2")
-    
+
     def execute(self, text: str) -> str:
         # Use the LLM to summarize text
         messages = [

@@ -273,7 +273,7 @@ For more flexible collaboration, we can use a collaborative team structure:
 ```python
 from enterprise_ai.team import CollaborativeTeam
 
-# Create a collaborative team 
+# Create a collaborative team
 collab_team = CollaborativeTeam(
     team_id="collab-team-1",
     name="Content Strategy Team"
@@ -608,7 +608,7 @@ data_analyst = create_agent(
     agent_type="llm",
     name="Data Analyst",
     agent_id="analyst-1",
-    system_prompt=format_prompt("custom.data_analyst", 
+    system_prompt=format_prompt("custom.data_analyst",
                                additional_guidelines="Focus on actionable content performance insights."),
     reasoning_framework="cot",
     use_tools=True,

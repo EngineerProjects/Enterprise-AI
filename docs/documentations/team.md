@@ -471,7 +471,7 @@ team = BaseTeam(team_id="team-123", name="Project Team")
 
 # Create and assign a manager
 manager = create_agent(
-    agent_type="llm", 
+    agent_type="llm",
     name="Team Manager",
     role_type="manager"
 )
@@ -479,12 +479,12 @@ team.manager = manager
 
 # Add team members
 developer = create_agent(
-    agent_type="llm", 
+    agent_type="llm",
     name="Developer",
     role_type="developer"
 )
 researcher = create_agent(
-    agent_type="llm", 
+    agent_type="llm",
     name="Researcher",
     role_type="researcher"
 )
@@ -578,7 +578,7 @@ team = CollaborativeTeam(name="Project Team")
 # Add members
 manager = create_agent(agent_type="llm", name="Manager", role_type="manager")
 dev = create_agent(agent_type="llm", name="Developer", role_type="developer")
-analyst = create_agent(agent_type="llm", name="Analyst", role_type="custom", 
+analyst = create_agent(agent_type="llm", name="Analyst", role_type="custom",
                       role_kwargs={"name": "Data Analyst", "capabilities": ["data_analysis"]})
 
 team.manager = manager
@@ -610,7 +610,7 @@ async def execute_tools():
     # Manager uses analyst's data tool through research pool
     result1 = await team.execute_tool("DataAnalyzer", {"dataset": "sales_data"}, manager.id)
     print(f"Manager used DataAnalyzer: {result1.output}")
-    
+
     # Developer uses own code tool
     result2 = await team.execute_tool("CodeGenerator", {"language": "python"}, dev.id)
     print(f"Developer used CodeGenerator: {result2.output}")
@@ -727,7 +727,7 @@ team = BaseTeam()
 # Create a message to the team
 message = create_message(
     "QUERY",
-    sender_id="user-123", 
+    sender_id="user-123",
     receiver_id=team.id,
     content="What's the project status?"
 )

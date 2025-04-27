@@ -30,7 +30,7 @@ from examples.notebooks.utils import (
     print_warning,
     separator,
     AsyncTimer,
-    run_async
+    run_async,
 )
 
 # Set up project path
@@ -70,10 +70,7 @@ async def view_example() -> None:
         # View the entire file
         print_info("\nViewing the entire file:")
         async with AsyncTimer("Viewing file"):
-            result = await editor.execute(
-                command="view",
-                path=test_file
-            )
+            result = await editor.execute(command="view", path=test_file)
 
         if isinstance(result, CLIResult):
             print(result.output)
@@ -86,7 +83,7 @@ async def view_example() -> None:
             result = await editor.execute(
                 command="view",
                 path=test_file,
-                view_range=[2, 4]  # Show lines 2-4
+                view_range=[2, 4],  # Show lines 2-4
             )
 
         if isinstance(result, CLIResult):
@@ -97,10 +94,7 @@ async def view_example() -> None:
         # View a directory
         print_info("\nViewing directory /tmp:")
         async with AsyncTimer("Viewing directory"):
-            result = await editor.execute(
-                command="view",
-                path="/tmp"
-            )
+            result = await editor.execute(command="view", path="/tmp")
 
         if isinstance(result, CLIResult):
             print(result.output.split("\n")[:10])  # Show first 10 lines to avoid cluttering output
@@ -139,10 +133,7 @@ async def str_replace_example() -> None:
     try:
         # View the original file
         print_info("\nOriginal file content:")
-        result = await editor.execute(
-            command="view",
-            path=test_file
-        )
+        result = await editor.execute(command="view", path=test_file)
 
         if isinstance(result, CLIResult):
             print(result.output)
@@ -155,7 +146,7 @@ async def str_replace_example() -> None:
                 path=test_file,
                 old_str="REPLACE_ME",
                 new_str="NEW_VALUE",
-                make_backup=True
+                make_backup=True,
             )
 
         if isinstance(result, CLIResult):
@@ -163,10 +154,7 @@ async def str_replace_example() -> None:
 
             # View the modified file
             print_info("\nVerifying the changes:")
-            result = await editor.execute(
-                command="view",
-                path=test_file
-            )
+            result = await editor.execute(command="view", path=test_file)
 
             if isinstance(result, CLIResult):
                 print(result.output)
@@ -203,10 +191,7 @@ async def regex_replace_example() -> None:
     try:
         # View the original file
         print_info("\nOriginal file content:")
-        result = await editor.execute(
-            command="view",
-            path=test_file
-        )
+        result = await editor.execute(command="view", path=test_file)
 
         if isinstance(result, CLIResult):
             print(result.output)
@@ -221,9 +206,9 @@ async def regex_replace_example() -> None:
                     "pattern": r"Date: (\d{4})-(\d{2})-(\d{2})",
                     "replacement": r"Date: \2/\3/\1",  # MM/DD/YYYY format
                     "count": 0,  # Replace all occurrences
-                    "flags": ""   # No special flags needed
+                    "flags": "",  # No special flags needed
                 },
-                make_backup=True
+                make_backup=True,
             )
 
         if isinstance(result, CLIResult):
@@ -238,9 +223,9 @@ async def regex_replace_example() -> None:
                     "pattern": r"User: (\w+)_(\w+)",
                     "replacement": r"User: [REDACTED]",
                     "count": 0,  # Replace all occurrences
-                    "flags": "i"  # Case-insensitive matching
+                    "flags": "i",  # Case-insensitive matching
                 },
-                make_backup=True
+                make_backup=True,
             )
 
             if isinstance(result, CLIResult):
@@ -248,10 +233,7 @@ async def regex_replace_example() -> None:
 
                 # View the modified file
                 print_info("\nVerifying all changes:")
-                result = await editor.execute(
-                    command="view",
-                    path=test_file
-                )
+                result = await editor.execute(command="view", path=test_file)
 
                 if isinstance(result, CLIResult):
                     print(result.output)
@@ -292,10 +274,7 @@ async def line_edit_example() -> None:
     try:
         # View the original file
         print_info("\nOriginal file content:")
-        result = await editor.execute(
-            command="view",
-            path=test_file
-        )
+        result = await editor.execute(command="view", path=test_file)
 
         if isinstance(result, CLIResult):
             print(result.output)
@@ -306,12 +285,8 @@ async def line_edit_example() -> None:
             result = await editor.execute(
                 command="line_edit",
                 path=test_file,
-                line_params={
-                    "operation": "delete",
-                    "line_number": 3,
-                    "count": 1
-                },
-                make_backup=True
+                line_params={"operation": "delete", "line_number": 3, "count": 1},
+                make_backup=True,
             )
 
         if isinstance(result, CLIResult):
@@ -329,9 +304,9 @@ async def line_edit_example() -> None:
                     "operation": "replace",
                     "pattern": "TODO",
                     "content": "Line 5: DONE: This line has been replaced",
-                    "count": 1
+                    "count": 1,
                 },
-                make_backup=True
+                make_backup=True,
             )
 
         if isinstance(result, CLIResult):
@@ -349,9 +324,9 @@ async def line_edit_example() -> None:
                     "operation": "insert",
                     "line_number": 5,  # Position is now different after previous edits
                     "content": "NEW LINE: This was inserted before the final line",
-                    "count": 1
+                    "count": 1,
                 },
-                make_backup=True
+                make_backup=True,
             )
 
         if isinstance(result, CLIResult):
@@ -359,10 +334,7 @@ async def line_edit_example() -> None:
 
             # View the final result
             print_info("\nVerifying all line edits:")
-            result = await editor.execute(
-                command="view",
-                path=test_file
-            )
+            result = await editor.execute(command="view", path=test_file)
 
             if isinstance(result, CLIResult):
                 print(result.output)
@@ -398,10 +370,7 @@ async def insert_example() -> None:
     try:
         # View the original file
         print_info("\nOriginal file content:")
-        result = await editor.execute(
-            command="view",
-            path=test_file
-        )
+        result = await editor.execute(command="view", path=test_file)
 
         if isinstance(result, CLIResult):
             print(result.output)
@@ -414,7 +383,7 @@ async def insert_example() -> None:
                 path=test_file,
                 insert_line=2,  # After line 2
                 new_str="-- INSERTED LINE --\nThis line was inserted after line 2.\n",
-                make_backup=True
+                make_backup=True,
             )
 
         if isinstance(result, CLIResult):
@@ -435,7 +404,7 @@ async def insert_example() -> None:
                     path=test_file,
                     position=position,
                     new_str="[EXACT] ",
-                    make_backup=True
+                    make_backup=True,
                 )
 
             if isinstance(result, CLIResult):
@@ -447,10 +416,7 @@ async def insert_example() -> None:
 
         # View the final result
         print_info("\nVerifying all insertions:")
-        result = await editor.execute(
-            command="view",
-            path=test_file
-        )
+        result = await editor.execute(command="view", path=test_file)
 
         if isinstance(result, CLIResult):
             print(result.output)
@@ -484,10 +450,7 @@ async def undo_example() -> None:
     try:
         # View the original file
         print_info("\nOriginal file content:")
-        result = await editor.execute(
-            command="view",
-            path=test_file
-        )
+        result = await editor.execute(command="view", path=test_file)
 
         if isinstance(result, CLIResult):
             print(result.output)
@@ -500,7 +463,7 @@ async def undo_example() -> None:
                 path=test_file,
                 old_str="original content",
                 new_str="MODIFIED content",
-                make_backup=True
+                make_backup=True,
             )
 
         if isinstance(result, CLIResult):
@@ -508,10 +471,7 @@ async def undo_example() -> None:
 
             # View the modified file
             print_info("\nModified file content:")
-            result = await editor.execute(
-                command="view",
-                path=test_file
-            )
+            result = await editor.execute(command="view", path=test_file)
 
             if isinstance(result, CLIResult):
                 print(result.output)
@@ -519,20 +479,14 @@ async def undo_example() -> None:
                 # Undo the change
                 print_info("\nUndoing the change...")
                 async with AsyncTimer("Undo operation"):
-                    result = await editor.execute(
-                        command="undo_edit",
-                        path=test_file
-                    )
+                    result = await editor.execute(command="undo_edit", path=test_file)
 
                 if isinstance(result, CLIResult):
                     print(result.output)
 
                     # Verify the file has been restored
                     print_info("\nVerifying the file has been restored:")
-                    result = await editor.execute(
-                        command="view",
-                        path=test_file
-                    )
+                    result = await editor.execute(command="view", path=test_file)
 
                     if isinstance(result, CLIResult):
                         print(result.output)
@@ -576,7 +530,9 @@ async def run_examples() -> None:
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 def main():
     """Main entry point for file editor examples."""
@@ -590,7 +546,9 @@ def main():
     except Exception as e:
         print_error(f"Error running examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

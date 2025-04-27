@@ -21,7 +21,7 @@ from examples.notebooks.utils import (
     print_warning,
     separator,
     AsyncTimer,
-    run_async
+    run_async,
 )
 
 # Set up project path
@@ -56,7 +56,7 @@ async def manual_browser_test() -> None:
 
         # Set up browser configuration
         browser_config_kwargs = {
-            "headless": False, # headless,
+            "headless": False,  # headless,
             "disable_security": disable_security,
         }
 
@@ -109,6 +109,7 @@ async def manual_browser_test() -> None:
     except Exception as e:
         print_error(f"Error in manual browser test: {e}")
         import traceback
+
         traceback.print_exc()
 
 
@@ -119,12 +120,16 @@ async def run_examples() -> None:
     except Exception as e:
         print_error(f"Error during examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 def main():
     """Main entry point for manual browser example."""
     print_title("Enterprise AI Manual Browser Test")
-    print_info("Note: This example demonstrates direct browser usage without the BrowserUseTool class")
+    print_info(
+        "Note: This example demonstrates direct browser usage without the BrowserUseTool class"
+    )
     print_info("It bypasses initialization issues by working with the browser_use library directly")
 
     try:
@@ -135,7 +140,9 @@ def main():
     except Exception as e:
         print_error(f"Error running examples: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

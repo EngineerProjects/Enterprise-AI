@@ -30,32 +30,56 @@ def format_tool_descriptions(tools: List[Dict[str, Any]]) -> str:
 
     formatted = ""
     for tool in tools:
-        formatted += f"Tool: {tool['name']}\n"
-        formatted += f"Description: {tool['description']}\n"
+        try:
+            # Handle different tool formats
+            tool_name = None
+            tool_description = "No description available"
+            tool_params = {}
 
-        # Format parameters if available
-        if "parameters" in tool and tool["parameters"]:
-            formatted += "Parameters:\n"
-            params = tool["parameters"]
+            # Extract tool name
+            if isinstance(tool, dict):
+                if "name" in tool:
+                    tool_name = tool.get("name")
+                elif "function" in tool and isinstance(tool.get("function"), dict):
+                    function_data = tool.get("function", {})
+                    tool_name = function_data.get("name")
+                    tool_description = function_data.get("description", tool_description)
+                    tool_params = function_data.get("parameters", {})
 
-            # Handle different parameter formats
-            if "properties" in params:
-                # OpenAPI/JSON Schema style
-                properties = params.get("properties", {})
-                required = params.get("required", [])
+            # Skip tools without names
+            if not tool_name:
+                continue
 
-                for param_name, param_info in properties.items():
-                    param_type = param_info.get("type", "any")
-                    description = param_info.get("description", "")
-                    is_required = param_name in required
+            formatted += f"Tool: {tool_name}\n"
+            formatted += f"Description: {tool_description}\n"
 
-                    req_str = " (required)" if is_required else " (optional)"
-                    formatted += f"  - {param_name}: {param_type}{req_str} - {description}\n"
-            else:
-                # Simple parameter list
-                formatted += f"  {json.dumps(params, indent=2)}\n"
+            # Format parameters if available and well-formed
+            if tool_params and isinstance(tool_params, dict):
+                formatted += "Parameters:\n"
 
-        formatted += "\n"
+                # Handle OpenAPI/JSON Schema style properties
+                properties = tool_params.get("properties", {})
+                required = tool_params.get("required", [])
+
+                if properties and isinstance(properties, dict):
+                    for param_name, param_info in properties.items():
+                        if not isinstance(param_info, dict):
+                            continue
+
+                        param_type = param_info.get("type", "any")
+                        description = param_info.get("description", "")
+                        is_required = param_name in required
+
+                        req_str = " (required)" if is_required else " (optional)"
+                        formatted += f"  - {param_name}: {param_type}{req_str} - {description}\n"
+                else:
+                    # Simple parameter summary
+                    formatted += f"  {str(tool_params)}\n"
+
+            formatted += "\n"
+        except Exception as e:
+            logger.warning(f"Error formatting tool description: {e}")
+            continue
 
     return formatted
 

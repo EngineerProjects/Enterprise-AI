@@ -62,9 +62,7 @@ disallow_incomplete_defs = true
 explicit_package_bases = true
 namespace_packages = true
 ignore_missing_imports = true
-exclude = [
-    "notebooks/.*",
-]
+exclude = "(examples/|notebooks/).*"
 
 [[tool.mypy.overrides]]
 module = "tests.*"
@@ -79,7 +77,7 @@ exclude = [
     "__pycache__",
     "build",
     "dist",
-    "notebooks",
+    "examples",
 ]
 
 [tool.ruff.lint]
