@@ -19,9 +19,8 @@ setup_uv:
 
 setup-browser:
 	@echo "Setting up browser automation tools..."
-	chmod +x ./scripts/setup_browser_tools.sh
-	./scripts/setup_browser_tools.sh
-
+	chmod +x ./scripts/setup_browser_tool.sh
+	./scripts/setup_browser_tool.sh
 install:
 	@uv pip install --python $(PYTHON) -e .
 

@@ -3,7 +3,7 @@
 import asyncio
 import base64
 import time
-from typing import Any, Dict, List, Optional, cast
+from typing import Any, Dict, List, Optional, Set, Union, cast
 from urllib.parse import urlparse
 
 import requests
@@ -13,7 +13,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 
 from enterprise_ai.config import get_config
 from enterprise_ai.logger import get_logger
-from enterprise_ai.tool.core.base import BaseTool, ToolError
+from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.research.search import (
     BaiduSearchEngine,
@@ -129,7 +129,8 @@ class RateLimiter:
     def __init__(
         self, rate_limit: int = DEFAULT_RATE_LIMIT, period: int = DEFAULT_RATE_LIMIT_PERIOD
     ):
-        """Initialize rate limiter.
+        """
+        Initialize rate limiter.
 
         Args:
             rate_limit: Maximum requests per second
@@ -141,7 +142,12 @@ class RateLimiter:
         self.lock = asyncio.Lock()
 
     async def acquire(self) -> None:
-        """Acquire permission to make a request, waiting if necessary."""
+        """
+        Acquire permission to make a request, waiting if necessary.
+
+        Raises:
+            asyncio.TimeoutError: If wait time exceeds limit
+        """
         async with self.lock:
             now = time.time()
 
@@ -200,6 +206,7 @@ class WebContentFetcher:
         try:
             # Wait for rate limiter
             await self.rate_limiter.acquire()
+            logger.debug(f"Fetching content from: {url}")
 
             # Use asyncio to run requests in a thread pool
             response = await asyncio.get_event_loop().run_in_executor(
@@ -252,6 +259,7 @@ class WebContentFetcher:
                 logger.warning(f"Could not extract text from {url}")
                 return None
 
+            logger.debug(f"Successfully extracted content from {url} ({len(extracted_text)} chars)")
             return extracted_text[:100000]  # Limit to 100KB
 
         except Exception as e:
@@ -261,12 +269,45 @@ class WebContentFetcher:
 
 @register_tool(category="research")
 class WebSearch(BaseTool):
-    """Search the web for information using various search engines."""
+    """
+    Search the web for real-time information using multiple search engines.
+
+    Key capabilities:
+    * Query multiple search engines including Google, Bing, DuckDuckGo, and Baidu
+    * Retrieve search results with URLs, titles, and descriptions
+    * Fetch and extract content from search result pages
+    * Automatic fallback to alternative engines if primary fails
+    * Support for language and country-specific searches
+    * Configurable number of results and search engine preference
+
+    Use this tool when:
+    * You need to find current information on the web
+    * You need to research facts, data, or content online
+    * You need to gather information from multiple sources
+    * You need the actual content of web pages for analysis
+    * You want to search across different regions or languages
+
+    Notes:
+    * Results are automatically cached to prevent duplicate searches
+    * Content fetching has rate limiting to prevent overloading sites
+    * Search engines are tried in order of preference until successful
+    * Large responses are automatically truncated for readability
+    """
 
     name: str = "web_search"
-    description: str = """Search the web for real-time information about any topic.
-    This tool returns comprehensive search results with relevant information, URLs, titles, and descriptions.
-    If the primary search engine fails, it automatically falls back to alternative engines."""
+    description: str = """
+    Search the web for real-time information using multiple search engines.
+    
+    * Purpose: Find current information from the web using multiple search engines
+    * Usage: Provide a search query and optional parameters to control results
+    * Features: Multi-engine search, content fetching, automatic fallback
+    * Returns: Structured search results with URLs, titles, descriptions, and optional content
+    
+    The tool automatically tries multiple search engines if the primary one fails,
+    and can optionally fetch and extract the main content from search result pages.
+    Results include standardized metadata regardless of which engine provided them.
+    """
+
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -304,22 +345,73 @@ class WebSearch(BaseTool):
         "required": ["query"],
     }
 
-    def __init__(self) -> None:
-        """Initialize the WebSearch tool with search engines."""
+    # Define capabilities
+    capabilities: Set[Union[str, ToolCapability]] = {
+        ToolCapability.SEARCH,
+        ToolCapability.NETWORK_ACCESS,
+    }
+
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        parameters: Optional[dict] = None,
+        config: Optional[ToolConfig] = None,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Initialize the WebSearch tool with standard parameters.
+
+        Args:
+            name: Override for tool name
+            description: Override for tool description
+            parameters: Override for tool parameters schema
+            config: Tool configuration settings
+            **kwargs: Additional keyword arguments
+        """
         super().__init__(
-            name="web_search", description=self.description, parameters=self.parameters
+            name=name or self.name,
+            description=description or self.description,
+            parameters=parameters or self.parameters,
         )
 
-        # Initialize search engines
-        self._search_engines: Dict[str, WebSearchEngine] = {}
-        self._initialize_search_engines()
+        # Store tool configuration
+        self.config = config or ToolConfig(
+            timeout=60.0,  # Default timeout for search operations
+            max_retries=3,  # Search can be retried
+            cache_results=True,  # Cache search results
+        )
 
-        # Create content fetcher
-        self.content_fetcher = WebContentFetcher()
+        # Initialize components (as regular attributes, not fields)
+        self.search_engines = {}
+        self.content_fetcher = None
+        self.results_cache = {}
+        self.cache_expiry = get_config("search.cache_expiry", 300)  # 5 minutes by default
 
-        # Results cache to avoid repeated searches
-        self._results_cache: Dict[str, Dict[str, Any]] = {}
-        self._cache_expiry = get_config("search.cache_expiry", 300)  # 5 minutes by default
+        logger.debug("WebSearch tool initialized")
+
+    async def initialize(self, **kwargs: Any) -> bool:
+        """
+        Initialize search engines and content fetcher.
+
+        Args:
+            **kwargs: Additional initialization parameters
+
+        Returns:
+            True if initialization succeeded, False otherwise
+        """
+        try:
+            # Initialize search engines
+            self._initialize_search_engines()
+
+            # Create content fetcher
+            self.content_fetcher = WebContentFetcher()
+
+            logger.info("WebSearch tool successfully initialized")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize WebSearch tool: {e}")
+            return False
 
     def _initialize_search_engines(self) -> None:
         """Initialize available search engines with proper error handling."""
@@ -332,7 +424,7 @@ class WebSearch(BaseTool):
 
         for name, engine_class in engines_to_init:
             try:
-                self._search_engines[name] = engine_class()
+                self.search_engines[name] = engine_class()
                 logger.debug(f"Initialized search engine: {name}")
             except Exception as e:
                 logger.warning(f"Failed to initialize {name} search engine: {e}")
@@ -355,10 +447,14 @@ class WebSearch(BaseTool):
         """
         start_time = time.time()
 
+        # Use timeout from config if available
+        timeout = getattr(self.config, "timeout", None)
+
         # Extract parameters from kwargs
         try:
             query = kwargs.get("query")
             if not query:
+                logger.error("Missing required 'query' parameter")
                 return SearchResponse(query="", error="Query parameter is required", results=[])
 
             # Extract and validate other parameters
@@ -375,6 +471,19 @@ class WebSearch(BaseTool):
             if country is None:
                 country = get_config("search.country", "us")
 
+            logger.info(f"Executing web search for query: {query}")
+            logger.debug(
+                f"Parameters: num_results={num_results}, lang={lang}, country={country}, fetch_content={fetch_content}, search_engine={search_engine}"
+            )
+
+            # Initialize engines if needed
+            if not self.search_engines:
+                self._initialize_search_engines()
+
+            # Initialize content fetcher if needed
+            if fetch_content and self.content_fetcher is None:
+                self.content_fetcher = WebContentFetcher()
+
             # Check cache for existing results
             cache_key = f"{query}:{num_results}:{lang}:{country}:{fetch_content}"
             cached_result = self._check_cache(cache_key)
@@ -388,9 +497,10 @@ class WebSearch(BaseTool):
             engines_tried = []
 
             if search_engine != "auto":
-                if search_engine in self._search_engines:
+                if search_engine in self.search_engines:
                     engines_to_try = [search_engine]
                 else:
+                    logger.warning(f"Specified search engine '{search_engine}' is not available")
                     return SearchResponse(
                         query=query,
                         error=f"Specified search engine '{search_engine}' is not available.",
@@ -403,14 +513,14 @@ class WebSearch(BaseTool):
             results = []
             for engine_name in engines_to_try:
                 engines_tried.append(engine_name)
-                if engine_name not in self._search_engines:
+                if engine_name not in self.search_engines:
                     logger.warning(f"Search engine {engine_name} not available, skipping.")
                     continue
 
-                logger.info(f"🔎 Attempting search with {engine_name.capitalize()}...")
+                logger.info(f"Attempting search with {engine_name.capitalize()}")
 
                 try:
-                    engine = self._search_engines[engine_name]
+                    engine = self.search_engines[engine_name]
                     search_items = await self._perform_search_with_engine(
                         engine, query, num_results, search_params
                     )
@@ -437,6 +547,9 @@ class WebSearch(BaseTool):
 
             # Return early if no results found
             if not results:
+                logger.warning(
+                    f"No results found with any search engine. Tried: {', '.join(engines_tried)}"
+                )
                 return SearchResponse(
                     query=query,
                     error=f"No results found with any search engine. Tried: {', '.join(engines_tried)}",
@@ -452,7 +565,9 @@ class WebSearch(BaseTool):
 
             # Fetch content if requested
             if fetch_content:
+                logger.debug(f"Fetching content for {len(results)} results")
                 results = await self._fetch_content_for_results(results)
+                logger.info(f"Content fetched for {len(results)} results")
 
             # Create the response
             response = SearchResponse(
@@ -467,13 +582,16 @@ class WebSearch(BaseTool):
                 ),
             )
 
-            # Cache the results
-            self._update_cache(cache_key, response)
+            # Cache the results if caching is enabled
+            if getattr(self.config, "cache_results", True):
+                self._update_cache(cache_key, response)
+                logger.debug(f"Cached search results for: {query}")
 
             return response
 
         except ToolError as e:
             # Known errors
+            logger.error(f"Tool error during search: {e}")
             return SearchResponse(query=kwargs.get("query", ""), error=str(e), results=[])
         except Exception as e:
             # Unexpected errors
@@ -485,43 +603,86 @@ class WebSearch(BaseTool):
             )
 
     def _check_cache(self, cache_key: str) -> Optional[SearchResponse]:
-        """Check if results are in cache and not expired."""
-        if cache_key in self._results_cache:
-            entry = self._results_cache[cache_key]
-            if time.time() - entry["timestamp"] < self._cache_expiry:
+        """
+        Check if results are in cache and not expired.
+
+        Args:
+            cache_key: Cache key to check
+
+        Returns:
+            Cached response if available, None otherwise
+        """
+        if cache_key in self.results_cache:
+            entry = self.results_cache[cache_key]
+            if time.time() - entry["timestamp"] < self.cache_expiry:
                 return cast(SearchResponse, entry["response"])
             else:
                 # Expired entry
-                del self._results_cache[cache_key]
+                del self.results_cache[cache_key]
+                logger.debug(f"Removed expired cache entry: {cache_key}")
         return None
 
     def _update_cache(self, cache_key: str, response: SearchResponse) -> None:
-        """Add search results to cache."""
-        self._results_cache[cache_key] = {"timestamp": time.time(), "response": response}
+        """
+        Add search results to cache.
+
+        Args:
+            cache_key: Cache key to use
+            response: Response to cache
+        """
+        self.results_cache[cache_key] = {"timestamp": time.time(), "response": response}
 
         # Clean expired entries
-        for key in list(self._results_cache.keys()):
-            if time.time() - self._results_cache[key]["timestamp"] > self._cache_expiry:
-                del self._results_cache[key]
+        for key in list(self.results_cache.keys()):
+            if time.time() - self.results_cache[key]["timestamp"] > self.cache_expiry:
+                del self.results_cache[key]
 
     async def _fetch_content_for_results(self, results: List[SearchResult]) -> List[SearchResult]:
-        """Fetch and add web content to search results."""
+        """
+        Fetch and add web content to search results.
+
+        Args:
+            results: Search results to fetch content for
+
+        Returns:
+            Search results with content added
+        """
         if not results:
             return []
 
+        # Ensure content fetcher is initialized
+        if self.content_fetcher is None:
+            self.content_fetcher = WebContentFetcher()
+            logger.debug("Initialized WebContentFetcher")
+
         # Create tasks for each result
         tasks = [self._fetch_single_result_content(result) for result in results]
+        logger.debug(f"Created {len(tasks)} content fetch tasks")
 
         # Execute all fetch operations concurrently
         fetched_results = await asyncio.gather(*tasks)
         return list(fetched_results)
 
     async def _fetch_single_result_content(self, result: SearchResult) -> SearchResult:
-        """Fetch content for a single search result."""
+        """
+        Fetch content for a single search result.
+
+        Args:
+            result: Search result to fetch content for
+
+        Returns:
+            Search result with content added
+        """
         if result.url:
+            logger.debug(f"Fetching content for URL: {result.url}")
+            # Ensure content fetcher is initialized
+            if self.content_fetcher is None:
+                self.content_fetcher = WebContentFetcher()
+
             content = await self.content_fetcher.fetch_content(result.url)
             if content:
                 # Create a new result with content added
+                logger.debug(f"Content fetched successfully for: {result.url}")
                 return SearchResult(
                     position=result.position,
                     url=result.url,
@@ -533,7 +694,12 @@ class WebSearch(BaseTool):
         return result
 
     def _get_engine_order(self) -> List[str]:
-        """Determines the order in which to try search engines."""
+        """
+        Determines the order in which to try search engines.
+
+        Returns:
+            List of engines to try in order
+        """
         preferred = get_config("search.engine", "google").lower()
         fallbacks = get_config("search.fallback_engines", [])
 
@@ -541,12 +707,13 @@ class WebSearch(BaseTool):
             fallbacks = [fallbacks]
 
         # Start with preferred engine, then fallbacks, then remaining engines
-        engine_order = [preferred] if preferred in self._search_engines else []
+        engine_order = [preferred] if preferred in self.search_engines else []
         engine_order.extend(
-            [fb for fb in fallbacks if fb in self._search_engines and fb not in engine_order]
+            [fb for fb in fallbacks if fb in self.search_engines and fb not in engine_order]
         )
-        engine_order.extend([e for e in self._search_engines if e not in engine_order])
+        engine_order.extend([e for e in self.search_engines if e not in engine_order])
 
+        logger.debug(f"Search engine order: {engine_order}")
         return engine_order
 
     @retry(
@@ -561,10 +728,25 @@ class WebSearch(BaseTool):
         num_results: int,
         search_params: Dict[str, str],
     ) -> List[SearchItem]:
-        """Execute search with the given engine and parameters."""
+        """
+        Execute search with the given engine and parameters.
+
+        Args:
+            engine: Search engine to use
+            query: Search query
+            num_results: Number of results to retrieve
+            search_params: Additional search parameters
+
+        Returns:
+            List of search results
+
+        Raises:
+            Exception: If search fails
+        """
         try:
             # Create a lambda to execute the synchronous search in a separate thread
             loop = asyncio.get_event_loop()
+            logger.debug(f"Executing search for: {query}")
             return await loop.run_in_executor(
                 None,
                 lambda: list(
@@ -579,3 +761,18 @@ class WebSearch(BaseTool):
         except Exception as e:
             logger.error(f"Error performing search with engine: {e}")
             raise  # Let the retry decorator handle it
+
+    async def cleanup(self) -> None:
+        """Clean up resources used by the web search tool."""
+        logger.info("Cleaning up web search resources")
+
+        # Clear cache to free memory
+        self.results_cache.clear()
+
+        # Close any session in content fetcher
+        if self.content_fetcher and hasattr(self.content_fetcher, "session"):
+            try:
+                self.content_fetcher.session.close()
+                logger.debug("Content fetcher session closed")
+            except Exception as e:
+                logger.warning(f"Error closing content fetcher session: {e}")

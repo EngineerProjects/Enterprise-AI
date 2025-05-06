@@ -13,11 +13,13 @@ from typing import Any, DefaultDict, Dict, List, Literal, Optional, Union, Patte
 
 from pydantic import BaseModel, Field, validator
 
-from enterprise_ai.tool.core.base import BaseTool, ToolError
+from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
+from enterprise_ai.logger import get_logger
 
+logger = get_logger("tool.file.editor")
 
 # Constants
 SNIPPET_LINES: int = 4
@@ -91,104 +93,193 @@ def maybe_truncate(content: str, truncate_after: Optional[int] = MAX_RESPONSE_LE
 
 @register_tool(category="file")
 class FileEditor(BaseTool):
-    """Advanced tool for viewing, creating, and editing files with sandbox support."""
+    """
+    Advanced file editor with comprehensive file manipulation capabilities.
 
-    def __init__(self) -> None:
-        """Initialize the editor tool with explicit attributes."""
-        # Define values explicitly in __init__
-        name = "file_editor"
-        description = """Comprehensive file editor with sandbox support. Capabilities include:
-    * Viewing files and directories
-    * Creating new files
-    * String replacement (exact matches)
-    * Regex pattern replacement
-    * Line-based operations (insert, delete, replace)
-    * Insert at specific positions including character offsets
-    * Undo functionality with edit history
+    Key capabilities:
+    * View file and directory contents with line range control
+    * Create new files with specified content
+    * Edit files using exact string or regex pattern replacement
+    * Perform line-based operations (insert, delete, replace)
+    * Insert content at specific character positions
+    * Track edit history with undo functionality
+    * Create automatic backups before edits
+
+    Use this tool when:
+    * You need to inspect file or directory contents
+    * You need to create or modify files
+    * You need to perform complex search and replace operations
+    * You need precise control over file edits with line numbers
+    * You want to make changes with the ability to undo them
 
     Notes:
     * All operations run in a secure sandbox environment
-    * Files can be edited using exact string matches or regex patterns
-    * Line operations can target specific line numbers or line patterns
-    * Backups can be created automatically before edits
-    * Undo capability for all edit operations
+    * Large files are automatically truncated in the display
+    * Use view_range parameter to view specific portions of large files
+    * Backups can be automatically created before file modifications
     """
-        parameters = {
-            "type": "object",
-            "properties": {
-                "command": {
-                    "description": "The command to run",
-                    "enum": [
-                        "view",
-                        "create",
-                        "str_replace",
-                        "regex_replace",
-                        "line_edit",
-                        "insert",
-                        "insert_at",
-                        "undo_edit",
-                    ],
-                    "type": "string",
-                },
-                "path": {
-                    "description": "Absolute path to file or directory",
-                    "type": "string",
-                },
-                # Include all other parameters here...
-                "file_text": {
-                    "description": "Content for file creation",
-                    "type": "string",
-                },
-                "old_str": {
-                    "description": "String to replace (for str_replace)",
-                    "type": "string",
-                },
-                "new_str": {
-                    "description": "Replacement string (for str_replace or insert)",
-                    "type": "string",
-                },
-                "regex_params": {
-                    "description": "Parameters for regex replacement",
-                    "type": "object",
-                },
-                "line_params": {
-                    "description": "Parameters for line editing",
-                    "type": "object",
-                },
-                "insert_line": {
-                    "description": "Line number for insertion (1-based)",
-                    "type": "integer",
-                },
-                "position": {
-                    "description": "Position for insertion (character offset)",
-                    "type": "integer",
-                },
-                "view_range": {
-                    "description": "Line range for viewing [start, end]",
-                    "items": {"type": "integer"},
-                    "type": "array",
-                },
-                "make_backup": {
-                    "description": "Whether to create a backup file",
-                    "type": "boolean",
-                },
-            },
-            "required": ["command", "path"],
-        }
 
-        super().__init__(name=name, description=description, parameters=parameters)
+    name: str = "file_editor"
+    description: str = """
+    Comprehensive file editor with sandbox support for secure file operations.
+    
+    * Purpose: View, create, and edit files with precision and safety
+    * Usage: Manipulate files with various editing operations and pattern matching
+    * Features: View files/directories, create files, string/regex replacement, line operations, undo
+    * Returns: Operation results with file content previews and confirmation messages
+    
+    The editor supports multiple editing modes including exact string replacement, regex patterns,
+    line-based editing, and character position insertion. All operations are performed in a 
+    secure sandbox environment, and edit history is maintained for undo functionality.
+    """
+
+    parameters: dict = {
+        "type": "object",
+        "properties": {
+            "command": {
+                "description": "The command to run",
+                "enum": [
+                    "view",
+                    "create",
+                    "str_replace",
+                    "regex_replace",
+                    "line_edit",
+                    "insert",
+                    "insert_at",
+                    "undo_edit",
+                ],
+                "type": "string",
+            },
+            "path": {
+                "description": "Absolute path to file or directory",
+                "type": "string",
+            },
+            "file_text": {
+                "description": "Content for file creation",
+                "type": "string",
+            },
+            "old_str": {
+                "description": "String to replace (for str_replace)",
+                "type": "string",
+            },
+            "new_str": {
+                "description": "Replacement string (for str_replace or insert)",
+                "type": "string",
+            },
+            "regex_params": {
+                "description": "Parameters for regex replacement",
+                "type": "object",
+            },
+            "line_params": {
+                "description": "Parameters for line editing",
+                "type": "object",
+            },
+            "insert_line": {
+                "description": "Line number for insertion (1-based)",
+                "type": "integer",
+            },
+            "position": {
+                "description": "Position for insertion (character offset)",
+                "type": "integer",
+            },
+            "view_range": {
+                "description": "Line range for viewing [start, end]",
+                "items": {"type": "integer"},
+                "type": "array",
+            },
+            "make_backup": {
+                "description": "Whether to create a backup file",
+                "type": "boolean",
+            },
+        },
+        "required": ["command", "path"],
+    }
+
+    # Define tool capabilities
+    capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.FILE_ACCESS}
+
+    # Tool requires explicit cleanup and initialization
+    requires_initialization: bool = True
+
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        parameters: Optional[dict] = None,
+        config: Optional[ToolConfig] = None,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Initialize the FileEditor tool with standard parameters.
+
+        Args:
+            name: Override for tool name
+            description: Override for tool description
+            parameters: Override for tool parameters schema
+            config: Tool configuration settings
+            **kwargs: Additional keyword arguments
+        """
+        super().__init__(
+            name=name or self.name,
+            description=description or self.description,
+            parameters=parameters or self.parameters,
+        )
+
+        # Store tool configuration
+        self.config = config or ToolConfig(
+            timeout=60.0,  # Default timeout for file operations
+            max_retries=2,  # File operations can be retried
+            sandbox_enabled=True,  # Always run in sandbox environment
+        )
+
+        # Initialize file history tracking
         self._file_history: DefaultDict[str, List[str]] = defaultdict(list)
         self._sandbox_client: Optional[BaseSandboxClient] = None
 
-    async def _get_sandbox_client(self) -> BaseSandboxClient:
-        """Get or create a sandbox client."""
-        if self._sandbox_client is None:
+        logger.debug("FileEditor tool initialized")
+
+    async def initialize(self, **kwargs: Any) -> bool:
+        """
+        Initialize the file editor, creating sandbox environment.
+
+        Args:
+            **kwargs: Additional initialization parameters
+
+        Returns:
+            True if initialization succeeded, False otherwise
+        """
+        try:
             self._sandbox_client = create_sandbox_client()
             await self._sandbox_client.create()
+            logger.info("FileEditor sandbox environment created")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize sandbox: {e}")
+            return False
+
+    async def _get_sandbox_client(self) -> BaseSandboxClient:
+        """
+        Get or create a sandbox client.
+
+        Returns:
+            Initialized sandbox client
+
+        Raises:
+            ToolError: If sandbox creation fails
+        """
+        if self._sandbox_client is None:
+            try:
+                logger.info("Creating new sandbox client")
+                self._sandbox_client = create_sandbox_client()
+                await self._sandbox_client.create()
+            except Exception as e:
+                logger.error(f"Failed to create sandbox client: {e}")
+                raise ToolError(f"Failed to initialize sandbox environment: {str(e)}")
         return self._sandbox_client
 
     def _build_regex_flags(self, flags_str: str) -> int:
-        """Build regex flags from string.
+        """
+        Build regex flags from string.
 
         Args:
             flags_str: String representation of flags (e.g., 'im' for re.I | re.M)
@@ -214,7 +305,8 @@ class FileEditor(BaseTool):
         return result
 
     async def _create_backup(self, path: str, sandbox: BaseSandboxClient) -> Optional[str]:
-        """Create a backup of the file.
+        """
+        Create a backup of the file.
 
         Args:
             path: Path to the file to back up
@@ -225,41 +317,69 @@ class FileEditor(BaseTool):
         """
         try:
             backup_path = f"{path}.bak"
+            logger.debug(f"Creating backup at {backup_path}")
             # Use cp command to create backup
             await sandbox.run_command(f"cp {path} {backup_path}")
             return backup_path
-        except Exception as _:
+        except Exception as e:
+            logger.warning(f"Failed to create backup: {e}")
             return None
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        """Execute a file operation command."""
+        """
+        Execute a file operation command.
+
+        Args:
+            **kwargs: Command parameters including:
+                command: Operation to perform (view, create, str_replace, etc.)
+                path: Path to target file or directory
+                Additional parameters specific to each command
+
+        Returns:
+            ToolResult with operation result or error message
+        """
         # Extract parameters from kwargs
         command = kwargs.get("command")
         if not command:
+            logger.error("Missing required 'command' parameter")
             raise ToolError("Parameter 'command' is required")
 
         path = kwargs.get("path")
         if not path:
+            logger.error("Missing required 'path' parameter")
             raise ToolError("Parameter 'path' is required")
+
+        # Apply timeout from config
+        timeout = self.config.timeout if hasattr(self.config, "timeout") else None
+        logger.info(f"Executing command: {command} on path: {path}")
 
         # Get the sandbox client
         sandbox = await self._get_sandbox_client()
 
         # Validate path and command combination
-        await self.validate_path(command, path, sandbox)
+        try:
+            await self.validate_path(command, path, sandbox)
+        except ToolError as e:
+            logger.error(f"Path validation failed: {e}")
+            return ToolResult(error=str(e))
 
         # Execute the appropriate command
         try:
             if command == "view":
                 view_range = kwargs.get("view_range")
+                logger.debug(f"Viewing file with range: {view_range}")
                 result = await self.view(path, view_range, sandbox)
                 return result
 
             elif command == "create":
                 file_text = kwargs.get("file_text")
                 if file_text is None:
+                    logger.error("Missing required 'file_text' parameter")
                     raise ToolError("Parameter `file_text` is required for command: create")
+
+                logger.debug(f"Creating file at {path}")
                 await sandbox.write_file(path, file_text)
+                logger.info(f"File created successfully at: {path}")
                 return ToolResult(output=f"File created successfully at: {path}")
 
             elif command == "str_replace":
@@ -268,8 +388,10 @@ class FileEditor(BaseTool):
                 make_backup = kwargs.get("make_backup", True)
 
                 if old_str is None:
+                    logger.error("Missing required 'old_str' parameter")
                     raise ToolError("Parameter `old_str` is required for command: str_replace")
 
+                logger.debug(f"Replacing string in {path}")
                 return await self.str_replace(path, old_str, new_str, make_backup, sandbox)
 
             elif command == "regex_replace":
@@ -277,12 +399,14 @@ class FileEditor(BaseTool):
                 make_backup = kwargs.get("make_backup", True)
 
                 if regex_params is None:
+                    logger.error("Missing required 'regex_params' parameter")
                     raise ToolError(
                         "Parameter `regex_params` is required for command: regex_replace"
                     )
 
                 # Validate and extract regex params
                 validated_params = RegexReplaceParams(**regex_params)
+                logger.debug(f"Performing regex replacement in {path}")
                 return await self.regex_replace(
                     path,
                     validated_params.pattern,
@@ -298,10 +422,12 @@ class FileEditor(BaseTool):
                 make_backup = kwargs.get("make_backup", True)
 
                 if line_params is None:
+                    logger.error("Missing required 'line_params' parameter")
                     raise ToolError("Parameter `line_params` is required for command: line_edit")
 
                 # Validate and extract line edit params
                 line_edit_params = LineEditParams(**line_params)
+                logger.debug(f"Performing line edit in {path}")
                 return await self.line_edit(
                     path,
                     line_edit_params.operation,
@@ -320,10 +446,13 @@ class FileEditor(BaseTool):
                 make_backup = kwargs.get("make_backup", True)
 
                 if insert_line is None:
+                    logger.error("Missing required 'insert_line' parameter")
                     raise ToolError("Parameter `insert_line` is required for command: insert")
                 if new_str is None:
+                    logger.error("Missing required 'new_str' parameter")
                     raise ToolError("Parameter `new_str` is required for command: insert")
 
+                logger.debug(f"Inserting at line {insert_line} in {path}")
                 return await self.insert(path, insert_line, new_str, make_backup, sandbox)
 
             elif command == "insert_at":
@@ -332,29 +461,49 @@ class FileEditor(BaseTool):
                 make_backup = kwargs.get("make_backup", True)
 
                 if position is None:
+                    logger.error("Missing required 'position' parameter")
                     raise ToolError("Parameter `position` is required for command: insert_at")
                 if new_str is None:
+                    logger.error("Missing required 'new_str' parameter")
                     raise ToolError("Parameter `new_str` is required for command: insert_at")
 
+                logger.debug(f"Inserting at position {position} in {path}")
                 return await self.insert_at(path, position, new_str, make_backup, sandbox)
 
             elif command == "undo_edit":
+                logger.debug(f"Undoing last edit for {path}")
                 return await self.undo_edit(path, sandbox)
 
             else:
+                logger.error(f"Unsupported command: {command}")
                 raise ToolError(f"Unsupported command: {command}")
 
+        except ToolError as e:
+            # Pass through tool errors
+            logger.error(f"Tool error during {command}: {e}")
+            return ToolResult(error=str(e))
         except Exception as e:
-            if isinstance(e, ToolError):
-                raise
-            raise ToolError(f"Error executing command {command}: {str(e)}")
+            # Handle unexpected errors
+            logger.error(f"Unexpected error executing command {command}: {e}")
+            return ToolResult(error=f"Error executing command {command}: {str(e)}")
 
     async def validate_path(self, command: str, path: str, sandbox: BaseSandboxClient) -> None:
-        """Validate path and command combination."""
+        """
+        Validate path and command combination.
+
+        Args:
+            command: Operation to perform
+            path: Path to validate
+            sandbox: Sandbox client
+
+        Raises:
+            ToolError: If path validation fails
+        """
         path_obj = Path(path)
 
         # Check if path is absolute
         if not path_obj.is_absolute():
+            logger.error(f"Path is not absolute: {path}")
             raise ToolError(f"The path {path} is not an absolute path")
 
         # Check if path exists (except for create command)
@@ -365,6 +514,7 @@ class FileEditor(BaseTool):
                     f"test -e {path} && echo 'exists' || echo 'not exists'"
                 )
                 if "not exists" in exists_result:
+                    logger.error(f"Path does not exist: {path}")
                     raise ToolError(f"The path {path} does not exist. Please provide a valid path.")
 
                 # Check if path is a directory
@@ -374,11 +524,13 @@ class FileEditor(BaseTool):
                 is_dir = "directory" in dir_result
 
                 if is_dir and command != "view":
+                    logger.error(f"Path is a directory but command is not 'view': {path}")
                     raise ToolError(
                         f"The path {path} is a directory and only the `view` command can be used on directories"
                     )
             except Exception as e:
                 if not isinstance(e, ToolError):
+                    logger.error(f"Error validating path: {e}")
                     raise ToolError(f"Error validating path: {str(e)}")
                 raise
 
@@ -389,11 +541,13 @@ class FileEditor(BaseTool):
                     f"test -e {path} && echo 'exists' || echo 'not exists'"
                 )
                 if "exists" in exists_result:
+                    logger.error(f"File already exists: {path}")
                     raise ToolError(
                         f"File already exists at: {path}. Cannot overwrite files using command `create`."
                     )
             except Exception as e:
                 if not isinstance(e, ToolError):
+                    logger.error(f"Error checking file existence: {e}")
                     raise ToolError(f"Error checking file existence: {str(e)}")
                 raise
 
@@ -403,7 +557,17 @@ class FileEditor(BaseTool):
         view_range: Optional[List[int]] = None,
         sandbox: Optional[BaseSandboxClient] = None,
     ) -> CLIResult:
-        """Display file or directory content."""
+        """
+        Display file or directory content.
+
+        Args:
+            path: Path to file or directory
+            view_range: Optional line range to view [start, end]
+            sandbox: Sandbox client
+
+        Returns:
+            CLIResult with file or directory content
+        """
         if sandbox is None:
             sandbox = await self._get_sandbox_client()
 
@@ -416,6 +580,7 @@ class FileEditor(BaseTool):
         if is_dir:
             # Directory handling
             if view_range:
+                logger.warning("view_range parameter not allowed for directories")
                 raise ToolError(
                     "The `view_range` parameter is not allowed when `path` points to a directory."
                 )
@@ -429,8 +594,10 @@ class FileEditor(BaseTool):
                     f"Here are the files and directories up to 2 levels deep in {path}, "
                     f"excluding hidden items:\n{find_result}\n"
                 )
+                logger.info(f"Listed directory contents: {path}")
                 return CLIResult(output=output)
             else:
+                logger.warning(f"Failed to list directory contents: {path}")
                 return CLIResult(error=f"Failed to list directory contents: {path}")
         else:
             # File handling - read file content
@@ -441,6 +608,7 @@ class FileEditor(BaseTool):
                 # Apply view range if specified
                 if view_range:
                     if len(view_range) != 2 or not all(isinstance(i, int) for i in view_range):
+                        logger.error(f"Invalid view_range: {view_range}")
                         raise ToolError(
                             "Invalid `view_range`. It should be a list of two integers."
                         )
@@ -451,16 +619,19 @@ class FileEditor(BaseTool):
 
                     # Validate view range
                     if init_line < 1 or init_line > n_lines_file:
+                        logger.error(f"Invalid view_range start line: {init_line}")
                         raise ToolError(
                             f"Invalid `view_range`: {view_range}. Its first element `{init_line}` should be "
                             f"within the range of lines of the file: {[1, n_lines_file]}"
                         )
                     if final_line > n_lines_file and final_line != -1:
+                        logger.error(f"Invalid view_range end line: {final_line}")
                         raise ToolError(
                             f"Invalid `view_range`: {view_range}. Its second element `{final_line}` should be "
                             f"smaller than the number of lines in the file: `{n_lines_file}`"
                         )
                     if final_line != -1 and final_line < init_line:
+                        logger.error(f"Invalid view_range (end < start): {view_range}")
                         raise ToolError(
                             f"Invalid `view_range`: {view_range}. Its second element `{final_line}` should be "
                             f"larger or equal than its first `{init_line}`"
@@ -486,9 +657,11 @@ class FileEditor(BaseTool):
                 )
 
                 output = f"Here's the content of {path} with line numbers:\n{numbered_content}\n"
+                logger.info(f"Viewed file content: {path}")
                 return CLIResult(output=output)
 
             except Exception as e:
+                logger.error(f"Failed to read file: {e}")
                 return CLIResult(error=f"Failed to read file: {str(e)}")
 
     async def str_replace(
@@ -499,7 +672,19 @@ class FileEditor(BaseTool):
         make_backup: bool = True,
         sandbox: Optional[BaseSandboxClient] = None,
     ) -> CLIResult:
-        """Replace a unique string in a file with a new string."""
+        """
+        Replace a unique string in a file with a new string.
+
+        Args:
+            path: Path to the file
+            old_str: String to replace
+            new_str: Replacement string
+            make_backup: Whether to create a backup
+            sandbox: Sandbox client
+
+        Returns:
+            CLIResult with replacement result
+        """
         if sandbox is None:
             sandbox = await self._get_sandbox_client()
 
@@ -511,10 +696,14 @@ class FileEditor(BaseTool):
         backup_path = None
         if make_backup:
             backup_path = await self._create_backup(path, sandbox)
+            logger.debug(f"Created backup at: {backup_path}")
 
         # Check if old_str is unique in the file
         occurrences = file_content.count(old_str)
         if occurrences == 0:
+            if backup_path:
+                await sandbox.run_command(f"rm {backup_path}")
+            logger.warning(f"String not found: {old_str}")
             raise ToolError(
                 f"No replacement was performed, old_str `{old_str}` did not appear verbatim in {path}."
             )
@@ -528,6 +717,9 @@ class FileEditor(BaseTool):
                     lines.append(line_num)
                 line_num += 1
 
+            if backup_path:
+                await sandbox.run_command(f"rm {backup_path}")
+            logger.warning(f"Multiple occurrences found: {old_str}")
             raise ToolError(
                 f"No replacement was performed. Multiple occurrences of old_str in {path} "
                 f"at lines {lines}. Please ensure it is unique or use regex_replace."
@@ -538,9 +730,11 @@ class FileEditor(BaseTool):
 
         # Save the original content to history
         self._file_history[path].append(file_content)
+        logger.debug(f"Added original content to history for {path}")
 
         # Write the new content to the file
         await sandbox.write_file(path, new_file_content)
+        logger.info(f"Successfully replaced string in {path}")
 
         # Create a snippet of the edited section
         replacement_line = file_content.split(old_str)[0].count("\n")
@@ -573,7 +767,21 @@ class FileEditor(BaseTool):
         make_backup: bool = True,
         sandbox: Optional[BaseSandboxClient] = None,
     ) -> CLIResult:
-        """Replace text in a file using a regex pattern."""
+        """
+        Replace text in a file using a regex pattern.
+
+        Args:
+            path: Path to the file
+            pattern: Regex pattern to match
+            replacement: Replacement string
+            count: Maximum replacements (0 = all)
+            flags: Regex flags
+            make_backup: Whether to create a backup
+            sandbox: Sandbox client
+
+        Returns:
+            CLIResult with replacement result
+        """
         if sandbox is None:
             sandbox = await self._get_sandbox_client()
 
@@ -584,15 +792,18 @@ class FileEditor(BaseTool):
         backup_path = None
         if make_backup:
             backup_path = await self._create_backup(path, sandbox)
+            logger.debug(f"Created backup at: {backup_path}")
 
         # Compile the regex pattern
         try:
             regex_flags = self._build_regex_flags(flags)
             compiled_pattern = re.compile(pattern, regex_flags)
+            logger.debug(f"Compiled regex pattern: {pattern} with flags: {flags}")
         except re.error as e:
             if backup_path:
                 # Clean up backup if not needed
                 await sandbox.run_command(f"rm {backup_path}")
+            logger.error(f"Invalid regex pattern: {e}")
             raise ToolError(f"Invalid regex pattern: {e}")
 
         # Find matches
@@ -603,6 +814,7 @@ class FileEditor(BaseTool):
             if backup_path:
                 # Clean up backup if not needed
                 await sandbox.run_command(f"rm {backup_path}")
+            logger.warning(f"No matches found for pattern: {pattern}")
             raise ToolError(f"No matches found for pattern: {pattern}")
 
         # Perform replacement
@@ -614,13 +826,16 @@ class FileEditor(BaseTool):
             if backup_path:
                 # Clean up backup if not needed
                 await sandbox.run_command(f"rm {backup_path}")
+            logger.warning("No replacements made")
             raise ToolError("No replacements made. Pattern matched but replacement failed.")
 
         # Save the original content to history
         self._file_history[path].append(file_content)
+        logger.debug(f"Added original content to history for {path}")
 
         # Write the new content to the file
         await sandbox.write_file(path, new_file_content)
+        logger.info(f"Successfully replaced {replacement_count} occurrences in {path}")
 
         # Find line numbers of matches (for reporting)
         file_lines = file_content.split("\n")
@@ -666,7 +881,8 @@ class FileEditor(BaseTool):
         return CLIResult(output=success_msg)
 
     def _find_line_numbers(self, content: str, pattern: str, count: int = 1) -> List[int]:
-        """Find the line numbers that match a pattern.
+        """
+        Find the line numbers that match a pattern.
 
         Args:
             content: File content as string
@@ -705,7 +921,23 @@ class FileEditor(BaseTool):
         make_backup: bool = True,
         sandbox: Optional[BaseSandboxClient] = None,
     ) -> CLIResult:
-        """Perform line-based editing operations."""
+        """
+        Perform line-based editing operations.
+
+        Args:
+            path: Path to file
+            operation: Operation type (insert, delete, replace)
+            line_number: Line number to operate on (1-based)
+            pattern: Pattern to match lines
+            count: Number of lines to affect
+            after_match: Insert after matched line
+            content: Content for insert/replace
+            make_backup: Whether to create backup
+            sandbox: Sandbox client
+
+        Returns:
+            CLIResult with edit result
+        """
         if sandbox is None:
             sandbox = await self._get_sandbox_client()
 
@@ -717,6 +949,7 @@ class FileEditor(BaseTool):
         backup_path = None
         if make_backup:
             backup_path = await self._create_backup(path, sandbox)
+            logger.debug(f"Created backup at: {backup_path}")
 
         # Determine which lines to operate on
         target_lines: List[int] = []
@@ -726,6 +959,7 @@ class FileEditor(BaseTool):
             if line_idx < 0 or line_idx >= len(lines):
                 if backup_path:
                     await sandbox.run_command(f"rm {backup_path}")
+                logger.error(f"Line number out of range: {line_number}")
                 raise ToolError(f"Line number {line_number} is out of range (1-{len(lines)})")
 
             # Add consecutive lines if count > 1
@@ -739,11 +973,13 @@ class FileEditor(BaseTool):
             if not matches:
                 if backup_path:
                     await sandbox.run_command(f"rm {backup_path}")
+                logger.warning(f"No lines matched pattern: {pattern}")
                 raise ToolError(f"No lines matched pattern: {pattern}")
             target_lines = matches
 
         # Save the original content to history
         self._file_history[path].append(file_content)
+        logger.debug(f"Added original content to history for {path}")
 
         # Perform the requested operation
         modified = False
@@ -753,6 +989,7 @@ class FileEditor(BaseTool):
             # Delete lines (starting from the end to avoid index shifting)
             for line_idx in sorted(target_lines, reverse=True):
                 if 0 <= line_idx < len(new_lines):
+                    logger.debug(f"Deleting line {line_idx + 1}")
                     del new_lines[line_idx]
                     modified = True
 
@@ -760,6 +997,7 @@ class FileEditor(BaseTool):
             if content is None:
                 if backup_path:
                     await sandbox.run_command(f"rm {backup_path}")
+                logger.error("Missing content for replace operation")
                 raise ToolError("Content must be provided for replace operation")
 
             # Replace content in the specified lines
@@ -767,6 +1005,7 @@ class FileEditor(BaseTool):
             for i, line_idx in enumerate(target_lines):
                 if 0 <= line_idx < len(new_lines):
                     if i < len(replacement_lines):
+                        logger.debug(f"Replacing line {line_idx + 1}")
                         new_lines[line_idx] = replacement_lines[i]
                     else:
                         # If we have more target lines than replacement lines,
@@ -778,6 +1017,7 @@ class FileEditor(BaseTool):
             if content is None:
                 if backup_path:
                     await sandbox.run_command(f"rm {backup_path}")
+                logger.error("Missing content for insert operation")
                 raise ToolError("Content must be provided for insert operation")
 
             insertion_lines = content.splitlines()
@@ -789,6 +1029,7 @@ class FileEditor(BaseTool):
                     # Insert after the matched line
                     insert_pos = line_idx + 1
                     if 0 <= insert_pos <= len(new_lines):  # <= to allow append at end
+                        logger.debug(f"Inserting after line {line_idx + 1}")
                         for ins_line in reversed(insertion_lines):
                             new_lines.insert(insert_pos, ins_line)
                         modified = True
@@ -797,6 +1038,7 @@ class FileEditor(BaseTool):
                 # Insert in reverse order to avoid index shifting
                 for line_idx in sorted(target_lines, reverse=True):
                     if 0 <= line_idx <= len(new_lines):  # <= to allow append at end
+                        logger.debug(f"Inserting at line {line_idx + 1}")
                         for ins_line in reversed(insertion_lines):
                             new_lines.insert(line_idx, ins_line)
                         modified = True
@@ -808,6 +1050,7 @@ class FileEditor(BaseTool):
                 new_content += "\n"
 
             await sandbox.write_file(path, new_content)
+            logger.info(f"Successfully applied {operation} operation to {path}")
 
             # Create snippet for preview around the modified lines
             if target_lines:
@@ -839,7 +1082,7 @@ class FileEditor(BaseTool):
             # No changes made
             if backup_path:
                 await sandbox.run_command(f"rm {backup_path}")
-
+            logger.warning("No changes were made to the file")
             return CLIResult(output="No changes were made to the file.")
 
     async def insert(
@@ -850,7 +1093,19 @@ class FileEditor(BaseTool):
         make_backup: bool = True,
         sandbox: Optional[BaseSandboxClient] = None,
     ) -> CLIResult:
-        """Insert text at a specific line in a file."""
+        """
+        Insert text at a specific line in a file.
+
+        Args:
+            path: Path to the file
+            insert_line: Line number to insert at (1-based)
+            new_str: Text to insert
+            make_backup: Whether to create a backup
+            sandbox: Sandbox client
+
+        Returns:
+            CLIResult with insertion result
+        """
         if sandbox is None:
             sandbox = await self._get_sandbox_client()
 
@@ -862,17 +1117,20 @@ class FileEditor(BaseTool):
         backup_path = None
         if make_backup:
             backup_path = await self._create_backup(path, sandbox)
+            logger.debug(f"Created backup at: {backup_path}")
 
         # Validate insert_line
         if insert_line < 0 or insert_line > len(lines):
             if backup_path:
                 await sandbox.run_command(f"rm {backup_path}")
+            logger.error(f"Invalid line number for insertion: {insert_line}")
             raise ToolError(
                 f"Invalid line number {insert_line}. It should be within the range [0-{len(lines)}]"
             )
 
         # Save original content to history
         self._file_history[path].append(file_content)
+        logger.debug(f"Added original content to history for {path}")
 
         # Insert the new content
         new_str_lines = new_str.splitlines()
@@ -885,6 +1143,7 @@ class FileEditor(BaseTool):
 
         # Write the new content to the file
         await sandbox.write_file(path, new_content)
+        logger.info(f"Successfully inserted at line {insert_line} in {path}")
 
         # Create a snippet for preview
         start_line = max(0, insert_line - SNIPPET_LINES)
@@ -914,7 +1173,19 @@ class FileEditor(BaseTool):
         make_backup: bool = True,
         sandbox: Optional[BaseSandboxClient] = None,
     ) -> CLIResult:
-        """Insert text at a specific character position in a file."""
+        """
+        Insert text at a specific character position in a file.
+
+        Args:
+            path: Path to the file
+            position: Character position to insert at
+            new_str: Text to insert
+            make_backup: Whether to create a backup
+            sandbox: Sandbox client
+
+        Returns:
+            CLIResult with insertion result
+        """
         if sandbox is None:
             sandbox = await self._get_sandbox_client()
 
@@ -925,23 +1196,27 @@ class FileEditor(BaseTool):
         backup_path = None
         if make_backup:
             backup_path = await self._create_backup(path, sandbox)
+            logger.debug(f"Created backup at: {backup_path}")
 
         # Validate position
         if position < 0 or position > len(file_content):
             if backup_path:
                 await sandbox.run_command(f"rm {backup_path}")
+            logger.error(f"Invalid position for insertion: {position}")
             raise ToolError(
                 f"Invalid position {position}. It should be within the range [0-{len(file_content)}]"
             )
 
         # Save original content to history
         self._file_history[path].append(file_content)
+        logger.debug(f"Added original content to history for {path}")
 
         # Insert at the specified position
         new_content = file_content[:position] + new_str + file_content[position:]
 
         # Write the new content to the file
         await sandbox.write_file(path, new_content)
+        logger.info(f"Successfully inserted at position {position} in {path}")
 
         # Determine the line number where the insertion occurred for better context
         prefix = file_content[:position]
@@ -973,15 +1248,28 @@ class FileEditor(BaseTool):
         return CLIResult(output=success_msg)
 
     async def undo_edit(self, path: str, sandbox: Optional[BaseSandboxClient] = None) -> CLIResult:
-        """Revert the last edit made to a file."""
+        """
+        Revert the last edit made to a file.
+
+        Args:
+            path: Path to the file
+            sandbox: Sandbox client
+
+        Returns:
+            CLIResult with undo result
+        """
         if sandbox is None:
             sandbox = await self._get_sandbox_client()
 
         if not self._file_history[path]:
+            logger.warning(f"No edit history found for {path}")
             raise ToolError(f"No edit history found for {path}.")
 
         old_text = self._file_history[path].pop()
+        logger.debug(f"Retrieved previous version from history for {path}")
+
         await sandbox.write_file(path, old_text)
+        logger.info(f"Successfully undid last edit to {path}")
 
         # Create a snippet of the first few lines for preview
         lines = old_text.splitlines()
@@ -997,3 +1285,17 @@ class FileEditor(BaseTool):
                 success_msg += "(File continues...)\n"
 
         return CLIResult(output=success_msg)
+
+    async def cleanup(self) -> None:
+        """Clean up resources used by the file editor."""
+        logger.info("Cleaning up file editor resources")
+        if self._sandbox_client:
+            try:
+                await self._sandbox_client.close()
+                self._sandbox_client = None
+                logger.debug("Sandbox client closed")
+            except Exception as e:
+                logger.warning(f"Error closing sandbox client: {e}")
+
+        # Clear file history
+        self._file_history = defaultdict(list)

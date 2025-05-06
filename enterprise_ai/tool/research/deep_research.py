@@ -4,20 +4,17 @@ import asyncio
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional, Set, cast
+from typing import Any, Dict, List, Optional, Set, Union, cast
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from enterprise_ai.exceptions import EnterpriseAIError
-
-# Fix for the LLM import issue - adjust this import path based on your project structure
 from enterprise_ai.llm.simple import LLM
 from enterprise_ai.logger import get_logger
-from enterprise_ai.tool.core.base import BaseTool, ToolError
+from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import SearchResult, WebSearch
-
 
 logger = get_logger("tool.research.deep_research")
 
@@ -146,14 +143,45 @@ class ResearchSummary(ToolResult):
 
 @register_tool(category="research")
 class DeepResearch(BaseTool):
-    """Advanced research tool that explores a topic through iterative web searches."""
+    """
+    Advanced research tool that explores topics through iterative, multi-level research.
+
+    Key capabilities:
+    * Performs comprehensive research on complex topics
+    * Automatically explores topics through multiple search iterations
+    * Extracts and ranks key insights by relevance
+    * Generates intelligent follow-up queries to deepen research
+    * Organizes findings into a structured, searchable report
+    * Preserves source attribution for all discoveries
+
+    Use this tool when:
+    * You need in-depth research on a complex topic
+    * You want a comprehensive exploration beyond simple search
+    * You need to discover connections across multiple sources
+    * You want insights organized by relevance and importance
+    * You need a structured summary with source attribution
+
+    Notes:
+    * Research depth can be controlled via the max_depth parameter
+    * Processing time increases with depth and results count
+    * All insights include relevance scores and source attribution
+    * Time limits can be set to control processing duration
+    """
 
     name: str = "deep_research"
     description: str = """
-    Performs comprehensive research on a topic through multi-level web searches
-    and content analysis. Returns a structured summary of findings with source
-    attribution and relevance ratings.
+    Performs comprehensive, multi-level research on topics through iterative web searches and content analysis.
+    
+    * Purpose: Discover in-depth information on complex topics through iterative exploration
+    * Usage: Provide a research query and optional parameters to control depth and scope
+    * Features: Multi-level search, insight extraction, automated follow-up generation, content analysis
+    * Returns: Structured research summary with insights organized by relevance and source attribution
+    
+    The tool automatically explores topics at multiple levels, generating follow-up queries based on
+    initial findings. Results are analyzed for relevance and organized into a comprehensive report
+    with proper source attribution.
     """
+
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -185,50 +213,145 @@ class DeepResearch(BaseTool):
         "required": ["query"],
     }
 
-    def __init__(self) -> None:
-        """Initialize DeepResearch tool with WebSearch tool and LLM."""
-        super().__init__(name=self.name, description=self.description, parameters=self.parameters)
-        self.search_tool = WebSearch()
-        self.llm = LLM()
+    # Define capabilities - use SEARCH instead of RESEARCH which doesn't exist
+    capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.SEARCH}
+
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        parameters: Optional[dict] = None,
+        config: Optional[ToolConfig] = None,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Initialize DeepResearch tool with standard parameters.
+
+        Args:
+            name: Override for tool name
+            description: Override for tool description
+            parameters: Override for tool parameters schema
+            config: Tool configuration settings
+            **kwargs: Additional keyword arguments
+        """
+        super().__init__(
+            name=name or self.name,
+            description=description or self.description,
+            parameters=parameters or self.parameters,
+        )
+
+        # Store tool configuration
+        self.config = config or ToolConfig(
+            timeout=180.0,  # Default research timeout
+            max_retries=2,  # Research can be retried
+            cache_results=True,  # Cache research results
+        )
+
+        # Initialize dependent tools (as regular attributes, not fields)
+        self.search_tool = None
+        self.llm = None
+
+        logger.debug("DeepResearch tool initialized")
+
+    async def initialize(self, **kwargs: Any) -> bool:
+        """
+        Initialize the research tool and its dependencies.
+
+        Args:
+            **kwargs: Additional initialization parameters
+
+        Returns:
+            True if initialization succeeded, False otherwise
+        """
+        try:
+            # Initialize WebSearch tool
+            self.search_tool = WebSearch()
+
+            # Initialize LLM
+            self.llm = LLM()
+
+            logger.info("DeepResearch tool successfully initialized")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to initialize DeepResearch tool: {e}")
+            return False
 
     async def execute(self, **kwargs: Any) -> ResearchSummary:
-        """Execute deep research on the given query."""
+        """
+        Execute deep research on the given query.
+
+        Args:
+            **kwargs: Keyword arguments including:
+                query: The research question or topic
+                max_depth: Maximum depth of research (1-5)
+                results_per_search: Results to analyze per search
+                max_insights: Maximum insights to return
+                time_limit_seconds: Maximum execution time
+
+        Returns:
+            ResearchSummary with organized findings
+        """
         # Extract parameters from kwargs
         query = kwargs.get("query")
         if not query:
+            logger.error("Missing required 'query' parameter")
             raise ToolError("Query parameter is required")
 
         max_depth = kwargs.get("max_depth", 2)
         results_per_search = kwargs.get("results_per_search", 5)
         max_insights = kwargs.get("max_insights", 20)
-        time_limit_seconds = kwargs.get("time_limit_seconds", 120)
+
+        # Use timeout from config if available, otherwise use parameter
+        config_timeout = getattr(self.config, "timeout", 120)
+        time_limit_seconds = kwargs.get("time_limit_seconds", config_timeout)
 
         # Normalize parameters
         max_depth = max(1, min(max_depth, 5))
         results_per_search = max(1, min(results_per_search, 20))
+
+        logger.info(f"Starting deep research on query: {query}")
+        logger.debug(
+            f"Parameters: max_depth={max_depth}, results_per_search={results_per_search}, time_limit={time_limit_seconds}s"
+        )
 
         # Initialize research context and set deadline
         context = ResearchContext(query=query, max_depth=max_depth)
         deadline = time.time() + time_limit_seconds
 
         try:
+            # Initialize tools if needed
+            if self.search_tool is None:
+                self.search_tool = WebSearch()
+                logger.debug("Initialized WebSearch tool")
+
+            if self.llm is None:
+                self.llm = LLM()
+                logger.debug("Initialized LLM")
+
             # Initiate research process with optimized query
             optimized_query = await self._generate_optimized_query(query)
+            logger.info(f"Optimized query: {optimized_query}")
+
             await self._research_graph(
                 context=context,
                 query=optimized_query,
                 results_count=results_per_search,
                 deadline=deadline,
             )
+
+            logger.info(
+                f"Research completed: {len(context.insights)} insights found, depth {context.current_depth} reached"
+            )
+
         except ToolError as e:
             logger.error(f"Research error: {str(e)}")
         except EnterpriseAIError as e:
-            logger.error(f"Research error: {str(e)}")
+            logger.error(f"Enterprise AI error during research: {str(e)}")
         except Exception as e:
             logger.error(f"Unexpected error during research: {str(e)}")
 
         # Prepare final summary
-        return ResearchSummary(
+        summary = ResearchSummary(
             query=query,
             insights=sorted(context.insights, key=lambda x: x.relevance_score, reverse=True)[
                 :max_insights
@@ -237,9 +360,20 @@ class DeepResearch(BaseTool):
             depth_reached=context.current_depth,
         )
 
+        return summary
+
     async def _generate_optimized_query(self, query: str) -> str:
-        """Generate an optimized search query using LLM."""
+        """
+        Generate an optimized search query using LLM.
+
+        Args:
+            query: Original research query
+
+        Returns:
+            Optimized query for better search results
+        """
         try:
+            logger.debug(f"Optimizing query: {query}")
             prompt = OPTIMIZE_QUERY_PROMPT.format(query=query)
 
             # Prepare the request for the LLM
@@ -272,40 +406,62 @@ class DeepResearch(BaseTool):
         results_count: int,
         deadline: float,
     ) -> None:
-        """Run a complete research cycle (search, analyze, generate follow-ups)."""
+        """
+        Run a complete research cycle (search, analyze, generate follow-ups).
+
+        Args:
+            context: Current research context
+            query: Query to research
+            results_count: Number of results to analyze
+            deadline: Timestamp for execution deadline
+        """
         # Check termination conditions
         if time.time() >= deadline or context.current_depth >= context.max_depth:
+            if time.time() >= deadline:
+                logger.info("Research cycle terminated: time limit reached")
+            elif context.current_depth >= context.max_depth:
+                logger.info(f"Research cycle terminated: max depth {context.max_depth} reached")
             return
 
         # Log current research step
-        logger.info(f"Research cycle at depth {context.current_depth + 1}")
+        logger.info(f"Research cycle at depth {context.current_depth + 1} for query: {query}")
 
         # 1. Web search
         search_results = await self._search_web(query, results_count)
         if not search_results:
+            logger.warning(f"No search results found for query: {query}")
             return
 
         # 2. Extract insights
+        logger.debug(f"Analyzing {len(search_results)} search results")
         new_insights = await self._extract_insights(
             context, search_results, context.query, deadline
         )
         if not new_insights:
+            logger.warning("No insights extracted from search results")
             return
+
+        logger.info(f"Extracted {len(new_insights)} insights from search results")
 
         # 3. Generate follow-up queries
         follow_up_queries = await self._generate_follow_ups(new_insights, query, context.query)
         context.follow_up_queries.extend(follow_up_queries)
+        logger.info(f"Generated {len(follow_up_queries)} follow-up queries")
 
         # Update depth and proceed to next level
         context.current_depth += 1
 
         # 4. Continue research with follow-up queries
         if follow_up_queries and context.current_depth < context.max_depth:
+            logger.debug(f"Processing follow-up queries at depth {context.current_depth}")
+
             tasks = []  # Create a list to hold the tasks
             for follow_up in follow_up_queries[:2]:  # Limit branching factor
                 if time.time() >= deadline:
+                    logger.info("Follow-up processing terminated: time limit reached")
                     break
 
+                logger.debug(f"Scheduling follow-up query: {follow_up}")
                 # Create a coroutine for the recursive research call
                 task = self._research_graph(
                     context=context,
@@ -317,14 +473,33 @@ class DeepResearch(BaseTool):
 
             # Run all the created tasks concurrently
             if tasks:
+                logger.debug(f"Running {len(tasks)} follow-up queries in parallel")
                 await asyncio.gather(*tasks)
 
     async def _search_web(self, query: str, results_count: int) -> List[SearchResult]:
-        """Perform web search for the given query."""
+        """
+        Perform web search for the given query.
+
+        Args:
+            query: Search query
+            results_count: Number of results to retrieve
+
+        Returns:
+            List of search results
+        """
+        logger.debug(f"Searching web for: {query}")
+
+        if self.search_tool is None:
+            self.search_tool = WebSearch()
+            logger.debug("Initialized WebSearch tool")
+
         search_response = await self.search_tool.execute(
             query=query, num_results=results_count, fetch_content=True
         )
-        return getattr(search_response, "results", [])
+
+        results = getattr(search_response, "results", [])
+        logger.debug(f"Retrieved {len(results)} search results")
+        return results
 
     async def _extract_insights(
         self,
@@ -333,18 +508,35 @@ class DeepResearch(BaseTool):
         original_query: str,
         deadline: float,
     ) -> List[ResearchInsight]:
-        """Extract insights from search results."""
+        """
+        Extract insights from search results.
+
+        Args:
+            context: Current research context
+            results: Search results to analyze
+            original_query: Original research query
+            deadline: Timestamp for execution deadline
+
+        Returns:
+            List of extracted insights
+        """
         all_insights = []
 
-        for rst in results:
+        for result_index, rst in enumerate(results):
             # Skip if URL already visited or time exceeded
             if rst.url in context.visited_urls or time.time() >= deadline:
+                if rst.url in context.visited_urls:
+                    logger.debug(f"Skipping already visited URL: {rst.url}")
+                else:
+                    logger.debug("Analysis terminated: time limit reached")
                 continue
 
+            logger.debug(f"Analyzing result {result_index + 1}/{len(results)}: {rst.url}")
             context.visited_urls.add(rst.url)
 
             # Skip if no content available
             if not rst.raw_content:
+                logger.debug(f"Skipping result with no content: {rst.url}")
                 continue
 
             # Extract insights using LLM
@@ -366,8 +558,19 @@ class DeepResearch(BaseTool):
     async def _generate_follow_ups(
         self, insights: List[ResearchInsight], current_query: str, original_query: str
     ) -> List[str]:
-        """Generate follow-up queries based on insights."""
+        """
+        Generate follow-up queries based on insights.
+
+        Args:
+            insights: Recently discovered insights
+            current_query: Current research query
+            original_query: Original research query
+
+        Returns:
+            List of follow-up queries
+        """
         if not insights:
+            logger.debug("No insights available for follow-up generation")
             return []
 
         # Format insights for the prompt
@@ -382,6 +585,12 @@ class DeepResearch(BaseTool):
 
         # Get follow-up queries from LLM
         try:
+            logger.debug("Generating follow-up queries")
+
+            if self.llm is None:
+                self.llm = LLM()
+                logger.debug("Initialized LLM")
+
             messages = [{"role": "user", "content": prompt}]
             response = await self.llm.complete(messages=messages)
             content = ""
@@ -398,7 +607,9 @@ class DeepResearch(BaseTool):
                         queries.append(query_text)
 
             # Ensure we don't return more than 3 queries
-            return queries[:3]
+            result = queries[:3]
+            logger.info(f"Generated {len(result)} follow-up queries")
+            return result
         except Exception as e:
             logger.error(f"Error generating follow-up queries: {str(e)}")
             return []
@@ -406,13 +617,30 @@ class DeepResearch(BaseTool):
     async def _analyze_content(
         self, content: str, url: str, title: str, query: str
     ) -> List[ResearchInsight]:
-        """Extract insights from content based on relevance to query."""
+        """
+        Extract insights from content based on relevance to query.
+
+        Args:
+            content: Content to analyze
+            url: Source URL
+            title: Source title
+            query: Research query
+
+        Returns:
+            List of extracted insights
+        """
+        logger.debug(f"Analyzing content from: {url}")
+
         prompt = EXTRACT_INSIGHTS_PROMPT.format(
             query=query,
             content=content[:5000],  # Limit content size
         )
 
         try:
+            if self.llm is None:
+                self.llm = LLM()
+                logger.debug("Initialized LLM")
+
             messages = [{"role": "user", "content": prompt}]
             response = await self.llm.complete(messages=messages)
             insights = []
@@ -514,6 +742,7 @@ class DeepResearch(BaseTool):
                     )
                 )
 
+            logger.debug(f"Extracted {len(insights)} insights from {url}")
             return insights
         except Exception as e:
             logger.error(f"Error analyzing content from {url}: {str(e)}")
@@ -528,3 +757,17 @@ class DeepResearch(BaseTool):
                     relevance_score=FALLBACK_RELEVANCE_SCORE,
                 )
             ]
+
+    async def cleanup(self) -> None:
+        """Clean up resources used by the deep research tool."""
+        logger.info("Cleaning up deep research resources")
+
+        # Clean up WebSearch tool if initialized
+        if self.search_tool is not None:
+            try:
+                await self.search_tool.cleanup()
+                logger.debug("WebSearch tool cleaned up")
+            except Exception as e:
+                logger.warning(f"Error cleaning up WebSearch tool: {e}")
+
+            self.search_tool = None
