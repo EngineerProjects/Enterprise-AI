@@ -28,8 +28,9 @@ dependencies = [
     "markdownify>=0.14.1",
     "pillow>=11.1.0",
     "playwright>=1.51.0",
-    "pydantic>=2.10.6",
+    "pydantic~=2.10.6",
     "requests>=2.32.3",
+    "semver>=3.0.4",
     "setuptools>=78.1.0",
     "tenacity>=9.1.2",
     "toml>=0.10.2",
@@ -62,7 +63,7 @@ disallow_incomplete_defs = true
 explicit_package_bases = true
 namespace_packages = true
 ignore_missing_imports = true
-exclude = "(examples/|notebooks/).*"
+exclude = "(examples/|notebooks/|enterprise_ai/temps/).*"
 
 [[tool.mypy.overrides]]
 module = "tests.*"

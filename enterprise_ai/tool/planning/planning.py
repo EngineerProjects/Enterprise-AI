@@ -1,27 +1,58 @@
 """Planning tool for Enterprise AI."""
 
-from typing import Any, Dict, List, Literal, Optional
+import asyncio
+from typing import Any, Dict, List, Literal, Optional, Set, Union
+from pydantic import Field
 
-from enterprise_ai.tool.core.base import BaseTool, ToolError
+from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
+from enterprise_ai.logger import get_logger
 
-
-_PLANNING_TOOL_DESCRIPTION = """
-A planning tool that allows the agent to create and manage plans for solving complex tasks.
-The tool provides functionality for creating plans, updating plan steps, and tracking progress.
-"""
+logger = get_logger("tool.planning.planning")
 
 
 @register_tool(category="planning")
 class PlanningTool(BaseTool):
     """
-    A planning tool that allows the agent to create and manage plans for solving complex tasks.
-    The tool provides functionality for creating plans, updating plan steps, and tracking progress.
+    A planning tool for creating and managing structured task plans.
+
+    Key capabilities:
+    * Create detailed plans with titled steps
+    * Track progress and status of individual steps
+    * Update and modify existing plans
+    * Mark steps as completed, in progress, or blocked
+    * Maintain multiple plans simultaneously
+    * Add notes to individual plan steps
+
+    Use this tool when:
+    * You need to break down complex tasks into manageable steps
+    * You want to track progress on multi-step processes
+    * You need to organize work into a structured format
+    * You want to document dependencies or blockers in a workflow
+    * You need to collaborate on a sequence of operations
+
+    Notes:
+    * Plans are stored for the duration of the session
+    * One plan can be set as the "active" plan for simplified access
+    * Plans track completion status automatically
+    * Each step can have its own status and notes
     """
 
     name: str = "planning"
-    description: str = _PLANNING_TOOL_DESCRIPTION
+    description: str = """
+    A planning tool that allows the creation and management of structured task plans.
+
+    * Purpose: Create, update, and track progress on multi-step plans
+    * Usage: Break down complex tasks, track step completion, document workflows
+    * Features: Step status tracking, plan management, progress monitoring
+    * Returns: Plan details, step status, and progress metrics
+
+    Plans can be created with multiple steps, and each step can be marked with statuses
+    like "not_started", "in_progress", "completed", or "blocked". Multiple plans can
+    be maintained simultaneously, with one designated as the active plan.
+    """
+
     parameters: dict = {
         "type": "object",
         "properties": {
@@ -69,14 +100,53 @@ class PlanningTool(BaseTool):
         "additionalProperties": False,
     }
 
-    plans: Dict[str, Dict[str, Any]] = {}  # Dictionary to store plans by plan_id
-    _current_plan_id: Optional[str] = None  # Track the current active plan
+    # Define tool capabilities
+    capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.PLANNING}
+
+    # Tool fields
+    plans: Dict[str, Dict[str, Any]] = Field(
+        default_factory=dict, description="Dictionary of active plans"
+    )
+    current_plan_id: Optional[str] = Field(default=None, description="Currently active plan ID")
+
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        parameters: Optional[dict] = None,
+        config: Optional[ToolConfig] = None,
+        **kwargs: Any,
+    ) -> None:
+        """
+        Initialize the planning tool with standard parameters.
+
+        Args:
+            name: Override for tool name
+            description: Override for tool description
+            parameters: Override for tool parameters schema
+            config: Tool configuration settings
+            **kwargs: Additional keyword arguments
+        """
+        super().__init__(
+            name=name or self.name,
+            description=description or self.description,
+            parameters=parameters or self.parameters,
+        )
+
+        # Store tool configuration
+        self.config = config or ToolConfig()
+
+        # Initialize plans and current plan ID
+        self.plans = {}
+        self._current_plan_id = None
+
+        logger.debug("PlanningTool initialized")
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """
         Execute the planning tool with the given command and parameters.
 
-        Parameters:
+        Args:
             **kwargs: Keyword arguments including:
                 command: The operation to perform (create, update, list, get, set_active, mark_step, delete)
                 plan_id: Unique identifier for the plan
@@ -85,10 +155,15 @@ class PlanningTool(BaseTool):
                 step_index: Index of the step to update (used with mark_step command)
                 step_status: Status to set for a step (used with mark_step command)
                 step_notes: Additional notes for a step (used with mark_step command)
+
+        Returns:
+            ToolResult containing the result of the operation
         """
+        # Extract parameters from kwargs
         command = kwargs.get("command")
         if not command:
-            raise ToolError("Parameter 'command' is required")
+            logger.error("Missing required 'command' parameter")
+            return ToolResult(error="Parameter 'command' is required")
 
         plan_id = kwargs.get("plan_id")
         title = kwargs.get("title")
@@ -97,47 +172,72 @@ class PlanningTool(BaseTool):
         step_status = kwargs.get("step_status")
         step_notes = kwargs.get("step_notes")
 
-        if command == "create":
-            return self._create_plan(plan_id, title, steps)
-        elif command == "update":
-            return self._update_plan(plan_id, title, steps)
-        elif command == "list":
-            return self._list_plans()
-        elif command == "get":
-            return self._get_plan(plan_id)
-        elif command == "set_active":
-            return self._set_active_plan(plan_id)
-        elif command == "mark_step":
-            return self._mark_step(plan_id, step_index, step_status, step_notes)
-        elif command == "delete":
-            return self._delete_plan(plan_id)
-        else:
-            raise ToolError(
-                f"Unrecognized command: {command}. Allowed commands are: create, update, list, get, set_active, mark_step, delete"
-            )
+        logger.info(f"Executing planning command: {command}")
+
+        try:
+            # Apply timeout from config if needed
+            _ = self.config.timeout if hasattr(self.config, "timeout") else None  # timeout
+
+            # Execute appropriate command
+            if command == "create":
+                return self._create_plan(plan_id, title, steps)
+            elif command == "update":
+                return self._update_plan(plan_id, title, steps)
+            elif command == "list":
+                return self._list_plans()
+            elif command == "get":
+                return self._get_plan(plan_id)
+            elif command == "set_active":
+                return self._set_active_plan(plan_id)
+            elif command == "mark_step":
+                return self._mark_step(plan_id, step_index, step_status, step_notes)
+            elif command == "delete":
+                return self._delete_plan(plan_id)
+            else:
+                logger.error(f"Unrecognized command: {command}")
+                return ToolResult(
+                    error=f"Unrecognized command: {command}. Allowed commands are: create, update, list, get, set_active, mark_step, delete"
+                )
+        except Exception as e:
+            logger.error(f"Error executing planning command {command}: {e}")
+            return ToolResult(error=f"Error executing command: {str(e)}")
 
     def _create_plan(
         self, plan_id: Optional[str], title: Optional[str], steps: Optional[List[str]]
     ) -> ToolResult:
-        """Create a new plan with the given ID, title, and steps."""
+        """
+        Create a new plan with the given ID, title, and steps.
+
+        Args:
+            plan_id: ID of the plan to create
+            title: Title for the new plan
+            steps: List of steps for the plan
+
+        Returns:
+            ToolResult with the created plan details
+        """
         if not plan_id:
-            raise ToolError("Parameter `plan_id` is required for command: create")
+            logger.error("Missing required 'plan_id' parameter")
+            return ToolResult(error="Parameter `plan_id` is required for command: create")
 
         if plan_id in self.plans:
-            raise ToolError(
-                f"A plan with ID '{plan_id}' already exists. Use 'update' to modify existing plans."
+            logger.warning(f"Plan with ID '{plan_id}' already exists")
+            return ToolResult(
+                error=f"A plan with ID '{plan_id}' already exists. Use 'update' to modify existing plans."
             )
 
         if not title:
-            raise ToolError("Parameter `title` is required for command: create")
+            logger.error("Missing required 'title' parameter")
+            return ToolResult(error="Parameter `title` is required for command: create")
 
         if (
             not steps
             or not isinstance(steps, list)
             or not all(isinstance(step, str) for step in steps)
         ):
-            raise ToolError(
-                "Parameter `steps` must be a non-empty list of strings for command: create"
+            logger.error("Invalid or missing 'steps' parameter")
+            return ToolResult(
+                error="Parameter `steps` must be a non-empty list of strings for command: create"
             )
 
         # Create a new plan with initialized step statuses
@@ -150,7 +250,9 @@ class PlanningTool(BaseTool):
         }
 
         self.plans[plan_id] = plan
-        self._current_plan_id = plan_id  # Set as active plan
+        self.current_plan_id = plan_id  # Set as active plan
+
+        logger.info(f"Created new plan: {plan_id}")
 
         return ToolResult(
             output=f"Plan created successfully with ID: {plan_id}\n\n{self._format_plan(plan)}"
@@ -159,21 +261,42 @@ class PlanningTool(BaseTool):
     def _update_plan(
         self, plan_id: Optional[str], title: Optional[str], steps: Optional[List[str]]
     ) -> ToolResult:
-        """Update an existing plan with new title or steps."""
+        """
+        Update an existing plan with new title or steps.
+
+        Args:
+            plan_id: ID of the plan to update
+            title: New title for the plan (optional)
+            steps: New list of steps for the plan (optional)
+
+        Returns:
+            ToolResult with the updated plan details
+        """
         if not plan_id:
-            raise ToolError("Parameter `plan_id` is required for command: update")
+            logger.error("Missing required 'plan_id' parameter")
+            return ToolResult(error="Parameter `plan_id` is required for command: update")
 
         if plan_id not in self.plans:
-            raise ToolError(f"No plan found with ID: {plan_id}")
+            logger.warning(f"Plan with ID '{plan_id}' not found")
+            return ToolResult(error=f"No plan found with ID: {plan_id}")
 
         plan = self.plans[plan_id]
+
+        # Log what we're updating
+        if title:
+            logger.debug(f"Updating title for plan {plan_id}")
+        if steps:
+            logger.debug(f"Updating steps for plan {plan_id}")
 
         if title:
             plan["title"] = title
 
         if steps:
             if not isinstance(steps, list) or not all(isinstance(step, str) for step in steps):
-                raise ToolError("Parameter `steps` must be a list of strings for command: update")
+                logger.error("Invalid 'steps' parameter")
+                return ToolResult(
+                    error="Parameter `steps` must be a list of strings for command: update"
+                )
 
             # Preserve existing step statuses for unchanged steps
             old_steps = plan["steps"]
@@ -197,13 +320,20 @@ class PlanningTool(BaseTool):
             plan["step_statuses"] = new_statuses
             plan["step_notes"] = new_notes
 
+        logger.info(f"Updated plan: {plan_id}")
         return ToolResult(
             output=f"Plan updated successfully: {plan_id}\n\n{self._format_plan(plan)}"
         )
 
     def _list_plans(self) -> ToolResult:
-        """List all available plans."""
+        """
+        List all available plans.
+
+        Returns:
+            ToolResult with a list of available plans
+        """
         if not self.plans:
+            logger.info("No plans available")
             return ToolResult(output="No plans available. Create a plan with the 'create' command.")
 
         output = "Available plans:\n"
@@ -214,31 +344,57 @@ class PlanningTool(BaseTool):
             progress = f"{completed}/{total} steps completed"
             output += f"• {plan_id}{current_marker}: {plan['title']} - {progress}\n"
 
+        logger.info(f"Listed {len(self.plans)} plans")
         return ToolResult(output=output)
 
     def _get_plan(self, plan_id: Optional[str]) -> ToolResult:
-        """Get details of a specific plan."""
+        """
+        Get details of a specific plan.
+
+        Args:
+            plan_id: ID of the plan to retrieve (uses active plan if None)
+
+        Returns:
+            ToolResult with plan details
+        """
         if not plan_id:
             # If no plan_id is provided, use the current active plan
             if not self._current_plan_id:
-                raise ToolError("No active plan. Please specify a plan_id or set an active plan.")
+                logger.warning("No active plan and no plan_id specified")
+                return ToolResult(
+                    error="No active plan. Please specify a plan_id or set an active plan."
+                )
             plan_id = self._current_plan_id
+            logger.debug(f"Using active plan: {plan_id}")
 
         if plan_id not in self.plans:
-            raise ToolError(f"No plan found with ID: {plan_id}")
+            logger.warning(f"Plan with ID '{plan_id}' not found")
+            return ToolResult(error=f"No plan found with ID: {plan_id}")
 
         plan = self.plans[plan_id]
+        logger.info(f"Retrieved plan details: {plan_id}")
         return ToolResult(output=self._format_plan(plan))
 
     def _set_active_plan(self, plan_id: Optional[str]) -> ToolResult:
-        """Set a plan as the active plan."""
+        """
+        Set a plan as the active plan.
+
+        Args:
+            plan_id: ID of the plan to set as active
+
+        Returns:
+            ToolResult confirming the active plan
+        """
         if not plan_id:
-            raise ToolError("Parameter `plan_id` is required for command: set_active")
+            logger.error("Missing required 'plan_id' parameter")
+            return ToolResult(error="Parameter `plan_id` is required for command: set_active")
 
         if plan_id not in self.plans:
-            raise ToolError(f"No plan found with ID: {plan_id}")
+            logger.warning(f"Plan with ID '{plan_id}' not found")
+            return ToolResult(error=f"No plan found with ID: {plan_id}")
 
-        self._current_plan_id = plan_id
+        self.current_plan_id = plan_id
+        logger.info(f"Set active plan: {plan_id}")
         return ToolResult(
             output=f"Plan '{plan_id}' is now the active plan.\n\n{self._format_plan(self.plans[plan_id])}"
         )
@@ -250,24 +406,42 @@ class PlanningTool(BaseTool):
         step_status: Optional[str],
         step_notes: Optional[str],
     ) -> ToolResult:
-        """Mark a step with a specific status and optional notes."""
+        """
+        Mark a step with a specific status and optional notes.
+
+        Args:
+            plan_id: ID of the plan (uses active plan if None)
+            step_index: Index of the step to update (0-based)
+            step_status: New status for the step
+            step_notes: Optional notes for the step
+
+        Returns:
+            ToolResult with updated plan details
+        """
         if not plan_id:
             # If no plan_id is provided, use the current active plan
             if not self._current_plan_id:
-                raise ToolError("No active plan. Please specify a plan_id or set an active plan.")
+                logger.warning("No active plan and no plan_id specified")
+                return ToolResult(
+                    error="No active plan. Please specify a plan_id or set an active plan."
+                )
             plan_id = self._current_plan_id
+            logger.debug(f"Using active plan: {plan_id}")
 
         if plan_id not in self.plans:
-            raise ToolError(f"No plan found with ID: {plan_id}")
+            logger.warning(f"Plan with ID '{plan_id}' not found")
+            return ToolResult(error=f"No plan found with ID: {plan_id}")
 
         if step_index is None:
-            raise ToolError("Parameter `step_index` is required for command: mark_step")
+            logger.error("Missing required 'step_index' parameter")
+            return ToolResult(error="Parameter `step_index` is required for command: mark_step")
 
         plan = self.plans[plan_id]
 
         if step_index < 0 or step_index >= len(plan["steps"]):
-            raise ToolError(
-                f"Invalid step_index: {step_index}. Valid indices range from 0 to {len(plan['steps']) - 1}."
+            logger.error(f"Step index out of range: {step_index}")
+            return ToolResult(
+                error=f"Invalid step_index: {step_index}. Valid indices range from 0 to {len(plan['steps']) - 1}."
             )
 
         if step_status and step_status not in [
@@ -276,27 +450,43 @@ class PlanningTool(BaseTool):
             "completed",
             "blocked",
         ]:
-            raise ToolError(
-                f"Invalid step_status: {step_status}. Valid statuses are: not_started, in_progress, completed, blocked"
+            logger.error(f"Invalid step status: {step_status}")
+            return ToolResult(
+                error=f"Invalid step_status: {step_status}. Valid statuses are: not_started, in_progress, completed, blocked"
             )
 
+        # Update step status if provided
         if step_status:
+            logger.debug(f"Updating step {step_index} status to {step_status}")
             plan["step_statuses"][step_index] = step_status
 
+        # Update step notes if provided
         if step_notes:
+            logger.debug(f"Updating step {step_index} notes")
             plan["step_notes"][step_index] = step_notes
 
+        logger.info(f"Updated step {step_index} in plan {plan_id}")
         return ToolResult(
             output=f"Step {step_index} updated in plan '{plan_id}'.\n\n{self._format_plan(plan)}"
         )
 
     def _delete_plan(self, plan_id: Optional[str]) -> ToolResult:
-        """Delete a plan."""
+        """
+        Delete a plan.
+
+        Args:
+            plan_id: ID of the plan to delete
+
+        Returns:
+            ToolResult confirming the deletion
+        """
         if not plan_id:
-            raise ToolError("Parameter `plan_id` is required for command: delete")
+            logger.error("Missing required 'plan_id' parameter")
+            return ToolResult(error="Parameter `plan_id` is required for command: delete")
 
         if plan_id not in self.plans:
-            raise ToolError(f"No plan found with ID: {plan_id}")
+            logger.warning(f"Plan with ID '{plan_id}' not found")
+            return ToolResult(error=f"No plan found with ID: {plan_id}")
 
         del self.plans[plan_id]
 
@@ -304,10 +494,19 @@ class PlanningTool(BaseTool):
         if self._current_plan_id == plan_id:
             self._current_plan_id = None
 
+        logger.info(f"Deleted plan: {plan_id}")
         return ToolResult(output=f"Plan '{plan_id}' has been deleted.")
 
     def _format_plan(self, plan: Dict[str, Any]) -> str:
-        """Format a plan for display."""
+        """
+        Format a plan for display.
+
+        Args:
+            plan: Plan data to format
+
+        Returns:
+            Formatted plan as string
+        """
         output = f"Plan: {plan['title']} (ID: {plan['plan_id']})\n"
         output += "=" * len(output) + "\n\n"
 
@@ -344,3 +543,8 @@ class PlanningTool(BaseTool):
                 output += f"   Notes: {notes}\n"
 
         return output
+
+    async def cleanup(self) -> None:
+        """Clean up resources used by the planning tool."""
+        # No resources to clean up for this tool
+        logger.debug("PlanningTool cleanup completed")

@@ -14,7 +14,7 @@ import sys
 from typing import Optional, List, Dict, Any, Union
 
 # Import common utilities
-from utils import (
+from examples.notebooks.utils import (
     setup_project_path,
     print_title,
     print_section,

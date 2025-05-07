@@ -1,25 +1,58 @@
 """Chat completion tool for Enterprise AI."""
 
-from typing import Any, Dict, List, Optional, Type, Union, TypeVar, cast, get_args, get_origin
+from typing import Any, Dict, List, Optional, Set, Type, Union, cast, get_args, get_origin
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
-from enterprise_ai.tool.core.base import BaseTool, ToolError
+from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
+from enterprise_ai.logger import get_logger
 
-# Define a type variable for more flexibility
-T = TypeVar("T")
+logger = get_logger("tool.content.chat_completion")
 
 
 @register_tool(category="content")
 class CreateChatCompletion(BaseTool):
-    """Tool for creating structured chat completions with specific formats."""
+    """
+    Tool for creating structured formatted content with specific output types.
+
+    Key capabilities:
+    * Generate content with controlled structure and formatting
+    * Convert outputs to specified types (string, integer, Pydantic models)
+    * Support for complex data types including lists and dictionaries
+    * Handle JSON schema validation for structured outputs
+
+    Use this tool when:
+    * You need to create formatted outputs with specific structure
+    * You need to convert response data to specific types
+    * You want to validate output against a schema
+    * You need to generate structured data that follows a defined format
+
+    Notes:
+    * Response type can be specified during initialization
+    * Can handle primitive types, lists, dictionaries, and Pydantic models
+    * Returns properly formatted and validated results
+    """
 
     name: str = "create_chat_completion"
-    description: str = "Creates a structured completion with specified output formatting."
+    description: str = """
+    Creates a structured completion with specified output formatting.
 
-    # Type mapping for JSON schema
+    * Purpose: Generate formatted content according to specific output types
+    * Usage: Used when specific data formats or validation are needed
+    * Features: Type conversion, schema validation, support for complex data types
+    * Returns: Content formatted according to the specified output type
+
+    The tool can output different formats based on the specified response_type
+    parameter during initialization, including primitive types, lists, and Pydantic models.
+    """
+
+    # Renamed fields without leading underscores
+    response_type_internal: Optional[Type] = Field(default=str, exclude=True)
+    required_fields: List[str] = Field(default_factory=lambda: ["response"], exclude=True)
+
+    # Type mapping for JSON schema - with annotation
     type_mapping: Dict[Type, str] = {
         str: "string",
         int: "integer",
@@ -29,25 +62,60 @@ class CreateChatCompletion(BaseTool):
         list: "array",
     }
 
-    class Config:
-        """Configuration for this model."""
+    # Define capabilities with proper type annotation
+    capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.TEXT_GENERATION}
 
-        arbitrary_types_allowed = True
+    def __init__(
+        self,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        parameters: Optional[dict] = None,
+        config: Optional[ToolConfig] = None,
+        response_type: Optional[Type] = str,
+        **kwargs: Any,
+    ):
+        """
+        Initialize with standard parameters and a specific response type.
 
-    def __init__(self, response_type: Optional[Type] = str) -> None:
-        """Initialize with a specific response type."""
-        # Initialize BaseTool first with required attributes
+        Args:
+            name: Override for tool name
+            description: Override for tool description
+            parameters: Override for tool parameters schema
+            config: Tool configuration settings
+            response_type: Type to convert responses to (default: str)
+            **kwargs: Additional keyword arguments
+        """
+        # Store response type in a local variable first (don't set attribute yet)
+        temp_response_type = response_type or str
+
+        # Build parameters if not explicitly provided
+        if parameters is None:
+            # Use static method to build parameters
+            parameters = self._build_parameters_static(temp_response_type)
+
+        # Call parent constructor with all parameters
+        model_fields = self.__class__.model_fields
         super().__init__(
-            name=self.name,
-            description=self.description,
-            parameters=self._build_parameters(response_type),
+            name=name or model_fields["name"].default,
+            description=description or model_fields["description"].default,
+            parameters=parameters,
+            **kwargs,
         )
-        self.response_type = response_type
-        self.required = ["response"]
 
-    def _build_parameters(self, response_type: Optional[Type] = None) -> Dict[str, Any]:
-        """Build parameters schema based on response type."""
-        if response_type is str or response_type is None:
+        # Now it's safe to set these attributes after super().__init__()
+        self.response_type_internal = temp_response_type
+
+        # Store config
+        self.config = config or ToolConfig()
+
+        logger.debug(f"CreateChatCompletion initialized with response_type: {response_type}")
+
+    @classmethod
+    def _build_parameters_static(cls, response_type: Type) -> dict:
+        """Static version of _build_parameters that doesn't rely on instance attributes."""
+        required = ["response"]
+
+        if response_type is str:
             return {
                 "type": "object",
                 "properties": {
@@ -55,36 +123,40 @@ class CreateChatCompletion(BaseTool):
                         "type": "string",
                         "description": "The response text that should be delivered to the user.",
                     },
+                    "required": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of required field names to extract from the result.",
+                    },
                 },
-                "required": ["response"],
+                "required": required,
             }
 
         if isinstance(response_type, type) and issubclass(response_type, BaseModel):
             schema = response_type.model_json_schema()
             return {
                 "type": "object",
-                "properties": schema.get("properties", {}),
-                "required": schema.get("required", ["response"]),
+                "properties": schema["properties"],
+                "required": schema.get("required", required),
             }
 
-        return self._create_type_schema(response_type)
+        return cls._create_type_schema_static(response_type, required)
 
-    def _create_type_schema(self, type_hint: Optional[Type]) -> Dict[str, Any]:
-        """Create a JSON schema for the given type."""
-        if type_hint is None:
-            return {
-                "type": "object",
-                "properties": {
-                    "response": {
-                        "type": "string",
-                        "description": "Generic response content",
-                    }
-                },
-                "required": ["response"],
-            }
-
+    @classmethod
+    def _create_type_schema_static(cls, type_hint: Type, required: List[str]) -> dict:
+        """Static version of _create_type_schema."""
         origin = get_origin(type_hint)
         args = get_args(type_hint)
+
+        # Type mapping for JSON schema
+        type_mapping = {
+            str: "string",
+            int: "integer",
+            float: "number",
+            bool: "boolean",
+            dict: "object",
+            list: "array",
+        }
 
         # Handle primitive types
         if origin is None:
@@ -92,106 +164,177 @@ class CreateChatCompletion(BaseTool):
                 "type": "object",
                 "properties": {
                     "response": {
-                        "type": self.type_mapping.get(type_hint, "string"),
+                        "type": type_mapping.get(type_hint, "string"),
                         "description": f"Response of type {getattr(type_hint, '__name__', 'unknown')}",
-                    }
+                    },
+                    "required": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of required field names to extract from the result.",
+                    },
                 },
-                "required": ["response"],
+                "required": required,
             }
 
         # Handle List type
         if origin is list:
-            # Create a safe schema for list items
+            item_type = args[0] if args else Any
             return {
                 "type": "object",
                 "properties": {
                     "response": {
                         "type": "array",
-                        "items": self._get_type_info_safe(args[0] if args else Any),
-                    }
+                        "items": cls._get_type_info_static(item_type)
+                        if item_type != Any
+                        else {"type": "string"},
+                    },
+                    "required": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of required field names to extract from the result.",
+                    },
                 },
-                "required": ["response"],
+                "required": required,
             }
 
         # Handle Dict type
         if origin is dict:
-            # Create a safe schema for dict values
+            value_type = args[1] if len(args) > 1 else Any
             return {
                 "type": "object",
                 "properties": {
                     "response": {
                         "type": "object",
-                        "additionalProperties": self._get_type_info_safe(
-                            args[1] if len(args) > 1 else Any
-                        ),
-                    }
+                        "additionalProperties": cls._get_type_info_static(value_type)
+                        if value_type != Any
+                        else {"type": "string"},
+                    },
+                    "required": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of required field names to extract from the result.",
+                    },
                 },
-                "required": ["response"],
+                "required": required,
             }
 
         # Handle Union type
         if origin is Union:
-            return self._create_union_schema(args)
+            return {
+                "type": "object",
+                "properties": {
+                    "response": {
+                        "anyOf": [
+                            cls._get_type_info_static(t)
+                            if isinstance(t, type)
+                            else {"type": "string"}
+                            for t in args
+                        ]
+                    },
+                    "required": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Optional list of required field names to extract from the result.",
+                    },
+                },
+                "required": required,
+            }
 
+        # Default fallback
         return {
             "type": "object",
             "properties": {
                 "response": {
                     "type": "string",
-                    "description": "Generic response content",
-                }
+                    "description": "The response text that should be delivered to the user.",
+                },
+                "required": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of required field names to extract from the result.",
+                },
             },
-            "required": ["response"],
+            "required": required,
         }
 
-    def _get_type_info(self, type_hint: Type) -> Dict[str, Any]:
-        """Get type information for a single type."""
-        if isinstance(type_hint, type) and issubclass(type_hint, BaseModel):
-            return cast(Dict[str, Any], type_hint.model_json_schema())
-
-        return {
-            "type": self.type_mapping.get(type_hint, "string"),
-            "description": f"Value of type {getattr(type_hint, '__name__', 'any')}",
+    @classmethod
+    def _get_type_info_static(cls, type_hint: Any) -> Dict[str, Any]:
+        """Static version of _get_type_info."""
+        # Type mapping for JSON schema
+        type_mapping = {
+            str: "string",
+            int: "integer",
+            float: "number",
+            bool: "boolean",
+            dict: "object",
+            list: "array",
         }
 
-    def _get_type_info_safe(self, type_hint: Any) -> Dict[str, Any]:
-        """Safely get type information for any type hint, including non-type objects."""
-        # Handle None case
-        if type_hint is None:
-            return {"type": "null", "description": "Null value"}
-
-        # Handle primitive types that can be directly mapped
+        # Handle the case where type_hint is a proper class
         if isinstance(type_hint, type):
-            return self._get_type_info(type_hint)
+            if issubclass(type_hint, BaseModel):
+                # Check for Pydantic v2 method first, then fall back to v1
+                if hasattr(type_hint, "model_json_schema"):
+                    schema = type_hint.model_json_schema()  # type: ignore
+                    return cast(Dict[str, Any], schema)
+                # Fall back to Pydantic v1 method
+                elif hasattr(type_hint, "schema"):
+                    schema = type_hint.schema()  # type: ignore
+                    return cast(Dict[str, Any], schema)
 
-        # Handle typing special forms and other complex types
-        origin = get_origin(type_hint)
-
-        # For Union types, create anyOf schema
-        if origin is Union:
-            args = get_args(type_hint)
-            return {"anyOf": [self._get_type_info_safe(arg) for arg in args]}
-
-        # For List, Dict and other container types
-        if origin in (list, dict, set, tuple):
             return {
-                "type": self.type_mapping.get(origin, "object"),
-                "description": f"Container of type {origin.__name__}",
+                "type": type_mapping.get(type_hint, "string"),
+                "description": f"Value of type {getattr(type_hint, '__name__', 'any')}",
             }
 
-        # Default case for any other type
-        return {"type": "string", "description": "Generic value"}
+        # Handle special typing forms or other non-type values
+        origin = get_origin(type_hint)
+        if origin is not None:
+            # For container types like List[str], Dict[str, int], etc.
+            container_type = type_mapping.get(origin, "string")
+            return {
+                "type": container_type,
+                "description": f"Value of container type {container_type}",
+            }
 
-    def _create_union_schema(self, types: tuple) -> Dict[str, Any]:
+        # Default for Any or unknown types
+        return {
+            "type": "string",
+            "description": "Value of any type",
+        }
+
+    def _build_parameters(self) -> dict:
+        """Build parameters schema based on response type."""
+        return self._build_parameters_static(self.response_type_internal or str)
+
+    def _create_type_schema(self, type_hint: Type) -> dict:
+        """Create a JSON schema for the given type."""
+        return self._create_type_schema_static(type_hint, self.required_fields)
+
+    def _get_type_info(self, type_hint: Type) -> dict:
+        """Get type information for a single type."""
+        return self._get_type_info_static(type_hint)
+
+    def _create_union_schema(self, types: tuple) -> dict:
         """Create schema for Union types."""
         return {
             "type": "object",
-            "properties": {"response": {"anyOf": [self._get_type_info_safe(t) for t in types]}},
-            "required": ["response"],
+            "properties": {
+                "response": {
+                    "anyOf": [self._get_type_info(t) for t in types if isinstance(t, type)]
+                },
+                "required": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of required field names to extract from the result.",
+                },
+            },
+            "required": self.required_fields,
         }
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        """Execute the chat completion with type conversion.
+        """
+        Execute the chat completion with type conversion.
 
         Args:
             **kwargs: Response data including:
@@ -201,40 +344,95 @@ class CreateChatCompletion(BaseTool):
         Returns:
             Converted response based on response_type
         """
-        # Extract the required fields parameter if provided
-        required_fields = kwargs.pop("required", None) or ["response"]
-
-        # Handle case when required is a list
-        if isinstance(required_fields, list) and len(required_fields) > 0:
-            if len(required_fields) == 1:
-                required_field = required_fields[0]
-                result = kwargs.get(required_field, "")
-            else:
-                # Return multiple fields as a dictionary
-                result = {field: kwargs.get(field, "") for field in required_fields}
-        else:
-            required_field = "response"
-            result = kwargs.get(required_field, "")
-
-        # Type conversion logic
-        if self.response_type is str or self.response_type is None:
-            return ToolResult(output=str(result))
-
-        if isinstance(self.response_type, type) and issubclass(self.response_type, BaseModel):
-            try:
-                converted = self.response_type(**kwargs)
-                return ToolResult(output=str(converted))
-            except Exception as e:
-                return ToolResult(error=f"Type conversion error: {str(e)}")
-
-        if get_origin(self.response_type) in (list, dict):
-            return ToolResult(output=str(result))  # Convert to string for output
+        # Start with basic validation of input
+        logger.debug(f"Executing chat completion with params: {kwargs}")
 
         try:
-            if self.response_type is not None:
-                converted = self.response_type(result)
-                return ToolResult(output=str(converted))
-        except (ValueError, TypeError) as e:
-            return ToolResult(error=f"Type conversion error: {str(e)}")
+            # Extract the required fields parameter if provided
+            required_fields = kwargs.pop("required", None) or self.required_fields
 
-        return ToolResult(output=str(result))
+            # Special handling for Pydantic models
+            if isinstance(self.response_type_internal, type) and issubclass(
+                self.response_type_internal, BaseModel
+            ):
+                logger.debug("Converting to Pydantic model")
+                try:
+                    # First, check if we received a "response" parameter containing a dict
+                    response_value = kwargs.get("response")
+
+                    if isinstance(response_value, dict):
+                        # Use the nested dict directly
+                        converted = self.response_type_internal(**response_value)
+                        return ToolResult(output=str(converted))
+
+                    # Second, check if we have all required fields at the root level
+                    model_fields = self.response_type_internal.model_fields
+                    has_required_fields = all(
+                        f in kwargs for f in model_fields if model_fields[f].is_required()
+                    )
+
+                    if has_required_fields:
+                        # The model fields are passed directly at root level
+                        converted = self.response_type_internal(**kwargs)
+                        return ToolResult(output=str(converted))
+
+                    # If we reach here, we don't have valid input for the model
+                    logger.warning("No response data provided for Pydantic model")
+                    return ToolResult(error="No response data provided for Pydantic model")
+
+                except Exception as e:
+                    logger.error(f"Type conversion error (Pydantic): {e}")
+                    return ToolResult(error=f"Type conversion error: {str(e)}")
+
+            # Handle regular (non-Pydantic-model) case
+            # Get the response data from required field(s)
+            if isinstance(required_fields, list) and len(required_fields) > 0:
+                if len(required_fields) == 1:
+                    required_field = required_fields[0]
+                    result = kwargs.get(required_field, "")
+                else:
+                    # Return multiple fields as a dictionary
+                    result = {field: kwargs.get(field, "") for field in required_fields}
+            else:
+                required_field = "response"
+                result = kwargs.get(required_field, "")
+
+            # Validate that we have the required data
+            if result == "" and required_field == "response":
+                logger.warning("No response data provided")
+                return ToolResult(error="No response data provided")
+
+            # Type conversion logic for non-Pydantic types
+            logger.debug(f"Converting result to type: {self.response_type_internal}")
+
+            # Convert based on response type
+            if self.response_type_internal is str or self.response_type_internal is None:
+                logger.debug("Converting to string")
+                return ToolResult(output=str(result))
+
+            if get_origin(self.response_type_internal) in (list, dict):
+                logger.debug(
+                    f"Converting to container type: {get_origin(self.response_type_internal)}"
+                )
+                return ToolResult(output=str(result))  # Convert to string for output
+
+            try:
+                if self.response_type_internal is not None:
+                    logger.debug(f"Converting to specific type: {self.response_type_internal}")
+                    converted = self.response_type_internal(result)
+                    return ToolResult(output=str(converted))
+            except (ValueError, TypeError) as e:
+                logger.error(f"Type conversion error: {e}")
+                return ToolResult(error=f"Type conversion error: {str(e)}")
+
+            # Default fallback - return as string
+            return ToolResult(output=str(result))
+
+        except Exception as e:
+            logger.error(f"Unexpected error in chat completion: {e}")
+            return ToolResult(error=f"Error executing chat completion: {str(e)}")
+
+    async def cleanup(self) -> None:
+        """Clean up any resources used by the tool."""
+        # No resources to clean up in this tool
+        pass

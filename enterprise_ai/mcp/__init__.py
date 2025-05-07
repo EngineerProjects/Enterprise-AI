@@ -18,13 +18,17 @@ MCP follows these key principles:
 """
 
 from enterprise_ai.mcp.server import MCPServer, MCPSession, get_mcp_server
-from enterprise_ai.mcp.client import MCPClient, AgentMCPClient
+from enterprise_ai.mcp.client import MCPClient, AgentMCPClient, ToolFilterStrategy
 from enterprise_ai.mcp.utils import (
     format_tool_descriptions,
     format_tool_result,
     get_all_sessions_info,
     execute_tool_by_name,
     get_tool_schema,
+    batch_execute_tools,
+    get_tool_capabilities,
+    get_compatible_tools,
+    create_tool_usage_guide,
 )
 
 __all__ = [
@@ -35,10 +39,15 @@ __all__ = [
     # Client components
     "MCPClient",
     "AgentMCPClient",
+    "ToolFilterStrategy",
     # Utility functions
     "format_tool_descriptions",
     "format_tool_result",
     "get_all_sessions_info",
     "execute_tool_by_name",
     "get_tool_schema",
+    "batch_execute_tools",
+    "get_tool_capabilities",
+    "get_compatible_tools",
+    "create_tool_usage_guide",
 ]
