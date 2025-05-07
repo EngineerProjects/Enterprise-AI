@@ -188,24 +188,28 @@ class BrowserUseTool(BaseTool):
             config: Tool configuration settings
             **kwargs: Additional keyword arguments
         """
+        # Access class field info directly from the model fields
+        from pydantic import fields
+
+        # Initialize with parent class first, using field info to get defaults
+        model_fields = self.__class__.model_fields
+
         super().__init__(
-            name=name or self.name,
-            description=description or self.description,
-            parameters=parameters or self.parameters,
+            name=name or model_fields["name"].default,
+            description=description or model_fields["description"].default,
+            parameters=parameters or model_fields["parameters"].default,
+            config=config or model_fields["config"].default,
+            **kwargs,
         )
 
-        # Store tool configuration
         self.config = config or ToolConfig(
             timeout=60.0, max_retries=3, cache_results=False, sandbox_enabled=True
         )
-
-        # Create a lock for synchronization
         self.lock = asyncio.Lock()
-
-        # Initialize web search tool
+        self.browser = None
+        self.context = None
+        self.dom_service = None
         self.web_search_tool = WebSearch()
-
-        # LLM will be initialized lazily
         self.llm = None
 
         logger.debug("BrowserUseTool initialized")
@@ -704,7 +708,8 @@ class BrowserUseTool(BaseTool):
             if not ctx:
                 ctx = await self._ensure_browser_initialized()
 
-            state = await ctx.get_state()
+            # Add the required parameter cache_clickable_elements_hashes
+            state = await ctx.get_state(cache_clickable_elements_hashes=True)
 
             # Create a viewport_info dictionary
             viewport_height = 0
@@ -753,7 +758,7 @@ class BrowserUseTool(BaseTool):
         except Exception as e:
             logger.error(f"Failed to get browser state: {e}")
             return ToolResult(error=f"Failed to get browser state: {str(e)}")
-
+    
     async def cleanup(self) -> None:
         """
         Clean up browser resources.
@@ -786,7 +791,9 @@ class BrowserUseTool(BaseTool):
 
     def __del__(self) -> None:
         """Ensure cleanup when object is destroyed."""
-        if self.browser is not None or self.context is not None:
+        # Safe attribute access with hasattr checks
+        if hasattr(self, 'browser') and self.browser is not None or \
+        hasattr(self, 'context') and self.context is not None:
             try:
                 asyncio.run(self.cleanup())
             except RuntimeError:

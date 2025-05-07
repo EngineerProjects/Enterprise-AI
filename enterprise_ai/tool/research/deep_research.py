@@ -216,6 +216,10 @@ class DeepResearch(BaseTool):
     # Define capabilities - use SEARCH instead of RESEARCH which doesn't exist
     capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.SEARCH}
 
+    search_tool: Optional[Any] = Field(default=None, exclude=True)
+    llm: Optional[Any] = Field(default=None, exclude=True)
+
+
     def __init__(
         self,
         name: Optional[str] = None,
@@ -234,10 +238,15 @@ class DeepResearch(BaseTool):
             config: Tool configuration settings
             **kwargs: Additional keyword arguments
         """
+        # Access class field info directly from the model fields
+        model_fields = self.__class__.model_fields
+        
+        # Initialize with parent class first, using field info to get defaults
         super().__init__(
-            name=name or self.name,
-            description=description or self.description,
-            parameters=parameters or self.parameters,
+            name=name or model_fields["name"].default,
+            description=description or model_fields["description"].default,
+            parameters=parameters or model_fields["parameters"].default,
+            **kwargs
         )
 
         # Store tool configuration
@@ -247,7 +256,7 @@ class DeepResearch(BaseTool):
             cache_results=True,  # Cache research results
         )
 
-        # Initialize dependent tools (as regular attributes, not fields)
+        # Initialize dependent tools (now these will work properly)
         self.search_tool = None
         self.llm = None
 

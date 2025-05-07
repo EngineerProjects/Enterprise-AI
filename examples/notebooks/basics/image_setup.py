@@ -34,7 +34,7 @@ def setup_image_directory():
     """Create necessary directories for notebook images."""
     # Get notebook directory
     notebook_dir = os.path.dirname(os.path.abspath(__file__))
-    images_dir = os.path.join(notebook_dir, 'images')
+    images_dir = os.path.join(notebook_dir, "..", "images") or os.path.join(notebook_dir, 'images')
 
     # Create directories
     os.makedirs(images_dir, exist_ok=True)

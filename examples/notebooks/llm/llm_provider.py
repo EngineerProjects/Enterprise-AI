@@ -17,7 +17,7 @@ import json
 from typing import Dict, List, Optional, Any, Union
 
 # Import common utilities
-from utils import (
+from examples.notebooks.utils import (
     setup_project_path,
     print_title,
     print_section,

@@ -4,6 +4,7 @@ import asyncio
 import base64
 import time
 from typing import Any, Dict, List, Optional, Set, Union, cast
+from datetime import datetime
 from urllib.parse import urlparse
 
 import requests
@@ -51,7 +52,6 @@ class SearchResult(BaseModel):
         """String representation of a search result."""
         return f"{self.title} ({self.url})"
 
-
 class SearchMetadata(BaseModel):
     """Metadata about the search operation."""
 
@@ -63,6 +63,26 @@ class SearchMetadata(BaseModel):
     time_taken: float = Field(default=0.0, description="Time taken for the search in seconds")
     engines_tried: List[str] = Field(
         default_factory=list, description="Search engines that were tried"
+    )
+    tool_name: Optional[str] = Field(
+        default=None, description="Name of the tool that produced this result"
+    )
+    session_id: Optional[str] = Field(
+        default=None, description="ID of the session that produced this result"
+    )
+    
+    # Add these fields to match ToolResultMetadata expectations
+    start_time: Optional[datetime] = Field(
+        default_factory=datetime.now, description="Time when execution started"
+    )
+    end_time: Optional[datetime] = Field(
+        default=None, description="Time when execution completed"
+    )
+    execution_time_ms: Optional[float] = Field(
+        default=None, description="Execution time in milliseconds"
+    )
+    execution_id: Optional[str] = Field(
+        default=None, description="Unique identifier for this execution"
     )
 
 
@@ -345,11 +365,16 @@ class WebSearch(BaseTool):
         "required": ["query"],
     }
 
-    # Define capabilities
     capabilities: Set[Union[str, ToolCapability]] = {
         ToolCapability.SEARCH,
         ToolCapability.NETWORK_ACCESS,
     }
+
+    # define attributes that will be set
+    search_engines: Dict[str, Any] = Field(default_factory=dict, exclude=True)
+    content_fetcher: Optional[Any] = Field(default=None, exclude=True)
+    results_cache: Dict[str, Any] = Field(default_factory=dict, exclude=True)
+    cache_expiry: int = Field(default=300, description="Cache expiry time in seconds") 
 
     def __init__(
         self,
@@ -369,13 +394,18 @@ class WebSearch(BaseTool):
             config: Tool configuration settings
             **kwargs: Additional keyword arguments
         """
+        # Access class field info directly from the model fields
+        model_fields = self.__class__.model_fields
+        
+        # Initialize with parent class first, using field info to get defaults
         super().__init__(
-            name=name or self.name,
-            description=description or self.description,
-            parameters=parameters or self.parameters,
+            name=name or model_fields["name"].default,
+            description=description or model_fields["description"].default,
+            parameters=parameters or model_fields["parameters"].default,
+            **kwargs
         )
 
-        # Store tool configuration
+        # Then initialize other instance attributes
         self.config = config or ToolConfig(
             timeout=60.0,  # Default timeout for search operations
             max_retries=3,  # Search can be retried
@@ -579,6 +609,7 @@ class WebSearch(BaseTool):
                     country=country,
                     time_taken=time.time() - start_time,
                     engines_tried=engines_tried,
+                    tool_name=self.name  # Set the tool_name attribute to fix the error
                 ),
             )
 
