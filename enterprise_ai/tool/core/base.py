@@ -57,18 +57,18 @@ class ToolConfig(BaseModel):
         default=True, description="Whether to run the tool in a sandbox environment"
     )
     custom_config: Optional[Dict[str, Any]] = Field(
-        default_factory=dict, description="Tool-specific configuration parameters"
+        default_factory=lambda: dict(), description="Tool-specific configuration parameters"
     )
 
     @field_validator("timeout")
-    def validate_timeout(cls, v):
+    def validate_timeout(cls, v: Optional[float]) -> Optional[float]:
         """Validate the timeout value."""
         if v is not None and v <= 0:
             raise ValueError("Timeout must be positive")
         return v
 
     @field_validator("max_retries")
-    def validate_max_retries(cls, v):
+    def validate_max_retries(cls, v: Optional[int]) -> Optional[int]:
         """Validate the max_retries value."""
         if v is not None and v < 0:
             raise ValueError("Max retries cannot be negative")
@@ -126,9 +126,9 @@ class BaseTool(ABC, BaseModel):
         """Initialize the tool with provided data."""
         super().__init__(**data)
         # Initialize private attributes that are not properly handled by pydantic
-        self._on_state_change = []
-        self._execution_count = 0
-        self._last_execution_time = None
+        self._on_state_change: List[Callable[[ToolState], None]] = []
+        self._execution_count: int = 0
+        self._last_execution_time: Optional[float] = None
         self._validate_capabilities()
 
     def _validate_capabilities(self) -> None:
@@ -154,7 +154,7 @@ class BaseTool(ABC, BaseModel):
 
     def _update_state(self, new_state: ToolState) -> None:
         """Update the tool's state and notify handlers."""
-        old_state = self.state
+        _ = self.state  # Old state
         self.state = new_state
 
         # Notify handlers of state change

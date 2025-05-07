@@ -122,7 +122,7 @@ def get_tool_capabilities(tool: Union[BaseTool, Type[BaseTool], str]) -> Set[str
     """
     # For tool instances
     if isinstance(tool, BaseTool):
-        capabilities = getattr(tool, "capabilities", set())
+        capabilities: Set[Union[ToolCapability, str]] = getattr(tool, "capabilities", set())
         return {cap.value if hasattr(cap, "value") else str(cap) for cap in capabilities}
 
     # For tool classes
@@ -225,8 +225,10 @@ async def batch_execute_tools(
         server = get_mcp_server()
 
         # Get all tool names
-        tool_names = [
-            execution.get("tool_name") for execution in executions if execution.get("tool_name")
+        tool_names: List[str] = [
+            str(execution.get("tool_name"))
+            for execution in executions
+            if execution.get("tool_name") is not None
         ]
 
         # Create session with all needed tools
@@ -271,7 +273,7 @@ def get_tool_schema(tool_name: str) -> Optional[Dict[str, Any]]:
         description = getattr(tool_cls, "description", "")
         parameters = getattr(tool_cls, "parameters", {})
         version = getattr(tool_cls, "version", "1.0.0")
-        capabilities = getattr(tool_cls, "capabilities", set())
+        capabilities: Set[Union[ToolCapability, str]] = getattr(tool_cls, "capabilities", set())
 
         # Convert capabilities to a list of strings
         capability_list = [cap.value if hasattr(cap, "value") else str(cap) for cap in capabilities]
@@ -311,7 +313,7 @@ async def get_compatible_tools(tool_names: List[str]) -> Dict[str, List[str]]:
 
         # Get dependencies and capabilities
         dependencies = getattr(tool_cls, "dependencies", [])
-        capabilities = getattr(tool_cls, "capabilities", set())
+        capabilities: Set[str] = set(getattr(tool_cls, "capabilities", set()))
         capabilities = {cap.value if hasattr(cap, "value") else str(cap) for cap in capabilities}
 
         tools_info[name] = {"dependencies": dependencies, "capabilities": capabilities}
@@ -331,7 +333,7 @@ async def get_compatible_tools(tool_names: List[str]) -> Dict[str, List[str]]:
                 continue
 
             # Check if tools share capabilities (which can be a sign of compatibility)
-            other_capabilities = other_info["capabilities"]
+            other_capabilities: Set[str] = set(other_info["capabilities"])
             if other_capabilities and info["capabilities"]:
                 if other_capabilities.intersection(info["capabilities"]):
                     compatible.append(other_name)

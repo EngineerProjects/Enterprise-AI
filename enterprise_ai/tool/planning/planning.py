@@ -42,12 +42,12 @@ class PlanningTool(BaseTool):
     name: str = "planning"
     description: str = """
     A planning tool that allows the creation and management of structured task plans.
-    
+
     * Purpose: Create, update, and track progress on multi-step plans
     * Usage: Break down complex tasks, track step completion, document workflows
     * Features: Step status tracking, plan management, progress monitoring
     * Returns: Plan details, step status, and progress metrics
-    
+
     Plans can be created with multiple steps, and each step can be marked with statuses
     like "not_started", "in_progress", "completed", or "blocked". Multiple plans can
     be maintained simultaneously, with one designated as the active plan.
@@ -176,7 +176,7 @@ class PlanningTool(BaseTool):
 
         try:
             # Apply timeout from config if needed
-            timeout = self.config.timeout if hasattr(self.config, "timeout") else None
+            _ = self.config.timeout if hasattr(self.config, "timeout") else None  # timeout
 
             # Execute appropriate command
             if command == "create":
@@ -250,7 +250,7 @@ class PlanningTool(BaseTool):
         }
 
         self.plans[plan_id] = plan
-        self._current_plan_id = plan_id  # Set as active plan
+        self.current_plan_id = plan_id  # Set as active plan
 
         logger.info(f"Created new plan: {plan_id}")
 
@@ -393,7 +393,7 @@ class PlanningTool(BaseTool):
             logger.warning(f"Plan with ID '{plan_id}' not found")
             return ToolResult(error=f"No plan found with ID: {plan_id}")
 
-        self._current_plan_id = plan_id
+        self.current_plan_id = plan_id
         logger.info(f"Set active plan: {plan_id}")
         return ToolResult(
             output=f"Plan '{plan_id}' is now the active plan.\n\n{self._format_plan(self.plans[plan_id])}"

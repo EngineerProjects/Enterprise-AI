@@ -21,9 +21,9 @@ class _BashSession:
     def __init__(self, timeout: float = 10.0):
         """Initialize the bash session."""
         self._timeout = timeout
-        self._cleanup_files = []
-        self._home_dir = None
-        
+        self._cleanup_files: List[str] = []
+        self._home_dir: Optional[str] = None
+
     async def setup(self) -> bool:
         """Set up a working directory for the bash session."""
         try:
@@ -34,58 +34,55 @@ class _BashSession:
         except Exception as e:
             logger.error(f"Failed to set up bash session: {e}")
             return False
-    
+
     async def run(self, command: str) -> CLIResult:
         """
         Execute a command in bash.
-        
+
         Args:
             command: The bash command to execute
-            
+
         Returns:
             CLIResult containing command output or error
         """
         if not command.strip():
             return CLIResult(output="", error="")
-            
+
         if not self._home_dir:
             return CLIResult(error="Bash session not properly initialized")
-            
+
         try:
             # Create a temporary script file for the command
             fd, script_path = tempfile.mkstemp(prefix="cmd_", suffix=".sh", dir=self._home_dir)
             self._cleanup_files.append(script_path)
-            
+
             # Write the command to the script file
-            with os.fdopen(fd, 'w') as f:
+            with os.fdopen(fd, "w") as f:
                 f.write("#!/bin/bash\n")
                 f.write("set -e\n")  # Exit on error
                 f.write(f"cd {self._home_dir}\n")  # Set working directory
                 f.write(f"{command}\n")  # The actual command
-            
+
             # Make the script executable
             os.chmod(script_path, 0o755)
-            
+
             # Create subprocess with timeout
             process = await asyncio.create_subprocess_exec(
-                script_path,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
+                script_path, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            
+
             try:
                 # Wait for the process to complete with timeout
                 stdout, stderr = await asyncio.wait_for(
-                    process.communicate(), 
-                    timeout=self._timeout
+                    process.communicate(), timeout=self._timeout
                 )
-                
+
                 # Decode the output
-                output = stdout.decode('utf-8', errors='replace').strip()
-                error = stderr.decode('utf-8', errors='replace').strip()
-                
+                output = stdout.decode("utf-8", errors="replace").strip()
+                error = stderr.decode("utf-8", errors="replace").strip()
+
                 return CLIResult(output=output, error=error)
-                
+
             except asyncio.TimeoutError:
                 # If timeout occurs, try to terminate the process
                 try:
@@ -93,15 +90,13 @@ class _BashSession:
                     await asyncio.sleep(0.1)  # Give it a moment to terminate
                 except Exception:
                     pass  # Ignore errors in termination
-                    
-                return CLIResult(
-                    error=f"Command execution timed out after {self._timeout} seconds"
-                )
-                
+
+                return CLIResult(error=f"Command execution timed out after {self._timeout} seconds")
+
         except Exception as e:
             logger.error(f"Error executing bash command: {e}")
             return CLIResult(error=f"Error: {str(e)}")
-    
+
     def cleanup(self) -> None:
         """Clean up resources used by the bash session."""
         # Clean up temporary files
@@ -111,7 +106,7 @@ class _BashSession:
                     os.unlink(filepath)
             except Exception as e:
                 logger.warning(f"Error cleaning up file {filepath}: {e}")
-        
+
         # Clean up temporary directory
         if self._home_dir and os.path.exists(self._home_dir):
             try:
@@ -122,7 +117,7 @@ class _BashSession:
                             os.unlink(os.path.join(root, file))
                         except Exception:
                             pass
-                
+
                 # Remove the directory
                 os.rmdir(self._home_dir)
             except Exception as e:
@@ -133,20 +128,20 @@ class _BashSession:
 class Bash(BaseTool):
     """
     Execute bash commands in an interactive terminal session.
-    
+
     Key capabilities:
     * Run any bash command or script
     * Access command output and error messages
     * Maintain state between commands in the same session
     * Support for interactive commands with stdin/stdout
     * Handle long-running background processes
-    
+
     Use this tool when:
     * You need to execute shell commands
     * You need to interact with the filesystem
     * You need to run system utilities
     * You want to perform a sequence of related shell operations
-    
+
     Notes:
     * For long-running commands, use background execution (command &)
     * For interactive commands, send empty commands to retrieve logs
@@ -157,12 +152,12 @@ class Bash(BaseTool):
     name: str = "bash"
     description: str = """
     Execute bash commands in an interactive terminal environment.
-    
+
     * Purpose: Run bash commands and scripts in a persistent shell session
     * Usage: Execute system commands, interact with the filesystem, run processes
     * Features: Interactive session, command output capture, error handling
     * Returns: Command output and errors as structured results
-    
+
     For long-running commands, run them in the background with: `command > output.log 2>&1 &`.
     For interactive commands, you can send empty commands to retrieve additional output.
     Send `ctrl+c` to interrupt running processes.
@@ -227,7 +222,7 @@ class Bash(BaseTool):
         )
 
         # Session will be initialized when needed
-        self._session = None
+        self._session: Optional[_BashSession] = None
 
         logger.debug("Bash tool initialized")
 
@@ -243,21 +238,24 @@ class Bash(BaseTool):
         """
         try:
             # Apply timeout from config
-            timeout = getattr(self.config, "timeout", 10.0) if hasattr(self.config, "timeout") else 10.0
-            
+            timeout = (
+                getattr(self.config, "timeout", 10.0) if hasattr(self.config, "timeout") else 10.0
+            )
+
             # Create and set up session
             self._session = _BashSession(timeout=timeout)
-            setup_success = await self._session.setup()
-            
-            if setup_success:
-                # Test the session
-                test_result = await self._session.run("echo 'SESSION_INITIALIZED'")
-                if "SESSION_INITIALIZED" in test_result.output:
-                    logger.info("Bash session initialized successfully")
-                    return True
-                else:
-                    logger.error(f"Bash session test failed: {test_result.error}")
-            
+            if self._session is not None:
+                setup_success = await self._session.setup()
+
+                if setup_success:
+                    # Test the session
+                    test_result = await self._session.run("echo 'SESSION_INITIALIZED'")
+                    if "SESSION_INITIALIZED" in test_result.output:
+                        logger.info("Bash session initialized successfully")
+                        return True
+                    else:
+                        logger.error(f"Bash session test failed: {test_result.error}")
+
             return False
         except Exception as e:
             logger.error(f"Failed to initialize bash session: {e}")
@@ -300,7 +298,9 @@ class Bash(BaseTool):
 
             # Execute the command
             logger.info(f"Executing bash command: {command}")
-            return await self._session.run(command)
+            if self._session is not None:
+                return await self._session.run(command)
+            return CLIResult(error="Bash session is not initialized")
 
         except Exception as e:
             logger.error(f"Unexpected error in bash execution: {e}")

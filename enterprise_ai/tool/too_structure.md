@@ -3,11 +3,13 @@
 ## 1. Tool Organizational Structure
 
 ### Class Hierarchy
+
 - Each tool should inherit from the `BaseTool` class
 - Group similar tools into logical categories with shared base classes when appropriate
 - Maintain clear separation of concerns between different tool types
 
 ### Package Organization
+
 - Organize tools by functional category in separate directories
 - Keep related tools together (e.g., all research tools in one package)
 - Use consistent file naming (tool name in snake_case)
@@ -15,6 +17,7 @@
 ## 2. Tool Configuration Pattern
 
 ### Configuration Management
+
 - Every tool should properly utilize the `ToolConfig` object
 - Configuration should control execution behaviors like:
   - Timeout values
@@ -24,6 +27,7 @@
   - Debug modes
 
 ### Standard Properties
+
 - Maintain consistent class properties across all tools:
   - `name`: Unique identifier (snake_case)
   - `description`: Structured description following the format below
@@ -35,6 +39,7 @@
 ## 3. Tool Description Format
 
 ### Structured Description Template
+
 Each tool description should follow this pattern:
 
 ```
@@ -56,6 +61,7 @@ Notes:
 ```
 
 ### Parameter Documentation
+
 - Each parameter should have a clear, concise description
 - Include type information, default values, and constraints
 - Follow consistent formatting with action-oriented descriptions
@@ -64,18 +70,21 @@ Notes:
 ## 4. Lifecycle Management
 
 ### Initialization
+
 - Constructor should accept standard parameters (`name`, `description`, `parameters`, `config`)
 - Fall back to class-level defaults when parameters aren't provided
 - Initialize resources lazily when possible
 - Document any external dependencies or services
 
 ### Execution
+
 - Implement the `execute` method for all tools
 - Properly validate input parameters
 - Return standardized `ToolResult` objects
 - Support timeouts and cancellation
 
 ### Cleanup
+
 - Implement proper resource cleanup in the `cleanup` method
 - Ensure all external connections are closed
 - Release memory and file handles
@@ -84,12 +93,14 @@ Notes:
 ## 5. Error Handling and Logging
 
 ### Standard Error Pattern
+
 - Use `ToolError` for expected errors
 - Include error codes when appropriate
 - Provide actionable error messages
 - Log detailed information at appropriate levels
 
 ### Logging Guidelines
+
 - Create a logger named after the tool category.tool_name
 - Log at appropriate levels (debug for details, info for normal operations, warning/error for issues)
 - Include context in log messages
@@ -98,12 +109,14 @@ Notes:
 ## 6. Service Integration Pattern
 
 ### External Services
+
 - Initialize service connections in a consistent manner
 - Implement connection pooling where appropriate
 - Handle service unavailability gracefully
 - Support configuration-based credentials
 
 ### Rate Limiting
+
 - Implement consistent rate limiting for external services
 - Support backoff strategies
 - Cache results when appropriate
@@ -112,12 +125,14 @@ Notes:
 ## 7. Testing and Documentation
 
 ### Test Structure
+
 - Create unit tests for each tool
 - Test both success and failure paths
 - Mock external dependencies
 - Validate error handling
 
 ### Documentation Standards
+
 - Include examples for each tool
 - Document all parameters
 - Provide usage examples

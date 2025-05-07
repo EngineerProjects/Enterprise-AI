@@ -171,12 +171,12 @@ class DeepResearch(BaseTool):
     name: str = "deep_research"
     description: str = """
     Performs comprehensive, multi-level research on topics through iterative web searches and content analysis.
-    
+
     * Purpose: Discover in-depth information on complex topics through iterative exploration
     * Usage: Provide a research query and optional parameters to control depth and scope
     * Features: Multi-level search, insight extraction, automated follow-up generation, content analysis
     * Returns: Structured research summary with insights organized by relevance and source attribution
-    
+
     The tool automatically explores topics at multiple levels, generating follow-up queries based on
     initial findings. Results are analyzed for relevance and organized into a comprehensive report
     with proper source attribution.
@@ -219,7 +219,6 @@ class DeepResearch(BaseTool):
     search_tool: Optional[Any] = Field(default=None, exclude=True)
     llm: Optional[Any] = Field(default=None, exclude=True)
 
-
     def __init__(
         self,
         name: Optional[str] = None,
@@ -240,13 +239,13 @@ class DeepResearch(BaseTool):
         """
         # Access class field info directly from the model fields
         model_fields = self.__class__.model_fields
-        
+
         # Initialize with parent class first, using field info to get defaults
         super().__init__(
             name=name or model_fields["name"].default,
             description=description or model_fields["description"].default,
             parameters=parameters or model_fields["parameters"].default,
-            **kwargs
+            **kwargs,
         )
 
         # Store tool configuration
@@ -389,6 +388,8 @@ class DeepResearch(BaseTool):
             messages = [{"role": "user", "content": prompt}]
 
             # Get a response from the LLM
+            if self.llm is None:
+                raise ToolError("LLM is not initialized")
             response = await self.llm.complete(messages=messages)
 
             # Extract the optimized query from the response

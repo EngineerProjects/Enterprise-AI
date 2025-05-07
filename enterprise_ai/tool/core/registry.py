@@ -72,7 +72,7 @@ class ToolRegistry:
         if hook_type in self._hooks and callback in self._hooks[hook_type]:
             self._hooks[hook_type].remove(callback)
 
-    def _run_hooks(self, hook_type: str, *args, **kwargs) -> None:
+    def _run_hooks(self, hook_type: str, *args: Any, **kwargs: Any) -> None:
         """Run all hooks of a specified type."""
         for hook in self._hooks.get(hook_type, []):
             try:
@@ -143,14 +143,16 @@ class ToolRegistry:
             logger.debug(f"Registered tool '{name}' in category '{category}'")
 
         # Register capabilities
-        tool_capabilities = set()
+        tool_capabilities: Set[str] = set()
         if capabilities:
             tool_capabilities.update(
                 cap.value if isinstance(cap, ToolCapability) else cap for cap in capabilities
             )
 
         # Also get capabilities from the class if available
-        class_capabilities = getattr(tool_cls, "capabilities", set())
+        class_capabilities: Set[Union[str, ToolCapability]] = getattr(
+            tool_cls, "capabilities", set()
+        )
         if class_capabilities:
             tool_capabilities.update(
                 cap.value if isinstance(cap, ToolCapability) else cap for cap in class_capabilities
@@ -317,7 +319,7 @@ class ToolRegistry:
 
         # Filter by categories if provided
         if categories:
-            category_tools = set()
+            category_tools: Set[Type["BaseTool"]] = set()
             for category in categories:
                 category_tool_names = self._categories.get(category, set())
                 category_tools.update(

@@ -45,13 +45,13 @@ class PythonExecute(BaseTool):
     name: str = "python_execute"
     description: str = """
     Executes Python code in an isolated environment with output capture.
-    
+
     * Purpose: Run Python code snippets safely with controlled execution
     * Usage: Execute code for calculations, testing, or data processing
     * Features: Output capture, timeout enforcement, error handling
     * Returns: The captured stdout output or error message with traceback
-    
-    Note: Only print outputs are visible, function return values are not captured. 
+
+    Note: Only print outputs are visible, function return values are not captured.
     Use print statements to see results of your code execution.
     """
 

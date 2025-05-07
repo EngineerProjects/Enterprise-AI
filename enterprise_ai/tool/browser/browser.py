@@ -61,12 +61,12 @@ class BrowserUseTool(BaseTool):
     name: str = "browser_use"
     description: str = """
     Browser automation tool that provides interactive web capabilities.
-    
+
     * Purpose: Control a browser to navigate, interact with, and extract data from websites
     * Usage: Navigate to URLs, click elements, fill forms, extract content, and analyze web pages
     * Features: Web navigation, element interaction, content extraction, tab management, scrolling
     * Returns: The result of each browser action, including success/failure and relevant data
-    
+
     The tool maintains state across calls, keeping the browser session alive until explicitly closed.
     When interacting with elements, refer to them by the numbered indices shown in the current browser state.
     """
@@ -265,7 +265,7 @@ class BrowserUseTool(BaseTool):
             extra_args = get_config("browser_config.extra_chromium_args", [])
 
             # Apply timeout from ToolConfig
-            timeout_config = self.config.timeout
+            _ = self.config.timeout
 
             # Build browser configuration
             browser_config_kwargs: Dict[str, Any] = {
@@ -320,7 +320,7 @@ class BrowserUseTool(BaseTool):
         # Apply configured timeout
         execution_timeout = self.config.timeout
         retry_count = 0
-        max_retries = self.config.max_retries
+        max_retries = self.config.max_retries or 0  # Ensure max_retries is not None
 
         # Extract parameters from kwargs
         action = kwargs.get("action")
@@ -695,6 +695,10 @@ class BrowserUseTool(BaseTool):
                 backoff_time = 2 ** (retry_count - 1)  # 1, 2, 4, 8...
                 await asyncio.sleep(backoff_time)
 
+        # This return is needed to satisfy the type checker, though it should never be reached
+        # because the while loop will always either return or raise an exception
+        return ToolResult(error=f"Unexpected end of execution for action '{action}'")
+
     async def get_current_state(self) -> ToolResult:
         """
         Get the current browser state as a ToolResult.
@@ -731,6 +735,10 @@ class BrowserUseTool(BaseTool):
 
             screenshot = base64.b64encode(screenshot).decode("utf-8")
 
+            # Get pixel values with proper null handling
+            pixels_above = getattr(state, "pixels_above", 0) or 0
+            pixels_below = getattr(state, "pixels_below", 0) or 0
+
             # Build the state info with all required fields
             state_info = {
                 "url": state.url,
@@ -741,11 +749,9 @@ class BrowserUseTool(BaseTool):
                     state.element_tree.clickable_elements_to_string() if state.element_tree else ""
                 ),
                 "scroll_info": {
-                    "pixels_above": getattr(state, "pixels_above", 0),
-                    "pixels_below": getattr(state, "pixels_below", 0),
-                    "total_height": getattr(state, "pixels_above", 0)
-                    + getattr(state, "pixels_below", 0)
-                    + viewport_height,
+                    "pixels_above": pixels_above,
+                    "pixels_below": pixels_below,
+                    "total_height": pixels_above + pixels_below + viewport_height,
                 },
                 "viewport_height": viewport_height,
             }
@@ -758,7 +764,7 @@ class BrowserUseTool(BaseTool):
         except Exception as e:
             logger.error(f"Failed to get browser state: {e}")
             return ToolResult(error=f"Failed to get browser state: {str(e)}")
-    
+
     async def cleanup(self) -> None:
         """
         Clean up browser resources.
@@ -792,8 +798,12 @@ class BrowserUseTool(BaseTool):
     def __del__(self) -> None:
         """Ensure cleanup when object is destroyed."""
         # Safe attribute access with hasattr checks
-        if hasattr(self, 'browser') and self.browser is not None or \
-        hasattr(self, 'context') and self.context is not None:
+        if (
+            hasattr(self, "browser")
+            and self.browser is not None
+            or hasattr(self, "context")
+            and self.context is not None
+        ):
             try:
                 asyncio.run(self.cleanup())
             except RuntimeError:

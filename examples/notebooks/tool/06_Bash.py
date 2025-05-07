@@ -38,24 +38,24 @@ logger = get_logger("bash_test")
 async def test_bash_tool():
     """Test the Bash tool using the MCP system."""
     print_title("TESTING BASH TOOL VIA MCP")
-    
+
     # Create a test session
     session_id = "bash-tool-test"
     client = None
-    
+
     try:
         client = MCPClient(session_id, create_if_not_exists=True)
         print_success(f"Created MCP session: {session_id}")
-        
+
         # Create tool with configuration
         print_section("Tool Creation and Configuration")
-        
+
         config = ToolConfig(
             timeout=15.0,  # Timeout for shell commands
             max_retries=1,  # Allow one retry
             sandbox_enabled=True,  # Run in sandbox for safety
         )
-        
+
         # Create and register the Bash tool with explicit parameters
         bash_tool = Bash(
             name="bash",
@@ -77,28 +77,28 @@ async def test_bash_tool():
             },
             config=config
         )
-        
+
         client.session.register_tool(bash_tool)
         print_success(f"Created and registered Bash tool with configuration")
-        
+
         # Discover available tools
         print_section("Tool Discovery")
         tools = client.discover_tools()
         print_info(f"Found {len(tools)} tools in session")
-        
+
         if tools:
             for i, tool in enumerate(tools, 1):
                 if "function" in tool and "name" in tool["function"]:
                     print_info(f"  {i}. {tool['function']['name']}")
-        
+
         # Get detailed tool info
         tool_info = client.get_tool_info(bash_tool.name)
         print_info(f"\nTool info for {bash_tool.name}:")
         print_info(f"  Description: {tool_info.get('description', 'N/A')}")
         print_info(f"  State: {tool_info.get('state', 'N/A')}")
-        
+
         separator()
-        
+
         # Test 1: Basic command execution - echo
         print_section("Test 1: Basic Command Execution - Echo")
         with Timer("Execution"):
@@ -106,15 +106,15 @@ async def test_bash_tool():
                 bash_tool.name,
                 command="echo 'Hello from Bash Tool!'"
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None and result.error.strip():
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 2: Check current directory and create a test directory
         print_section("Test 2: Directory Operations")
         with Timer("Execution"):
@@ -122,15 +122,15 @@ async def test_bash_tool():
                 bash_tool.name,
                 command="pwd && mkdir -p test_dir && ls -la"
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None and result.error.strip():
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 3: Create and read a file
         print_section("Test 3: Create and Read File")
         with Timer("Execution"):
@@ -138,15 +138,15 @@ async def test_bash_tool():
                 bash_tool.name,
                 command="echo 'Test content' > test_dir/test_file.txt && cat test_dir/test_file.txt"
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None and result.error.strip():
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 4: File operations
         print_section("Test 4: File Operations")
         with Timer("Execution"):
@@ -154,15 +154,15 @@ async def test_bash_tool():
                 bash_tool.name,
                 command="ls -la test_dir && echo 'More content' >> test_dir/test_file.txt && cat test_dir/test_file.txt"
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None and result.error.strip():
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 5: Command with error
         print_section("Test 5: Command With Error")
         with Timer("Execution"):
@@ -170,15 +170,15 @@ async def test_bash_tool():
                 bash_tool.name,
                 command="cat /nonexistent/file.txt"
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None and result.error.strip():
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 6: Environment variables
         print_section("Test 6: Environment Variables")
         with Timer("Execution"):
@@ -186,15 +186,15 @@ async def test_bash_tool():
                 bash_tool.name,
                 command="TEST_VAR='Hello from bash' && echo $TEST_VAR && env | grep -i test"
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None and result.error.strip():
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 7: Bash script creation and execution
         print_section("Test 7: Bash Script Creation and Execution")
         script_content = """
@@ -207,20 +207,20 @@ echo "Creating a simple file listing:"
 ls -la | grep -v "^total" | head -5
 echo "Script completed successfully."
         """
-        
+
         # First create a script file
         with Timer("Script Creation"):
             create_result = await client.execute_tool(
                 bash_tool.name,
                 command=f'mkdir -p scripts && cat > scripts/test_script.sh << \'EOF\'\n{script_content}\nEOF\n\nchmod +x scripts/test_script.sh'
             )
-        
+
         print_info("Script creation result:")
         if hasattr(create_result, 'output') and create_result.output:
             print_info(create_result.output)
         if hasattr(create_result, 'error') and create_result.error:
             print_error(f"Error creating script: {create_result.error}")
-        
+
         # Now execute the script
         print_info("\nExecuting the script:")
         with Timer("Script Execution"):
@@ -228,15 +228,15 @@ echo "Script completed successfully."
                 bash_tool.name,
                 command="./scripts/test_script.sh arg1 arg2"
             )
-        
+
         if hasattr(exec_result, 'output') and exec_result.output is not None:
             print_success(f"Output:")
             print_info(exec_result.output)
         if hasattr(exec_result, 'error') and exec_result.error is not None and exec_result.error.strip():
             print_error(f"Error: {exec_result.error}")
-        
+
         separator()
-        
+
         # Test 8: Session restart
         print_section("Test 8: Session Restart")
         with Timer("Execution"):
@@ -244,13 +244,13 @@ echo "Script completed successfully."
                 bash_tool.name,
                 restart=True
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None and result.error.strip():
             print_error(f"Error: {result.error}")
-        
+
         # Verify session restarted by checking for our previous files
         print_info("\nVerifying session restart by checking for previous directory:")
         with Timer("Verification"):
@@ -258,18 +258,18 @@ echo "Script completed successfully."
                 bash_tool.name,
                 command="ls -la test_dir 2>/dev/null || echo 'Directory not found - session was reset'"
             )
-        
+
         if hasattr(verify_result, 'output') and verify_result.output is not None:
             print_info(f"Verification output:")
             print_info(verify_result.output)
-        
+
         print_success("All tests completed successfully!")
-        
+
     except Exception as e:
         print_error(f"Test failed: {e}")
         import traceback
         traceback.print_exc()
-    
+
     finally:
         # Clean up
         if client:

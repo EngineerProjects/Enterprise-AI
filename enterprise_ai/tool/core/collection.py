@@ -5,8 +5,33 @@ import asyncio
 
 from enterprise_ai.exceptions import EnterpriseAIError
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolState
-from enterprise_ai.tool.core.result import ToolFailure, ToolResult, ToolResultMetadata
+from enterprise_ai.tool.core.result import ToolResult, ToolResultMetadata
 from enterprise_ai.logger import get_logger
+
+
+# Create a ToolFailure class inheriting from ToolResult
+class ToolFailure(ToolResult):
+    """A ToolResult that represents a failure."""
+
+    error_code: Optional[str] = None
+    retryable: bool = False
+    suggestions: List[str] = []
+
+    def add_suggestion(self, suggestion: str) -> None:
+        """Add a suggestion for resolving the failure."""
+        if not hasattr(self, "suggestions") or self.suggestions is None:
+            self.suggestions = []
+        self.suggestions.append(suggestion)
+
+    @classmethod
+    def create(
+        cls, error: str, error_code: Optional[str] = None, retryable: bool = False
+    ) -> "ToolFailure":
+        """Create a new ToolFailure with the given error."""
+        result = cls(error=error, error_code=error_code, retryable=retryable)
+        result.complete()
+        return result
+
 
 logger = get_logger("tool.collection")
 
@@ -129,7 +154,7 @@ class ToolCollection:
 
                 # Execute tool with timeout if specified
                 try:
-                    result = await tool(**(tool_input or {}))
+                    result: Any = await tool(**(tool_input or {}))
                 except Exception as e:
                     logger.error(f"Error executing tool {name}: {e}")
                     return ToolFailure(error=f"Error executing tool: {str(e)}", metadata=metadata)
@@ -144,11 +169,11 @@ class ToolCollection:
                     # Safely handle result completion
                     try:
                         if hasattr(result, "complete"):
-                            return result.complete()
-                        return result
+                            return cast(ToolResult, result.complete())
+                        return cast(ToolResult, result)
                     except Exception as e:
                         logger.warning(f"Error completing result: {e}")
-                        return result
+                        return cast(ToolResult, result)
                 else:
                     # Convert non-ToolResult to ToolResult
                     try:
@@ -206,7 +231,7 @@ class ToolCollection:
                 if hasattr(tool, "_update_state"):
                     tool._update_state(ToolState.RUNNING)
 
-                result = await tool()
+                result: Any = await tool()
 
                 # Ensure result has metadata
                 if isinstance(result, ToolResult):
@@ -215,26 +240,23 @@ class ToolCollection:
                     elif result.metadata.tool_name is None:
                         result.metadata.tool_name = tool.name
 
-                    # Complete the metadata
-                    result.complete()
-
-                    results.append(result)
+                    results.append(cast(ToolResult, result))
                 else:
                     # Convert non-ToolResult to ToolResult
-                    results.append(ToolResult(output=result, metadata=metadata).complete())
+                    results.append(ToolResult(output=result, metadata=metadata))
 
             except ToolError as e:
                 # Update tool state
                 if hasattr(tool, "_update_state"):
                     tool._update_state(ToolState.ERROR)
 
-                results.append(ToolFailure(error=e.message, metadata=metadata.complete()))
+                results.append(ToolFailure(error=e.message, metadata=metadata))
             except Exception as e:
                 # Update tool state
                 if hasattr(tool, "_update_state"):
                     tool._update_state(ToolState.ERROR)
 
-                results.append(ToolFailure(error=f"Error: {str(e)}", metadata=metadata.complete()))
+                results.append(ToolFailure(error=f"Error: {str(e)}", metadata=metadata))
             finally:
                 # Reset tool state
                 if hasattr(tool, "_update_state"):
@@ -253,14 +275,15 @@ class ToolCollection:
         Returns:
             Dictionary mapping tool names to their results
         """
-        tasks = {}
+        tasks: Dict[str, Union[ToolResult, asyncio.Task[ToolResult]]] = {}
+        results: Dict[str, ToolResult] = {}
 
         # Create a task for each execution
         for tool_name, params in executions.items():
             if tool_name not in self.tool_map:
                 tasks[tool_name] = ToolFailure(
                     error=f"Tool {tool_name} is invalid",
-                    metadata=ToolResultMetadata(tool_name=tool_name).complete(),
+                    metadata=ToolResultMetadata(tool_name=tool_name),
                 )
                 continue
 
@@ -268,7 +291,6 @@ class ToolCollection:
             tasks[tool_name] = asyncio.create_task(self.execute(name=tool_name, tool_input=params))
 
         # Wait for all tasks to complete
-        results = {}
         for tool_name, task in tasks.items():
             if isinstance(task, ToolResult):
                 # Already completed task (error case)
@@ -279,7 +301,7 @@ class ToolCollection:
                 except Exception as e:
                     results[tool_name] = ToolFailure(
                         error=f"Execution error: {str(e)}",
-                        metadata=ToolResultMetadata(tool_name=tool_name).complete(),
+                        metadata=ToolResultMetadata(tool_name=tool_name),
                     )
 
         return results

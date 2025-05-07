@@ -1,6 +1,6 @@
 """Chat completion tool for Enterprise AI."""
 
-from typing import Any, Dict, List, Optional, Set, Type, Union, get_args, get_origin
+from typing import Any, Dict, List, Optional, Set, Type, Union, cast, get_args, get_origin
 
 from pydantic import BaseModel, Field
 
@@ -16,19 +16,19 @@ logger = get_logger("tool.content.chat_completion")
 class CreateChatCompletion(BaseTool):
     """
     Tool for creating structured formatted content with specific output types.
-    
+
     Key capabilities:
     * Generate content with controlled structure and formatting
     * Convert outputs to specified types (string, integer, Pydantic models)
     * Support for complex data types including lists and dictionaries
     * Handle JSON schema validation for structured outputs
-    
+
     Use this tool when:
     * You need to create formatted outputs with specific structure
     * You need to convert response data to specific types
     * You want to validate output against a schema
     * You need to generate structured data that follows a defined format
-    
+
     Notes:
     * Response type can be specified during initialization
     * Can handle primitive types, lists, dictionaries, and Pydantic models
@@ -38,12 +38,12 @@ class CreateChatCompletion(BaseTool):
     name: str = "create_chat_completion"
     description: str = """
     Creates a structured completion with specified output formatting.
-    
+
     * Purpose: Generate formatted content according to specific output types
     * Usage: Used when specific data formats or validation are needed
     * Features: Type conversion, schema validation, support for complex data types
     * Returns: Content formatted according to the specified output type
-    
+
     The tool can output different formats based on the specified response_type
     parameter during initialization, including primitive types, lists, and Pydantic models.
     """
@@ -87,7 +87,7 @@ class CreateChatCompletion(BaseTool):
         """
         # Store response type in a local variable first (don't set attribute yet)
         temp_response_type = response_type or str
-        
+
         # Build parameters if not explicitly provided
         if parameters is None:
             # Use static method to build parameters
@@ -114,8 +114,8 @@ class CreateChatCompletion(BaseTool):
     def _build_parameters_static(cls, response_type: Type) -> dict:
         """Static version of _build_parameters that doesn't rely on instance attributes."""
         required = ["response"]
-        
-        if response_type == str:
+
+        if response_type is str:
             return {
                 "type": "object",
                 "properties": {
@@ -184,7 +184,9 @@ class CreateChatCompletion(BaseTool):
                 "properties": {
                     "response": {
                         "type": "array",
-                        "items": cls._get_type_info_static(item_type),
+                        "items": cls._get_type_info_static(item_type)
+                        if item_type != Any
+                        else {"type": "string"},
                     },
                     "required": {
                         "type": "array",
@@ -203,7 +205,9 @@ class CreateChatCompletion(BaseTool):
                 "properties": {
                     "response": {
                         "type": "object",
-                        "additionalProperties": cls._get_type_info_static(value_type),
+                        "additionalProperties": cls._get_type_info_static(value_type)
+                        if value_type != Any
+                        else {"type": "string"},
                     },
                     "required": {
                         "type": "array",
@@ -219,7 +223,14 @@ class CreateChatCompletion(BaseTool):
             return {
                 "type": "object",
                 "properties": {
-                    "response": {"anyOf": [cls._get_type_info_static(t) for t in args]},
+                    "response": {
+                        "anyOf": [
+                            cls._get_type_info_static(t)
+                            if isinstance(t, type)
+                            else {"type": "string"}
+                            for t in args
+                        ]
+                    },
                     "required": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -247,7 +258,7 @@ class CreateChatCompletion(BaseTool):
         }
 
     @classmethod
-    def _get_type_info_static(cls, type_hint: Type) -> dict:
+    def _get_type_info_static(cls, type_hint: Any) -> Dict[str, Any]:
         """Static version of _get_type_info."""
         # Type mapping for JSON schema
         type_mapping = {
@@ -259,17 +270,42 @@ class CreateChatCompletion(BaseTool):
             list: "array",
         }
 
-        if isinstance(type_hint, type) and issubclass(type_hint, BaseModel):
-            return type_hint.model_json_schema()
+        # Handle the case where type_hint is a proper class
+        if isinstance(type_hint, type):
+            if issubclass(type_hint, BaseModel):
+                # Check for Pydantic v2 method first, then fall back to v1
+                if hasattr(type_hint, "model_json_schema"):
+                    schema = type_hint.model_json_schema()  # type: ignore
+                    return cast(Dict[str, Any], schema)
+                # Fall back to Pydantic v1 method
+                elif hasattr(type_hint, "schema"):
+                    schema = type_hint.schema()  # type: ignore
+                    return cast(Dict[str, Any], schema)
 
+            return {
+                "type": type_mapping.get(type_hint, "string"),
+                "description": f"Value of type {getattr(type_hint, '__name__', 'any')}",
+            }
+
+        # Handle special typing forms or other non-type values
+        origin = get_origin(type_hint)
+        if origin is not None:
+            # For container types like List[str], Dict[str, int], etc.
+            container_type = type_mapping.get(origin, "string")
+            return {
+                "type": container_type,
+                "description": f"Value of container type {container_type}",
+            }
+
+        # Default for Any or unknown types
         return {
-            "type": type_mapping.get(type_hint, "string"),
-            "description": f"Value of type {getattr(type_hint, '__name__', 'any')}",
+            "type": "string",
+            "description": "Value of any type",
         }
 
     def _build_parameters(self) -> dict:
         """Build parameters schema based on response type."""
-        return self._build_parameters_static(self.response_type_internal)
+        return self._build_parameters_static(self.response_type_internal or str)
 
     def _create_type_schema(self, type_hint: Type) -> dict:
         """Create a JSON schema for the given type."""
@@ -284,7 +320,9 @@ class CreateChatCompletion(BaseTool):
         return {
             "type": "object",
             "properties": {
-                "response": {"anyOf": [self._get_type_info(t) for t in types]},
+                "response": {
+                    "anyOf": [self._get_type_info(t) for t in types if isinstance(t, type)]
+                },
                 "required": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -314,33 +352,34 @@ class CreateChatCompletion(BaseTool):
             required_fields = kwargs.pop("required", None) or self.required_fields
 
             # Special handling for Pydantic models
-            if (isinstance(self.response_type_internal, type) and 
-                issubclass(self.response_type_internal, BaseModel)):
-                
+            if isinstance(self.response_type_internal, type) and issubclass(
+                self.response_type_internal, BaseModel
+            ):
                 logger.debug("Converting to Pydantic model")
                 try:
                     # First, check if we received a "response" parameter containing a dict
                     response_value = kwargs.get("response")
-                    
+
                     if isinstance(response_value, dict):
                         # Use the nested dict directly
                         converted = self.response_type_internal(**response_value)
                         return ToolResult(output=str(converted))
-                        
+
                     # Second, check if we have all required fields at the root level
                     model_fields = self.response_type_internal.model_fields
-                    has_required_fields = all(f in kwargs for f in model_fields 
-                                            if model_fields[f].is_required())
-                    
+                    has_required_fields = all(
+                        f in kwargs for f in model_fields if model_fields[f].is_required()
+                    )
+
                     if has_required_fields:
                         # The model fields are passed directly at root level
                         converted = self.response_type_internal(**kwargs)
                         return ToolResult(output=str(converted))
-                    
+
                     # If we reach here, we don't have valid input for the model
                     logger.warning("No response data provided for Pydantic model")
                     return ToolResult(error="No response data provided for Pydantic model")
-                    
+
                 except Exception as e:
                     logger.error(f"Type conversion error (Pydantic): {e}")
                     return ToolResult(error=f"Type conversion error: {str(e)}")
@@ -372,7 +411,9 @@ class CreateChatCompletion(BaseTool):
                 return ToolResult(output=str(result))
 
             if get_origin(self.response_type_internal) in (list, dict):
-                logger.debug(f"Converting to container type: {get_origin(self.response_type_internal)}")
+                logger.debug(
+                    f"Converting to container type: {get_origin(self.response_type_internal)}"
+                )
                 return ToolResult(output=str(result))  # Convert to string for output
 
             try:

@@ -45,24 +45,24 @@ logger = get_logger("python_execute_test")
 async def test_python_execute():
     """Test the PythonExecute tool using the MCP system."""
     print_title("TESTING PYTHON EXECUTE TOOL VIA MCP")
-    
+
     # Create a test session
     session_id = "python-execute-test"
     client = None
-    
+
     try:
         client = MCPClient(session_id, create_if_not_exists=True)
         print_success(f"Created MCP session: {session_id}")
-        
+
         # Create tool with configuration
         print_section("Tool Creation and Configuration")
-        
+
         config = ToolConfig(
             timeout=10.0,  # Longer timeout for more complex examples
             max_retries=1,
             cache_results=True,
         )
-        
+
         # Create and register the PythonExecute tool
         python_execute = PythonExecute(
             name="python_execute",
@@ -84,28 +84,28 @@ async def test_python_execute():
             },
             config=config
         )
-        
+
         client.session.register_tool(python_execute)
         print_success(f"Created and registered PythonExecute tool with configuration")
-        
+
         # Discover available tools
         print_section("Tool Discovery")
         tools = client.discover_tools()
         print_info(f"Found {len(tools)} tools in session")
-        
+
         if tools:
             for i, tool in enumerate(tools, 1):
                 if "function" in tool and "name" in tool["function"]:
                     print_info(f"  {i}. {tool['function']['name']}")
-        
+
         # Get detailed tool info
         tool_info = client.get_tool_info(python_execute.name)
         print_info(f"\nTool info for {python_execute.name}:")
         print_info(f"  Description: {tool_info.get('description', 'N/A')}")
         print_info(f"  State: {tool_info.get('state', 'N/A')}")
-        
+
         separator()
-        
+
         # Test 1: Basic code execution - Hello World
         print_section("Test 1: Basic Code Execution - Hello World")
         code = """
@@ -118,15 +118,15 @@ print("Current execution is isolated and safe.")
                 python_execute.name,
                 code=code
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None:
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 2: Mathematical calculations
         print_section("Test 2: Mathematical Calculations")
         code = """
@@ -159,15 +159,15 @@ for i in range(1, 6):
                 python_execute.name,
                 code=code
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None:
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 3: Error handling - Syntax error
         print_section("Test 3: Error Handling - Syntax Error")
         code = """
@@ -184,14 +184,14 @@ print("This will never be reached")
                 python_execute.name,
                 code=code
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_info(f"Output: {result.output}")
         if hasattr(result, 'error') and result.error is not None:
             print_warning(f"Error (expected): {result.error}")
-        
+
         separator()
-        
+
         # Test 4: Error handling - Runtime error
         print_section("Test 4: Error Handling - Runtime Error")
         code = """
@@ -211,14 +211,14 @@ print("This will never be reached")
                 python_execute.name,
                 code=code
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_info(f"Output: {result.output}")
         if hasattr(result, 'error') and result.error is not None:
             print_warning(f"Error (expected): {result.error}")
-        
+
         separator()
-        
+
         # Test 5: Data manipulation
         print_section("Test 5: Data Manipulation")
         code = """
@@ -227,7 +227,7 @@ class Person:
     def __init__(self, name, age):
         self.name = name
         self.age = age
-    
+
     def __str__(self):
         return f"{self.name} ({self.age})"
 
@@ -263,15 +263,15 @@ for person in over_30:
                 python_execute.name,
                 code=code
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_success(f"Output:")
             print_info(result.output)
         if hasattr(result, 'error') and result.error is not None:
             print_error(f"Error: {result.error}")
-        
+
         separator()
-        
+
         # Test 6: Timeout handling
         print_section("Test 6: Timeout Handling")
         code = """
@@ -284,7 +284,7 @@ for i in range(10):
     # Sleep for 2 seconds - should eventually timeout with default settings
     time.sleep(2)
     print(f"Finished iteration {i}")
-    
+
 print("This should never be reached if timeout works correctly")
 """
         with Timer("Execution"):
@@ -293,19 +293,19 @@ print("This should never be reached if timeout works correctly")
                 code=code,
                 timeout=3  # Set a short timeout to test timeout handling
             )
-        
+
         if hasattr(result, 'output') and result.output is not None:
             print_info(f"Output: {result.output}")
         if hasattr(result, 'error') and result.error is not None:
             print_warning(f"Error (expected timeout): {result.error}")
-        
+
         print_success("All tests completed successfully!")
-        
+
     except Exception as e:
         print_error(f"Test failed: {e}")
         import traceback
         traceback.print_exc()
-    
+
     finally:
         # Clean up
         if client:

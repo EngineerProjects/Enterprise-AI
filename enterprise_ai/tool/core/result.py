@@ -47,6 +47,13 @@ class ToolResultMetadata(BaseModel):
     )
     tags: Set[str] = Field(default_factory=set, description="Tags associated with this execution")
 
+    def complete(self) -> "ToolResultMetadata":
+        """Mark as complete and return self for method chaining."""
+        self.end_time = datetime.now() if self.end_time is None else self.end_time
+        if self.start_time and self.end_time:
+            self.execution_time_ms = (self.end_time - self.start_time).total_seconds() * 1000
+        return self
+
 
 class ToolResult(BaseModel):
     """Represents the result of a tool execution."""
@@ -68,7 +75,7 @@ class ToolResult(BaseModel):
         arbitrary_types_allowed = True
 
     @field_validator("metadata", mode="before")
-    def set_metadata_default(cls, v):
+    def set_metadata_default(cls, v: Optional[ToolResultMetadata]) -> ToolResultMetadata:
         """Set default metadata if none is provided."""
         return v or ToolResultMetadata()
 

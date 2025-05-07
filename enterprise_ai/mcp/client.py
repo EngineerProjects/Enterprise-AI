@@ -15,10 +15,10 @@ from enterprise_ai.tool.core.base import BaseTool, ToolState, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.logger import get_logger
 
+from typing import TYPE_CHECKING
+
 logger = get_logger("mcp.client")
 
-# Use TYPE_CHECKING to avoid circular imports
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from enterprise_ai.mcp.server import MCPSession, MCPServer
@@ -225,7 +225,7 @@ class MCPClient:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Process results, converting exceptions to error results
-        final_results = []
+        final_results: List[Tuple[str, ToolResult]] = []
         for i, (tool_name, result) in enumerate(zip(tool_names, results)):
             if isinstance(result, Exception):
                 # Convert exception to error result
@@ -237,7 +237,7 @@ class MCPClient:
                 )
                 final_results.append((tool_name, error_result))
             else:
-                final_results.append((tool_name, result))
+                final_results.append((tool_name, cast(ToolResult, result)))
 
         return final_results
 

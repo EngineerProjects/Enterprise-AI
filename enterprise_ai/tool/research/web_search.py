@@ -15,7 +15,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_excep
 from enterprise_ai.config import get_config
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
-from enterprise_ai.tool.core.result import ToolResult
+from enterprise_ai.tool.core.result import ToolResult, ToolResultMetadata
 from enterprise_ai.tool.research.search import (
     BaiduSearchEngine,
     BingSearchEngine,
@@ -52,7 +52,8 @@ class SearchResult(BaseModel):
         """String representation of a search result."""
         return f"{self.title} ({self.url})"
 
-class SearchMetadata(BaseModel):
+
+class SearchMetadata(ToolResultMetadata):
     """Metadata about the search operation."""
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -63,26 +64,6 @@ class SearchMetadata(BaseModel):
     time_taken: float = Field(default=0.0, description="Time taken for the search in seconds")
     engines_tried: List[str] = Field(
         default_factory=list, description="Search engines that were tried"
-    )
-    tool_name: Optional[str] = Field(
-        default=None, description="Name of the tool that produced this result"
-    )
-    session_id: Optional[str] = Field(
-        default=None, description="ID of the session that produced this result"
-    )
-    
-    # Add these fields to match ToolResultMetadata expectations
-    start_time: Optional[datetime] = Field(
-        default_factory=datetime.now, description="Time when execution started"
-    )
-    end_time: Optional[datetime] = Field(
-        default=None, description="Time when execution completed"
-    )
-    execution_time_ms: Optional[float] = Field(
-        default=None, description="Execution time in milliseconds"
-    )
-    execution_id: Optional[str] = Field(
-        default=None, description="Unique identifier for this execution"
     )
 
 
@@ -317,12 +298,12 @@ class WebSearch(BaseTool):
     name: str = "web_search"
     description: str = """
     Search the web for real-time information using multiple search engines.
-    
+
     * Purpose: Find current information from the web using multiple search engines
     * Usage: Provide a search query and optional parameters to control results
     * Features: Multi-engine search, content fetching, automatic fallback
     * Returns: Structured search results with URLs, titles, descriptions, and optional content
-    
+
     The tool automatically tries multiple search engines if the primary one fails,
     and can optionally fetch and extract the main content from search result pages.
     Results include standardized metadata regardless of which engine provided them.
@@ -374,7 +355,7 @@ class WebSearch(BaseTool):
     search_engines: Dict[str, Any] = Field(default_factory=dict, exclude=True)
     content_fetcher: Optional[Any] = Field(default=None, exclude=True)
     results_cache: Dict[str, Any] = Field(default_factory=dict, exclude=True)
-    cache_expiry: int = Field(default=300, description="Cache expiry time in seconds") 
+    cache_expiry: int = Field(default=300, description="Cache expiry time in seconds")
 
     def __init__(
         self,
@@ -396,13 +377,13 @@ class WebSearch(BaseTool):
         """
         # Access class field info directly from the model fields
         model_fields = self.__class__.model_fields
-        
+
         # Initialize with parent class first, using field info to get defaults
         super().__init__(
             name=name or model_fields["name"].default,
             description=description or model_fields["description"].default,
             parameters=parameters or model_fields["parameters"].default,
-            **kwargs
+            **kwargs,
         )
 
         # Then initialize other instance attributes
@@ -478,7 +459,7 @@ class WebSearch(BaseTool):
         start_time = time.time()
 
         # Use timeout from config if available
-        timeout = getattr(self.config, "timeout", None)
+        _ = getattr(self.config, "timeout", None)
 
         # Extract parameters from kwargs
         try:
@@ -609,7 +590,7 @@ class WebSearch(BaseTool):
                     country=country,
                     time_taken=time.time() - start_time,
                     engines_tried=engines_tried,
-                    tool_name=self.name  # Set the tool_name attribute to fix the error
+                    tool_name=self.name,  # Set the tool_name attribute to fix the error
                 ),
             )
 

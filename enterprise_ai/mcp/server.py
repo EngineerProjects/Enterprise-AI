@@ -137,7 +137,7 @@ class MCPCache:
 class MCPUsageMetrics:
     """Usage metrics tracker for MCP."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the metrics tracker."""
         self._tool_executions: Dict[str, int] = {}
         self._tool_errors: Dict[str, int] = {}
@@ -556,7 +556,7 @@ class MCPServer:
         self._cache = MCPCache()
         self._metrics = MCPUsageMetrics()
         self._locks: Dict[str, asyncio.Lock] = {}
-        self._default_config = {}
+        self._default_config: Dict[str, Any] = {}
 
         logger.info("Initialized MCP server")
 
@@ -609,7 +609,7 @@ class MCPServer:
         )
 
         # Function to initialize a tool with proper error handling
-        def try_initialize_tool(tool_cls, name):
+        def try_initialize_tool(tool_cls: Type[BaseTool], name: str) -> Optional[BaseTool]:
             try:
                 # Method 1: Try to instantiate with original signature (no args)
                 try:
@@ -869,9 +869,11 @@ class MCPServer:
 
             # Create MCP tool config
             mcp_tool_config = MCPToolConfig(
-                timeout=tool_config.timeout,
-                max_retries=tool_config.max_retries,
-                cache_enabled=tool_config.cache_results,
+                timeout=tool_config.timeout if tool_config.timeout is not None else 60.0,
+                max_retries=tool_config.max_retries if tool_config.max_retries is not None else 3,
+                cache_enabled=tool_config.cache_results
+                if tool_config.cache_results is not None
+                else False,
                 cache_ttl=config.get("cache_ttl", 300) if config else 300,
                 result_log_enabled=config.get("result_logging", True) if config else True,
                 usage_metrics_enabled=config.get("metrics_enabled", True) if config else True,

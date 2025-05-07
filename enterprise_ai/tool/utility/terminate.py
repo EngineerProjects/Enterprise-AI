@@ -40,12 +40,12 @@ class Terminate(BaseTool):
     name: str = "terminate"
     description: str = """
     Signal the end of an interaction when tasks are completed or cannot proceed.
-    
+
     * Purpose: Indicate when work is finished or when progress is not possible
     * Usage: Call this tool when all tasks are complete or when blocked
     * Features: Status indication, explanatory messages
     * Returns: Final status with optional explanatory message
-    
+
     When terminating, always provide a status ('success' or 'failure') and optionally
     include a message explaining the completion or the roadblock encountered.
     """
