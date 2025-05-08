@@ -30,7 +30,7 @@ from enterprise_ai.agent import (
     create_agent
 )
 from enterprise_ai.agent.role import create_role
-from enterprise_ai.agent.message import QueryMessage
+from enterprise_ai.agent.messaging.message import QueryMessage
 from enterprise_ai.llm.providers.ollama import OllamaProvider
 
 # Configuration for Ollama provider

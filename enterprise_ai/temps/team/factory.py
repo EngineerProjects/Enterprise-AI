@@ -9,8 +9,8 @@ import uuid
 import asyncio
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
-from enterprise_ai.agent.factory import create_agent, AgentBuilder
-from enterprise_ai.agent.types import AgentProtocol, AgentRole
+from enterprise_ai.agent.core.factory import create_agent, AgentBuilder
+from enterprise_ai.agent.core.types import AgentProtocol, AgentRole
 from enterprise_ai.team.base import BaseTeam
 from enterprise_ai.team.types import (
     TeamProtocol,

@@ -6,18 +6,20 @@ enabling structured decision-making and tool usage patterns.
 """
 
 import abc
-from typing import Any, Dict, List, Optional, Set, Union, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
-from enterprise_ai.agent.types import AgentProtocol, AgentMessage, Task, TaskStatus
+from enterprise_ai.agent.core.types import AgentProtocol, AgentMessage, Task, TaskStatus
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message
 from enterprise_ai.types import MessageProtocol
-from enterprise_ai.tool.core.result import ToolResult
+from enterprise_ai.tool.core.result import ToolResult, ToolFailure, ToolResultMetadata
 from enterprise_ai.prompt import get_prompt, format_prompt, combine_prompts
-from enterprise_ai.agent.tool_integration import (
+from enterprise_ai.agent.tools.tool_integration import (
     parse_message_for_tool_calls,
     format_tool_response_message,
     get_tool_prompt_for_reasoning,
+    validate_tool_parameters,
+    get_tool_error_handling_prompt,
 )
 
 logger = get_logger("agent.reasoning")
@@ -181,6 +183,148 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
         """
         pass
 
+    def filter_tools_by_capabilities(
+        self, agent: AgentProtocol, capabilities: List[str], match_all: bool = False
+    ) -> List[Dict[str, Any]]:
+        """Filter tools based on capabilities.
+
+        Args:
+            agent: The agent using this reasoning framework
+            capabilities: List of capabilities to filter by
+            match_all: Whether all capabilities must be present
+
+        Returns:
+            List of tools matching the capability criteria
+        """
+        if not hasattr(agent, "_tool_manager"):
+            return []
+
+        tool_manager = getattr(agent, "_tool_manager")
+        
+        # Get all tools first
+        all_tools = []
+        if hasattr(tool_manager, "get_tool_schemas"):
+            import asyncio
+            loop = asyncio.get_event_loop()
+            all_tools = loop.run_until_complete(tool_manager.get_tool_schemas())
+        
+        # If no capabilities to filter by, return all tools
+        if not capabilities:
+            return all_tools
+            
+        # Filter tools by capabilities
+        result = []
+        for tool in all_tools:
+            tool_caps = []
+            
+            # Extract tool capabilities from tool info
+            if hasattr(tool_manager, "get_tool_info"):
+                tool_name = tool.get("function", {}).get("name")
+                if tool_name:
+                    tool_info = tool_manager.get_tool_info(tool_name)
+                    if "capabilities" in tool_info:
+                        tool_caps = tool_info["capabilities"]
+            
+            # Skip tools without capabilities
+            if not tool_caps:
+                continue
+                
+            # Check if tool matches capability criteria
+            if match_all:
+                if all(cap in tool_caps for cap in capabilities):
+                    result.append(tool)
+            else:
+                if any(cap in tool_caps for cap in capabilities):
+                    result.append(tool)
+                    
+        return result
+
+    def validate_tool_params(
+        self, agent: AgentProtocol, tool_name: str, params: Dict[str, Any]
+    ) -> Tuple[bool, Optional[str]]:
+        """Validate tool parameters against schema.
+
+        Args:
+            agent: The agent using this reasoning framework
+            tool_name: Name of the tool
+            params: Parameters to validate
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        if not hasattr(agent, "_tool_manager"):
+            return False, "Agent has no tool manager"
+
+        tool_manager = getattr(agent, "_tool_manager")
+        
+        # Get tool schema if available
+        if hasattr(tool_manager, "get_tool"):
+            tool = tool_manager.get_tool(tool_name)
+            if tool and hasattr(tool, "parameters"):
+                return validate_tool_parameters(tool_name, params, tool.parameters)
+                
+        return True, None  # Default to valid if we can't validate
+
+    async def execute_tools_parallel(
+        self, 
+        agent: AgentProtocol, 
+        tool_calls: List[Dict[str, Any]], 
+        **kwargs: Any
+    ) -> List[Tuple[str, ToolResult]]:
+        """Execute multiple tools in parallel.
+        
+        Args:
+            agent: The agent using this reasoning framework
+            tool_calls: List of tool call specifications
+            **kwargs: Additional parameters
+            
+        Returns:
+            List of tuples containing (tool_name, result)
+        """
+        if not hasattr(agent, "_tool_manager"):
+            # Return error results if no tool manager
+            return [(call["name"], ToolFailure(
+                error="Agent does not have a tool manager",
+                error_code="NO_TOOL_MANAGER"
+            )) for call in tool_calls]
+            
+        tool_manager = getattr(agent, "_tool_manager")
+        
+        # Prepare executions for parallel processing
+        executions = []
+        tool_names = []
+        
+        for call in tool_calls:
+            tool_name = call.get("name", "")
+            params = call.get("parameters", {})
+            
+            if not tool_name:
+                continue
+            
+            # Add to execution list
+            executions.append({
+                "tool_name": tool_name,
+                "parameters": params,
+                "timeout": kwargs.get("timeout")
+            })
+            tool_names.append(tool_name)
+            
+        # Execute tools in parallel if possible
+        if hasattr(tool_manager, "execute_tools_parallel"):
+            results = await tool_manager.execute_tools_parallel(executions)
+            return results
+            
+        # Fallback: execute sequentially
+        results = []
+        for execution in executions:
+            tool_name = execution["tool_name"]
+            result = await self.handle_tool_execution(
+                agent, tool_name, execution["parameters"], **kwargs
+            )
+            results.append((tool_name, result))
+            
+        return results
+
     @property
     def requires_tools(self) -> bool:
         """Tool-based reasoning frameworks require tools."""
@@ -273,6 +417,8 @@ class BaseReasoning(ReasoningFramework):
         except Exception as e:
             logger.error(f"Error processing task for agent {agent.id}: {e}")
             task.status = TaskStatus.FAILED
+            task.metadata = task.metadata or {}
+            task.metadata["error"] = str(e)
             return task.status
 
     def format_system_prompt(self, agent: AgentProtocol, base_prompt: str, **kwargs: Any) -> str:
@@ -323,8 +469,10 @@ class BaseReasoning(ReasoningFramework):
         Returns:
             Tool execution result (error in this case)
         """
-        return ToolResult(
-            error="Tool execution is not supported with the base reasoning framework."
+        return ToolFailure(
+            error="Tool execution is not supported with the base reasoning framework.",
+            error_code="UNSUPPORTED_OPERATION",
+            metadata=ToolResultMetadata(tool_name=tool_name)
         )
 
     def supports_function_calling(self) -> bool:

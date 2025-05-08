@@ -9,7 +9,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set, cast
 
-from enterprise_ai.agent.types import AgentRole
+from enterprise_ai.agent.core.types import AgentRole
 from enterprise_ai.logger import get_logger
 from enterprise_ai.prompt import PromptTemplate, get_prompt, format_prompt
 from enterprise_ai.types import Serializable

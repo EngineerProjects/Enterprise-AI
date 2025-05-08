@@ -6,8 +6,6 @@ to structure their thinking and decision-making processes, including
 specialized approaches for different types of tasks.
 """
 
-from typing import Dict, List, Type
-
 from enterprise_ai.agent.reasoning.base import (
     ReasoningFramework,
     ToolBasedReasoning,
@@ -36,11 +34,13 @@ __all__ = [
     "ReasoningFramework",
     "ToolBasedReasoning",
     "BaseReasoning",
+    
     # Framework registry functions
     "register_framework",
     "get_framework",
     "list_frameworks",
     "get_framework_descriptions",
+    
     # Framework implementations
     "ReActReasoning",
     "ChainOfThoughtReasoning",

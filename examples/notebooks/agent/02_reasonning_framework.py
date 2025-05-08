@@ -34,7 +34,7 @@ from enterprise_ai.agent import (
     list_frameworks,
     get_framework_descriptions
 )
-from enterprise_ai.agent.message import QueryMessage, ResponseMessage
+from enterprise_ai.agent.messaging.message import QueryMessage, ResponseMessage
 from enterprise_ai.llm.providers.ollama import OllamaProvider
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message

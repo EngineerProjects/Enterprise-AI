@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Protocol, Set, Union, Callable, Tuple
 
-from enterprise_ai.agent.types import AgentProtocol, Task, TaskStatus
+from enterprise_ai.agent.core.types import AgentProtocol, Task, TaskStatus
 from enterprise_ai.team.types import TeamProtocol
 
 

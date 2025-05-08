@@ -8,7 +8,7 @@ tool sharing capabilities.
 
 from typing import Any, Dict, List, Optional, Set, Union, cast
 
-from enterprise_ai.agent.types import AgentRole
+from enterprise_ai.agent.core.types import AgentRole
 from enterprise_ai.agent.role import create_role
 from enterprise_ai.team.types import TeamProtocol, ToolCapableTeamProtocol
 from enterprise_ai.tool.core.base import BaseTool

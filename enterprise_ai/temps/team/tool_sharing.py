@@ -9,7 +9,7 @@ import asyncio
 from typing import Any, Dict, List, Optional, Set, Union, cast
 from collections import defaultdict
 
-from enterprise_ai.agent.types import AgentProtocol
+from enterprise_ai.agent.core.types import AgentProtocol
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool
 from enterprise_ai.tool.core.result import ToolResult, ToolFailure

@@ -10,8 +10,8 @@ import asyncio
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
-from enterprise_ai.agent.types import AgentProtocol, AgentMessage, Task, TaskStatus
-from enterprise_ai.agent.message import (
+from enterprise_ai.agent.core.types import AgentProtocol, AgentMessage, Task, TaskStatus
+from enterprise_ai.agent.messaging.message import (
     BroadcastMessage,
     ErrorMessage,
     NotificationMessage,

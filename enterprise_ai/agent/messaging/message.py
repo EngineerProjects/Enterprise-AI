@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Set, Union, ClassVar, cast
 
-from enterprise_ai.agent.types import AgentMessage
+from enterprise_ai.agent.core.types import AgentMessage
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message
 from enterprise_ai.types import MessageProtocol

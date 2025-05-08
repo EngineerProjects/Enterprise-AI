@@ -8,7 +8,7 @@ import asyncio
 import time
 from typing import Any, Dict, Optional, Set
 
-from enterprise_ai.agent.types import Task, TaskStatus
+from enterprise_ai.agent.core.types import Task, TaskStatus
 from enterprise_ai.flow.node import BaseNode
 from enterprise_ai.flow.types import NodeStatus
 from enterprise_ai.flow.types import FlowTeamProtocol
