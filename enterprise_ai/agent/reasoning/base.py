@@ -476,13 +476,26 @@ class BaseReasoning(ReasoningFramework):
         Returns:
             Formatted system prompt
         """
-        # Use the base.prompt template
-        formatted_prompt = format_prompt("system.base", additional_instructions=base_prompt)
+        # Add memory and context instructions
+        memory_instructions = """
+You have access to the conversation history with the user.
+When asked about previous conversations or information shared by the user previously:
+1. Recall information from previous messages
+2. Provide specific details the user previously shared (their name, location, preferences, etc.)
+3. Acknowledge the continuity of your conversation
+4. Never claim you "can't remember" or that you "don't have memory" as you can access the conversation history
+"""
+
+        # Combine prompts
+        enhanced_prompt = f"{base_prompt}\n\n{memory_instructions}"
+        
+        # Use the base.prompt template 
+        formatted_prompt = format_prompt("system.base", additional_instructions=enhanced_prompt)
         if formatted_prompt:
             return formatted_prompt
 
-        # Fallback to base prompt
-        return base_prompt
+        # Fallback to base prompt with memory instructions
+        return enhanced_prompt
 
     def format_tool_instructions(
         self, agent: AgentProtocol, tools: List[Dict[str, Any]], **kwargs: Any

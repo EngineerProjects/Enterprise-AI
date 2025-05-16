@@ -48,7 +48,7 @@ async def test_basic_agents():
     ollama_works = False
     try:
         # Initialize Ollama provider directly
-        ollama_provider = OllamaProvider(model_name="smollm2", timeout=300.0)
+        ollama_provider = OllamaProvider(model_name="smollm2", timeout=2400.0)
         print_info(f"Direct Ollama provider initialized with model: {ollama_provider.model_name}")
         
         # Test basic completion
@@ -96,7 +96,7 @@ async def test_basic_agents():
         agent_type="llm", 
         name="LLMAgent",
         llm_provider_name="ollama",
-        model_params={"model_name": "smollm2", "timeout": 300.0}
+        llm_provider_kwargs={"model_name": "smollm2", "timeout": 2400.0}
     )
     print_success(f"Created LLM agent: {llm_agent.name} (ID: {llm_agent.id})")
     print_info(f"Using model: {llm_agent._llm_provider.model_name}")
@@ -106,7 +106,7 @@ async def test_basic_agents():
         agent_type="llm", 
         name="SecondLLMAgent",
         llm_provider_name="ollama",
-        model_params={"model_name": "smollm2", "timeout": 300.0}
+        llm_provider_kwargs={"model_name": "smollm2", "timeout": 2400.0}
     )
     print_success(f"Created second LLM agent: {llm_agent2.name} (ID: {llm_agent2.id})")
     print_info(f"Using model: {llm_agent2._llm_provider.model_name}")
@@ -125,7 +125,7 @@ async def test_basic_agents():
     
     timer = Timer("LLM Agent Basic Response")
     timer.start()
-    response = await llm_agent.process_message(message)
+    response = await llm_agent.aprocess_message(message)
     timer.stop()
     
     print_info(f"Message: '{message}'")
@@ -137,7 +137,7 @@ async def test_basic_agents():
     
     timer = Timer("LLM Agent Question Response")
     timer.start()
-    response = await llm_agent.process_message(message)
+    response = await llm_agent.aprocess_message(message)
     timer.stop()
     
     print_info(f"Message: '{message}'")
@@ -151,8 +151,8 @@ async def test_basic_agents():
         agent_type="llm", 
         name="ContextAgent",
         llm_provider_name="ollama",
-        # Properly pass model_params to factory
-        model_params={"model_name": "llama3.2", "timeout": 300.0}
+        # Properly pass llm_provider_kwargs to factory
+        llm_provider_kwargs={"model_name": "llama3.2", "timeout": 2400.0}
     )
     print_success(f"Created context agent: {context_agent.name} (ID: {context_agent.id})")
     print_info(f"Using model: {context_agent._llm_provider.model_name}")
@@ -167,7 +167,7 @@ async def test_basic_agents():
     timer = Timer("First Response (llama3.2)")
     timer.start()
     # Use process_message with explicit conversation_id
-    response1 = await context_agent.process_message(message1, conversation_id=conversation_id)
+    response1 = await context_agent.aprocess_message(message1, conversation_id=conversation_id)
     timer.stop()
     
     print_info(f"Response: '{response1.content}'")
@@ -179,7 +179,7 @@ async def test_basic_agents():
     timer = Timer("Second Response (with context, llama3.2)")
     timer.start()
     # Use process_message with the SAME conversation_id to maintain context
-    response2 = await context_agent.process_message(message2, conversation_id=conversation_id)
+    response2 = await context_agent.aprocess_message(message2, conversation_id=conversation_id)
     timer.stop()
     
     print_info(f"Response: '{response2.content}'")
@@ -192,7 +192,7 @@ async def test_basic_agents():
         agent_type="llm", 
         name="EnhancedContextAgent",
         llm_provider_name="ollama",
-        model_params={"model_name": "llama3.2", "timeout": 300.0}
+        llm_provider_kwargs={"model_name": "llama3.2", "timeout": 2400.0}
     )
     print_success(f"Created enhanced agent: {enhanced_agent.name} (ID: {enhanced_agent.id})")
     print_info(f"Using model: {enhanced_agent._llm_provider.model_name}")
@@ -209,13 +209,13 @@ async def test_basic_agents():
     enhanced_agent._conversation.add_message(system_message, conversation_id=enhanced_conv_id)
     
     # First user message
-    await enhanced_agent.process_message(message1, conversation_id=enhanced_conv_id)
+    await enhanced_agent.aprocess_message(message1, conversation_id=enhanced_conv_id)
     
     # Second user message
     print_info("Enhanced context test:")
     timer = Timer("Enhanced Context Response (llama3.2)")
     timer.start()
-    enhanced_response = await enhanced_agent.process_message(message2, conversation_id=enhanced_conv_id)
+    enhanced_response = await enhanced_agent.aprocess_message(message2, conversation_id=enhanced_conv_id)
     timer.stop()
     
     print_info(f"Enhanced response: '{enhanced_response.content}'")
@@ -226,7 +226,7 @@ async def test_basic_agents():
         agent_type="llm", 
         name="ConversationAgent",
         llm_provider_name="ollama",
-        model_params={"model_name": "smollm2", "timeout": 300.0}
+        llm_provider_kwargs={"model_name": "smollm2", "timeout": 2400.0}
     )
     print_success(f"Created conversation agent: {conversation_agent.name} (ID: {conversation_agent.id})")
     print_info(f"Using model: {conversation_agent._llm_provider.model_name}")
@@ -237,7 +237,7 @@ async def test_basic_agents():
     
     timer = Timer("Topic Response")
     timer.start()
-    topic_response = await conversation_agent.process_message(topic_message)
+    topic_response = await conversation_agent.aprocess_message(topic_message)
     timer.stop()
     
     print_info(f"Response: '{topic_response.content}'")
@@ -248,7 +248,7 @@ async def test_basic_agents():
     
     timer = Timer("Follow-up Response")
     timer.start()
-    followup_response = await conversation_agent.process_message(followup_message)
+    followup_response = await conversation_agent.aprocess_message(followup_message)
     timer.stop()
     
     print_info(f"Response: '{followup_response.content}'")

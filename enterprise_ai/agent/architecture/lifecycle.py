@@ -435,6 +435,34 @@ class AgentLifecycleManager:
         Returns:
             Dictionary of state data
         """
+        # Get conversation data if available
+        conversation_data = {}
+        if hasattr(self.agent, "_conversation"):
+            try:
+                # Extract conversations data
+                conversations = {}
+                for conv_id, messages in self.agent._conversation._conversations.items():
+                    # Convert Message objects to serializable dictionaries
+                    conversations[conv_id] = [msg.to_dict() for msg in messages]
+                
+                # Extract metadata
+                metadata = {}
+                for conv_id, meta in self.agent._conversation._conversation_metadata.items():
+                    # Convert datetime objects to strings
+                    metadata[conv_id] = {
+                        "created_at": meta.get("created_at").isoformat() if meta.get("created_at") else None,
+                        "updated_at": meta.get("updated_at").isoformat() if meta.get("updated_at") else None,
+                        "message_count": meta.get("message_count", 0)
+                    }
+                
+                conversation_data = {
+                    "conversations": conversations,
+                    "metadata": metadata
+                }
+                logger.info(f"Extracted conversation data with {len(conversations)} conversations")
+            except Exception as e:
+                logger.warning(f"Failed to extract conversation data: {e}")
+        
         return {
             "agent_id": self.agent_id,
             "state": self.state.value,
@@ -445,6 +473,7 @@ class AgentLifecycleManager:
             "config": self._config,
             "version": self._version,
             "timestamp": datetime.now().isoformat(),
+            "conversation_data": conversation_data,
         }
     
     def _apply_state_data(self, state_data: Dict[str, Any]) -> None:
@@ -476,6 +505,65 @@ class AgentLifecycleManager:
                 self.state = AgentState(state_data["state"])
             except ValueError:
                 logger.warning(f"Invalid agent state in state data: {state_data['state']}")
+        
+        # Restore conversation data if available
+        if "conversation_data" in state_data and hasattr(self.agent, "_conversation"):
+            try:
+                conversation_data = state_data["conversation_data"]
+                
+                # First, clear existing conversations
+                self.agent._conversation._conversations = {}
+                self.agent._conversation._conversation_metadata = {}
+                
+                # Restore conversations
+                if "conversations" in conversation_data:
+                    from enterprise_ai.schema import Message
+                    
+                    for conv_id, msg_dicts in conversation_data["conversations"].items():
+                        # Initialize the conversation
+                        self.agent._conversation._conversations[conv_id] = []
+                        
+                        # Convert dict representations back to Message objects
+                        for msg_dict in msg_dicts:
+                            # Create a Message from the dict
+                            message = Message.from_dict(msg_dict)
+                            # Add to conversation
+                            self.agent._conversation._conversations[conv_id].append(message)
+                
+                # Restore metadata
+                if "metadata" in conversation_data:
+                    for conv_id, meta_dict in conversation_data["metadata"].items():
+                        # Convert ISO strings back to datetime objects
+                        try:
+                            created_at = (
+                                datetime.fromisoformat(meta_dict["created_at"])
+                                if meta_dict["created_at"] else None
+                            )
+                            updated_at = (
+                                datetime.fromisoformat(meta_dict["updated_at"])
+                                if meta_dict["updated_at"] else None
+                            )
+                        except (ValueError, TypeError):
+                            logger.warning(f"Invalid timestamp in conversation metadata for {conv_id}")
+                            created_at = updated_at = datetime.now()
+                        
+                        # Set metadata
+                        self.agent._conversation._conversation_metadata[conv_id] = {
+                            "created_at": created_at,
+                            "updated_at": updated_at,
+                            "message_count": meta_dict.get("message_count", 0)
+                        }
+                
+                # Log success message
+                num_conversations = len(self.agent._conversation._conversations)
+                logger.info(f"Restored {num_conversations} conversations for agent {self.agent_id}")
+                
+                # Count total messages
+                total_msgs = sum(len(msgs) for msgs in self.agent._conversation._conversations.values())
+                logger.info(f"Restored {total_msgs} messages across all conversations")
+                
+            except Exception as e:
+                logger.error(f"Failed to restore conversation data: {e}")
         
         # Parse timestamps
         if "created_at" in state_data and state_data["created_at"]:

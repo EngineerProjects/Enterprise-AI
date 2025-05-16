@@ -32,7 +32,7 @@ from enterprise_ai.logger import get_logger
 # Configure logger
 logger = get_logger("agent_reasoning_test")
 
-TIMEOUT = 1200  # 20 minutes for slower models
+TIMEOUT = 2400  # 40 minutes for very slow GPU/CPU
 
 async def test_reasoning_frameworks():
     """Test different agent reasoning frameworks."""

@@ -48,11 +48,15 @@ def create_agent(
     agent_type: str = "base",
     agent_id: Optional[str] = None,
     name: Optional[str] = None,
+    role: Optional[AgentRole] = None,
     role_type: Optional[str] = None,
     role_kwargs: Optional[Dict[str, Any]] = None,
     state_type: Optional[str] = None,
     state_kwargs: Optional[Dict[str, Any]] = None,
+    llm_provider: Optional[Any] = None,
     llm_provider_name: Optional[str] = None,
+    llm_provider_kwargs: Optional[Dict[str, Any]] = None,
+    model_params: Optional[Dict[str, Any]] = None,  # For backward compatibility
     reasoning_framework: str = "base",
     use_tools: bool = False,
     enable_mcp: bool = False,
@@ -74,11 +78,15 @@ def create_agent(
         agent_type: Type of agent to create ("base" or "llm")
         agent_id: Optional unique identifier
         name: Optional human-readable name
-        role_type: Optional role type to assign
-        role_kwargs: Optional arguments for role creation
+        role: Optional pre-configured AgentRole object to use directly
+        role_type: Optional role type to assign (used if role is not provided)
+        role_kwargs: Optional arguments for role creation (used if role is not provided)
         state_type: Optional state implementation type
         state_kwargs: Optional arguments for state creation
-        llm_provider_name: Optional name of LLM provider to use
+        llm_provider: Optional pre-configured LLM provider object to use directly
+        llm_provider_name: Optional name of LLM provider to use (used if llm_provider is not provided)
+        llm_provider_kwargs: Optional parameters for LLM provider creation
+        model_params: Optional parameters for LLM provider (alias for llm_provider_kwargs for backward compatibility)
         reasoning_framework: Name of the reasoning framework to use
         use_tools: Whether to enable tool usage for the agent
         enable_mcp: Whether to enable MCP for tool discovery
@@ -124,8 +132,13 @@ def create_agent(
     # Extract configuration values, preferring function parameters over config
     agent_type = agent_type or merged_config.get("agent_type", "base")
     name = name or merged_config.get("name", f"{agent_type.capitalize()}Agent")
-    role_type = role_type or merged_config.get("role_type")
-    role_kwargs = role_kwargs or merged_config.get("role", {})
+    
+    # Handle role configuration - either use provided role object or create a new one
+    final_role = role
+    if not final_role and (role_type or merged_config.get("role_type")):
+        role_type = role_type or merged_config.get("role_type")
+        role_kwargs = role_kwargs or merged_config.get("role", {})
+    
     state_type = state_type or merged_config.get("state_type", "base" if agent_type == "base" else "conversation")
     state_kwargs = state_kwargs or merged_config.get("state", {})
     reasoning_framework = reasoning_framework or merged_config.get("reasoning_framework", "base")
@@ -153,6 +166,7 @@ def create_agent(
         if use_tools:
             logger.warning("Base agents don't support tools. Use LLM agents instead.")
 
+        # Create the agent
         agent = BaseAgent(
             agent_id=agent_id,
             name=name,
@@ -171,43 +185,66 @@ def create_agent(
         return agent
     
     elif agent_type.lower() == "llm":
-        # Get LLM provider
-        llm_provider = None
-        provider_name = llm_provider_name or merged_config.get("llm_provider")
+        # Get LLM provider - either use provided object or create a new one
+        final_llm_provider = llm_provider
         
-        # Extract provider parameters
-        provider_kwargs = extract_llm_provider_kwargs(kwargs)
-        
-        # Set reasonable default timeout if not specified
-        if "timeout" not in provider_kwargs:
-            provider_kwargs["timeout"] = 300.0
-        
-        # Create the provider
-        if provider_name:
-            from enterprise_ai.llm import create_provider
-            llm_provider = create_provider(provider_name, **provider_kwargs)
-            logger.info(f"Created LLM provider: {provider_name} with parameters: {provider_kwargs}")
-        else:
-            from enterprise_ai.llm import get_default_provider
-            llm_provider = get_default_provider(**provider_kwargs)
-            logger.info(f"Created default LLM provider with parameters: {provider_kwargs}")
+        if not final_llm_provider:
+            # For backward compatibility, handle both llm_provider_kwargs and model_params
+            provider_kwargs = {}
+            if llm_provider_kwargs:
+                provider_kwargs.update(llm_provider_kwargs)
+            if model_params:
+                provider_kwargs.update(model_params)
+            
+            # Also extract provider parameters from kwargs
+            provider_kwargs.update(extract_llm_provider_kwargs(kwargs))
+            
+            # Set reasonable default timeout if not specified
+            if "timeout" not in provider_kwargs:
+                provider_kwargs["timeout"] = 300.0
+            
+            # Create the provider
+            provider_name = llm_provider_name or merged_config.get("llm_provider")
+            if provider_name:
+                from enterprise_ai.llm import create_provider
+                final_llm_provider = create_provider(provider_name, **provider_kwargs)
+                logger.info(f"Created LLM provider: {provider_name} with parameters: {provider_kwargs}")
+            else:
+                from enterprise_ai.llm import get_default_provider
+                final_llm_provider = get_default_provider(**provider_kwargs)
+                logger.info(f"Created default LLM provider with parameters: {provider_kwargs}")
 
-        # Create LLM agent with enhanced tool configuration
-        agent = LLMAgent(
-            agent_id=agent_id,
-            name=name,
-            role_type=role_type,
-            role_kwargs=role_kwargs,
-            state_type=state_type,
-            state_kwargs=state_kwargs,
-            llm_provider=llm_provider,
-            reasoning_framework=reasoning_framework,
-            use_tools=use_tools,
-            enable_mcp=enable_mcp,
-            tool_categories=tool_categories,
-            tool_names=tool_names,
+        # Create the role if it wasn't provided directly
+        final_role_object = final_role
+        if not final_role_object and role_type:
+            from enterprise_ai.agent.role import create_role
+            final_role_object = create_role(role_type, **role_kwargs or {})
+            logger.info(f"Created role: {role_type}")
+
+        # Create LLM agent with all configuration
+        agent_kwargs = {
+            "agent_id": agent_id,
+            "name": name,
+            "state_type": state_type,
+            "state_kwargs": state_kwargs,
+            "llm_provider": final_llm_provider,
+            "reasoning_framework": reasoning_framework,
+            "use_tools": use_tools,
+            "enable_mcp": enable_mcp,
+            "tool_categories": tool_categories,
+            "tool_names": tool_names,
             **kwargs,
-        )
+        }
+        
+        # Add role information
+        if final_role_object:
+            agent_kwargs["role"] = final_role_object
+        else:
+            agent_kwargs["role_type"] = role_type
+            agent_kwargs["role_kwargs"] = role_kwargs
+        
+        # Create the agent
+        agent = LLMAgent(**agent_kwargs)
         
         # Apply any remaining configuration
         if merged_config:
@@ -233,11 +270,21 @@ class AgentBuilder:
         self._agent_type: str = "base"
         self._agent_id: Optional[str] = None
         self._name: Optional[str] = None
+        
+        # Role configuration
+        self._role: Optional[AgentRole] = None
         self._role_type: Optional[str] = None
         self._role_kwargs: Dict[str, Any] = {}
+        
+        # State configuration
         self._state_type: Optional[str] = None
         self._state_kwargs: Dict[str, Any] = {}
+        
+        # LLM provider configuration
+        self._llm_provider: Optional[Any] = None
         self._llm_provider_name: Optional[str] = None
+        self._llm_provider_kwargs: Dict[str, Any] = {}
+        
         self._reasoning_framework: str = "base"
         self._use_tools: bool = False
         self._enable_mcp: bool = False
@@ -286,6 +333,18 @@ class AgentBuilder:
         self._name = name
         return self
 
+    def with_role_object(self, role: AgentRole) -> "AgentBuilder":
+        """Set a pre-configured role object.
+
+        Args:
+            role: Role object to use
+
+        Returns:
+            Builder instance for chaining
+        """
+        self._role = role
+        return self
+
     def with_role(self, role_type: str, **kwargs: Any) -> "AgentBuilder":
         """Set the agent role.
 
@@ -314,16 +373,30 @@ class AgentBuilder:
         self._state_kwargs = kwargs
         return self
 
-    def with_llm_provider(self, provider_name: str) -> "AgentBuilder":
-        """Set the LLM provider.
+    def with_llm_provider(self, provider: Any) -> "AgentBuilder":
+        """Set the LLM provider directly.
+
+        Args:
+            provider: LLM provider object
+
+        Returns:
+            Builder instance for chaining
+        """
+        self._llm_provider = provider
+        return self
+
+    def with_llm_provider_name(self, provider_name: str, **kwargs: Any) -> "AgentBuilder":
+        """Set the LLM provider by name with optional configuration.
 
         Args:
             provider_name: Name of LLM provider
+            **kwargs: Provider configuration parameters
 
         Returns:
             Builder instance for chaining
         """
         self._llm_provider_name = provider_name
+        self._llm_provider_kwargs = kwargs
         return self
 
     def with_reasoning(self, framework: str) -> "AgentBuilder":
@@ -459,27 +532,42 @@ class AgentBuilder:
         Returns:
             Constructed agent
         """
-        return create_agent(
-            agent_type=self._agent_type,
-            agent_id=self._agent_id,
-            name=self._name,
-            role_type=self._role_type,
-            role_kwargs=self._role_kwargs,
-            state_type=self._state_type,
-            state_kwargs=self._state_kwargs,
-            llm_provider_name=self._llm_provider_name,
-            reasoning_framework=self._reasoning_framework,
-            use_tools=self._use_tools,
-            enable_mcp=self._enable_mcp,
-            tool_categories=self._tool_categories,
-            tool_names=self._tool_names,
-            tool_capabilities=self._tool_capabilities,
-            capability_match_all=self._capability_match_all,
-            config_path=self._config_path,
-            template_id=self._template_id,
-            filter_strategy=self._filter_strategy,
-            **self._kwargs,
-        )
+        agent_kwargs = {
+            "agent_type": self._agent_type,
+            "agent_id": self._agent_id,
+            "name": self._name,
+            "state_type": self._state_type,
+            "state_kwargs": self._state_kwargs,
+            "reasoning_framework": self._reasoning_framework,
+            "use_tools": self._use_tools,
+            "enable_mcp": self._enable_mcp,
+            "tool_categories": self._tool_categories,
+            "tool_names": self._tool_names,
+            "tool_capabilities": self._tool_capabilities,
+            "capability_match_all": self._capability_match_all,
+            "config_path": self._config_path,
+            "template_id": self._template_id,
+            "filter_strategy": self._filter_strategy,
+        }
+        
+        # Add role configuration
+        if self._role:
+            agent_kwargs["role"] = self._role
+        else:
+            agent_kwargs["role_type"] = self._role_type
+            agent_kwargs["role_kwargs"] = self._role_kwargs
+            
+        # Add LLM provider configuration
+        if self._llm_provider:
+            agent_kwargs["llm_provider"] = self._llm_provider
+        else:
+            agent_kwargs["llm_provider_name"] = self._llm_provider_name
+            agent_kwargs["llm_provider_kwargs"] = self._llm_provider_kwargs
+            
+        # Add any additional kwargs
+        agent_kwargs.update(self._kwargs)
+        
+        return create_agent(**agent_kwargs)
 
 
 # Specialized factory functions for common agent types

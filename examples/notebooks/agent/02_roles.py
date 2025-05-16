@@ -137,15 +137,15 @@ async def test_agent_roles():
     
     developer = create_developer_agent(
         name="Developer",
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}  # Set model and timeout
+        llm_provider_kwargs={"timeout": 2400.0, "model_name": "llama3.2"}  # Set model and timeout
     )
     researcher = create_researcher_agent(
         name="Researcher",
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}  # Set model and timeout
+        llm_provider_kwargs={"timeout": 2400.0, "model_name": "llama3.2"}  # Set model and timeout
     )
     manager = create_manager_agent(
         name="Manager",
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}  # Set model and timeout
+        llm_provider_kwargs={"timeout": 2400.0, "model_name": "llama3.2"}  # Set model and timeout
     )
     
     print_success(f"Created developer agent: {developer.name}")
@@ -177,6 +177,7 @@ async def test_agent_roles():
     # 3. Create an agent with a custom role
     print_section("3. Creating an agent with a custom role")
     
+    # Create agent with direct role object
     custom_role = create_role(
         "custom",
         name="Customer Support Agent",
@@ -188,14 +189,9 @@ async def test_agent_roles():
     support_agent = create_agent(
         agent_type="llm",
         name="Support Agent",
-        role_type="custom",
-        role_kwargs={
-            "name": "Customer Support Agent",
-            "description": "Specialized in customer support and service",
-            "capabilities": ["customer_service", "problem_solving", "communication"],
-            "instructions": "Your primary goal is to provide excellent customer service. Listen carefully to customer issues, empathize with their concerns, and provide clear solutions."
-        },
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}  # Set model and timeout
+        role=custom_role,
+        llm_provider_name="ollama",
+        llm_provider_kwargs={"timeout": 2400.0, "model_name": "llama3.2"}  # Set model and timeout
     )
     
     print_success(f"Created custom support agent: {support_agent.name}")

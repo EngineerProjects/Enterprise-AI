@@ -261,6 +261,7 @@ class LLMAgent(BaseAgent):
         self,
         agent_id: Optional[str] = None,
         name: Optional[str] = None,
+        role: Optional[Any] = None,
         role_type: Optional[str] = None,
         role_kwargs: Optional[Dict[str, Any]] = None,
         state_type: Optional[str] = None,
@@ -278,8 +279,9 @@ class LLMAgent(BaseAgent):
         Args:
             agent_id: Optional unique identifier
             name: Optional human-readable name
-            role_type: Optional role type to assign
-            role_kwargs: Optional arguments for role creation
+            role: Optional pre-configured role object to use directly
+            role_type: Optional role type to assign (used if role is not provided)
+            role_kwargs: Optional arguments for role creation (used if role is not provided)
             state_type: Optional state implementation type
             state_kwargs: Optional arguments for state creation
             llm_provider: LLM provider to use
@@ -290,15 +292,29 @@ class LLMAgent(BaseAgent):
             tool_names: Optional specific tool names to include
             **kwargs: Additional agent-specific parameters
         """
-        super().__init__(
-            agent_id=agent_id,
-            name=name,
-            role_type=role_type,
-            role_kwargs=role_kwargs,
-            state_type=state_type,
-            state_kwargs=state_kwargs,
-            **kwargs,
-        )
+        # If a role object is directly provided, store it
+        self._role = role
+        
+        # Call the parent class's __init__ method only if we don't have a direct role
+        if not self._role:
+            super().__init__(
+                agent_id=agent_id,
+                name=name,
+                role_type=role_type,
+                role_kwargs=role_kwargs,
+                state_type=state_type,
+                state_kwargs=state_kwargs,
+                **kwargs,
+            )
+        else:
+            # Initialize base without role params since we have a direct role
+            super().__init__(
+                agent_id=agent_id,
+                name=name,
+                state_type=state_type,
+                state_kwargs=state_kwargs,
+                **kwargs,
+            )
         
         # Set up LLM provider
         self._llm_provider = llm_provider

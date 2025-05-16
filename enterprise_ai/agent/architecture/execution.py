@@ -261,7 +261,20 @@ class ExecutionManager:
                 if kwargs.get("llm_provider") is None and hasattr(self.agent, "_llm_provider"):
                     kwargs["llm_provider"] = getattr(self.agent, "_llm_provider")
                 
-                response = await reasoning_manager.process_input(messages, **kwargs)
+                # Add memory context indicators to help the LLM understand
+                # this is a persistent conversation
+                formatted_messages = messages.copy()
+                
+                # Add memory context metadata if not already present
+                if len(messages) > 1:
+                    # Add metadata to messages to indicate they're from memory
+                    for i, msg in enumerate(formatted_messages):
+                        if msg.metadata is None:
+                            msg.metadata = {}
+                        if i < len(formatted_messages) - 1:  # Not the latest message
+                            msg.metadata["from_memory"] = True
+                
+                response = await reasoning_manager.process_input(formatted_messages, **kwargs)
             
             # Mark execution as completed
             context.mark_completed(response)
