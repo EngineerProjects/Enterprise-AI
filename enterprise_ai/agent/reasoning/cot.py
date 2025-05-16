@@ -56,8 +56,8 @@ class ChainOfThoughtReasoning(ReasoningFramework):
         Returns:
             Response message
         """
-        # Extract LLM provider
-        llm_provider = kwargs.get("llm_provider")
+        # Extract LLM provider and remove it from kwargs to avoid serialization issues
+        llm_provider = kwargs.pop("llm_provider", None)
         if not llm_provider:
             logger.error(f"No LLM provider available for agent {agent.id}")
             return cast(
@@ -118,6 +118,7 @@ class ChainOfThoughtReasoning(ReasoningFramework):
 
         # Generate response from LLM
         try:
+            # Make sure to pass the llm_provider back for the actual LLM call
             response = llm_provider.complete(messages, **kwargs)
 
             # Ensure response follows CoT format

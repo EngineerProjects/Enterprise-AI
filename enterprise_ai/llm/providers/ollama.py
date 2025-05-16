@@ -5,6 +5,7 @@ This module provides an LLM provider for the Ollama API.
 """
 
 import json
+import os
 import asyncio
 from typing import Any, Dict, List, Optional, Set, Iterator, AsyncIterator, Union, cast
 
@@ -74,9 +75,21 @@ class OllamaProvider(LLMProvider):
         if url.endswith("/"):
             url = url[:-1]
 
-        # Set a reasonable timeout, defaulting to configuration value or DEFAULT_TIMEOUT
-        default_timeout = get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
-        self._timeout = timeout or default_timeout
+        # Set a reasonable timeout, prioritizing the environment variable if available
+        env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
+        if env_timeout:
+            try:
+                self._timeout = float(env_timeout)
+                logger.info(f"Using timeout from environment variable: {self._timeout}s")
+            except ValueError:
+                # Fall back to config or default if environment variable isn't a valid float
+                default_timeout = get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
+                self._timeout = timeout or default_timeout
+                logger.warning(f"Invalid timeout in environment variable, using: {self._timeout}s")
+        else:
+            # Use the provided timeout or config/default
+            default_timeout = get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
+            self._timeout = timeout or default_timeout
 
         # Store explicit capabilities if provided
         self._explicit_capabilities = capabilities
@@ -164,6 +177,18 @@ class OllamaProvider(LLMProvider):
         """
         # Get request timeout - allow override via kwargs or use the instance default
         request_timeout = kwargs.pop("timeout", self._timeout)
+        
+        # Also check for environment override at the point of request
+        env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
+        if env_timeout:
+            try:
+                env_timeout_value = float(env_timeout)
+                # Use the maximum of the environment timeout and the requested timeout
+                request_timeout = max(request_timeout, env_timeout_value)
+                logger.info(f"Using combined timeout for request: {request_timeout}s")
+            except ValueError:
+                # If environment variable isn't a valid float, just use the request_timeout
+                pass
 
         # Check if this is a vision model or if any message contains images
         has_images = False
@@ -709,6 +734,18 @@ class OllamaProvider(LLMProvider):
         """
         # Get request timeout - allow override via kwargs or use the instance default
         request_timeout = kwargs.pop("timeout", self._timeout)
+        
+        # Also check for environment override at the point of request
+        env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
+        if env_timeout:
+            try:
+                env_timeout_value = float(env_timeout)
+                # Use the maximum of the environment timeout and the requested timeout
+                request_timeout = max(request_timeout, env_timeout_value)
+                logger.info(f"Using combined timeout for async request: {request_timeout}s")
+            except ValueError:
+                # If environment variable isn't a valid float, just use the request_timeout
+                pass
 
         # Check for vision model or images
         has_images = False

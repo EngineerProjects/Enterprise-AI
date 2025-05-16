@@ -338,10 +338,10 @@ class LLMAgent(BaseAgent):
             return True
         return False
 
-    async def process_message(
+    async def aprocess_message(
         self, message: Union[str, MessageProtocol], **kwargs: Any
     ) -> MessageProtocol:
-        """Process a message using the LLM and reasoning framework.
+        """Process a message asynchronously using the LLM and reasoning framework.
 
         Args:
             message: Input message or string
@@ -369,9 +369,15 @@ class LLMAgent(BaseAgent):
         
         # Ensure timeout is set to minimum required timeout
         if "timeout" not in kwargs and hasattr(self, "_llm_provider") and self._llm_provider:
-            # Default to 300 seconds or provider's timeout if it's higher
+            # Get provider timeout
             provider_timeout = getattr(self._llm_provider, "_timeout", 60.0)
-            kwargs["timeout"] = max(300.0, provider_timeout)
+            
+            # For CPU-constrained environments, use a significantly higher timeout
+            if provider_timeout < 300.0:
+                provider_timeout = 300.0
+                
+            kwargs["timeout"] = provider_timeout
+            logger.debug(f"Using timeout: {provider_timeout}s for LLM request")
         
         # Process using execution manager
         response = await self._execution.process_message(messages, **kwargs)
@@ -404,9 +410,15 @@ class LLMAgent(BaseAgent):
         
         # Ensure timeout is set to minimum required timeout
         if "timeout" not in kwargs and hasattr(self, "_llm_provider") and self._llm_provider:
-            # Default to 300 seconds or provider's timeout if it's higher
+            # Get provider timeout
             provider_timeout = getattr(self._llm_provider, "_timeout", 60.0)
-            kwargs["timeout"] = max(300.0, provider_timeout)
+            
+            # For CPU-constrained environments, use a significantly higher timeout
+            if provider_timeout < 300.0:
+                provider_timeout = 300.0
+                
+            kwargs["timeout"] = provider_timeout
+            logger.debug(f"Using timeout: {provider_timeout}s for LLM request")
         
         # Process using execution manager
         response = await self._execution.process_message(messages, **kwargs)
@@ -454,9 +466,15 @@ class LLMAgent(BaseAgent):
         # Ensure timeout is properly set
         kwargs = {}
         if hasattr(self, "_llm_provider") and self._llm_provider:
-            # Default to 300 seconds or provider's timeout if it's higher
+            # Get provider timeout
             provider_timeout = getattr(self._llm_provider, "_timeout", 60.0)
-            kwargs["timeout"] = max(300.0, provider_timeout)
+            
+            # For CPU-constrained environments, use a significantly higher timeout
+            if provider_timeout < 300.0:
+                provider_timeout = 300.0
+                
+            kwargs["timeout"] = provider_timeout
+            logger.debug(f"Using timeout: {provider_timeout}s for task processing")
         
         # Process using execution manager
         result = await self._execution.process_task(task, **kwargs)

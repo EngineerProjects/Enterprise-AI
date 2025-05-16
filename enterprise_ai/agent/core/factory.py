@@ -22,6 +22,28 @@ from enterprise_ai.mcp.client import ToolFilterStrategy
 logger = get_logger("agent.factory")
 
 
+def extract_llm_provider_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
+    """Extract LLM provider kwargs from the agent creation kwargs.
+    
+    Args:
+        kwargs: Agent creation kwargs
+        
+    Returns:
+        Dictionary of LLM provider kwargs
+    """
+    # Extract the llm_provider_kwargs if present
+    llm_provider_kwargs = kwargs.pop("llm_provider_kwargs", {}).copy()
+    
+    # Also check for direct provider parameters in kwargs
+    direct_provider_params = {}
+    for key in list(kwargs.keys()):
+        if key in ("model_name", "base_url", "temperature", "max_tokens", "top_p", "timeout"):
+            direct_provider_params[key] = kwargs.pop(key)
+    
+    # Merge them, with llm_provider_kwargs taking precedence
+    return {**direct_provider_params, **llm_provider_kwargs}
+
+
 def create_agent(
     agent_type: str = "base",
     agent_id: Optional[str] = None,
@@ -152,12 +174,23 @@ def create_agent(
         # Get LLM provider
         llm_provider = None
         provider_name = llm_provider_name or merged_config.get("llm_provider")
+        
+        # Extract provider parameters
+        provider_kwargs = extract_llm_provider_kwargs(kwargs)
+        
+        # Set reasonable default timeout if not specified
+        if "timeout" not in provider_kwargs:
+            provider_kwargs["timeout"] = 300.0
+        
+        # Create the provider
         if provider_name:
             from enterprise_ai.llm import create_provider
-            llm_provider = create_provider(provider_name)
+            llm_provider = create_provider(provider_name, **provider_kwargs)
+            logger.info(f"Created LLM provider: {provider_name} with parameters: {provider_kwargs}")
         else:
             from enterprise_ai.llm import get_default_provider
-            llm_provider = get_default_provider()
+            llm_provider = get_default_provider(**provider_kwargs)
+            logger.info(f"Created default LLM provider with parameters: {provider_kwargs}")
 
         # Create LLM agent with enhanced tool configuration
         agent = LLMAgent(
@@ -173,9 +206,6 @@ def create_agent(
             enable_mcp=enable_mcp,
             tool_categories=tool_categories,
             tool_names=tool_names,
-            tool_capabilities=tool_capabilities,
-            capability_match_all=capability_match_all,
-            filter_strategy=filter_strategy,
             **kwargs,
         )
         

@@ -32,6 +32,8 @@ from enterprise_ai.logger import get_logger
 # Configure logger
 logger = get_logger("agent_reasoning_test")
 
+TIMEOUT = 1200  # 20 minutes for slower models
+
 async def test_reasoning_frameworks():
     """Test different agent reasoning frameworks."""
     print_title("TESTING AGENT REASONING FRAMEWORKS")
@@ -43,28 +45,28 @@ async def test_reasoning_frameworks():
         agent_type="llm",
         name="Base Reasoning Agent",
         reasoning_framework="base",
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}
+        llm_provider_kwargs={"timeout": TIMEOUT, "model_name": "llama3.2"}
     )
     
     cot_agent = create_agent(
         agent_type="llm",
         name="Chain-of-Thought Agent",
         reasoning_framework="cot",
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}
+        llm_provider_kwargs={"timeout": TIMEOUT, "model_name": "llama3.2"}
     )
     
     react_agent = create_agent(
         agent_type="llm",
         name="ReAct Agent",
         reasoning_framework="react",
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}
+        llm_provider_kwargs={"timeout": TIMEOUT, "model_name": "llama3.2"}
     )
     
     swe_agent = create_agent(
         agent_type="llm",
         name="Software Engineer Agent",
         reasoning_framework="swe",
-        llm_provider_kwargs={"timeout": 300.0, "model_name": "llama3.2"}
+        llm_provider_kwargs={"timeout": TIMEOUT, "model_name": "llama3.2"}
     )
     
     print_success(f"Created agents with different reasoning frameworks")
