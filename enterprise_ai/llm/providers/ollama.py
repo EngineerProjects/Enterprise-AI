@@ -22,6 +22,7 @@ from enterprise_ai.constants import (
 )
 from enterprise_ai.exceptions import APIError, ModelNotFoundError
 from enterprise_ai.llm.base import LLMProvider
+from enterprise_ai.llm.providers.registry import register_provider
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message, ModelInfo
 from enterprise_ai.types import MessageProtocol
@@ -29,6 +30,7 @@ from enterprise_ai.types import MessageProtocol
 logger = get_logger("llm.providers.ollama")
 
 
+@register_provider("ollama")
 class OllamaProvider(LLMProvider):
     """
     Ollama LLM provider.

@@ -351,8 +351,17 @@ class BaseReasoning(ReasoningFramework):
         Returns:
             Response message
         """
-        # Extract LLM provider
-        llm_provider = kwargs.get("llm_provider")
+        # Extract LLM provider - first check if agent has one attached directly
+        llm_provider = None
+        
+        # First try to get it from the agent directly
+        if hasattr(agent, "_llm_provider"):
+            llm_provider = getattr(agent, "_llm_provider")
+        
+        # If not found on agent, try kwargs (but remove it to avoid serialization issues)
+        if not llm_provider and "llm_provider" in kwargs:
+            llm_provider = kwargs.pop("llm_provider")
+            
         if not llm_provider:
             logger.error(f"No LLM provider available for agent {agent.id}")
             return cast(
@@ -364,7 +373,21 @@ class BaseReasoning(ReasoningFramework):
 
         # Simply pass messages to LLM provider
         try:
-            return cast(MessageProtocol, llm_provider.complete(messages, **kwargs))
+            logger.info(f"Using LLM provider {type(llm_provider).__name__} with model {llm_provider.model_name}")
+            
+            # Don't pass all kwargs to the LLM provider, as they may include non-serializable objects
+            # Only pass relevant parameters that the LLM provider might need
+            llm_kwargs = {
+                "temperature": kwargs.get("temperature", None),
+                "max_tokens": kwargs.get("max_tokens", None),
+                "top_p": kwargs.get("top_p", None),
+                "timeout": kwargs.get("timeout", 300.0),  # Use 300s default timeout
+            }
+            
+            # Remove None values to use provider defaults
+            llm_kwargs = {k: v for k, v in llm_kwargs.items() if v is not None}
+            
+            return cast(MessageProtocol, llm_provider.complete(messages, **llm_kwargs))
         except Exception as e:
             logger.error(f"Error in base reasoning for agent {agent.id}: {e}")
             return cast(
@@ -385,8 +408,17 @@ class BaseReasoning(ReasoningFramework):
         Returns:
             Updated task status
         """
-        # Extract LLM provider
-        llm_provider = kwargs.get("llm_provider")
+        # Extract LLM provider - first check if agent has one attached directly
+        llm_provider = None
+        
+        # First try to get it from the agent directly
+        if hasattr(agent, "_llm_provider"):
+            llm_provider = getattr(agent, "_llm_provider")
+        
+        # If not found on agent, try kwargs (but remove it to avoid serialization issues)
+        if not llm_provider and "llm_provider" in kwargs:
+            llm_provider = kwargs.pop("llm_provider")
+            
         if not llm_provider:
             logger.error(f"No LLM provider available for agent {agent.id}")
             task.status = TaskStatus.FAILED
@@ -405,7 +437,19 @@ class BaseReasoning(ReasoningFramework):
 
         # Process with LLM
         try:
-            response = llm_provider.complete([cast(MessageProtocol, msg) for msg in messages])
+            # Don't pass all kwargs to the LLM provider, as they may include non-serializable objects
+            # Only pass relevant parameters that the LLM provider might need
+            llm_kwargs = {
+                "temperature": kwargs.get("temperature", None),
+                "max_tokens": kwargs.get("max_tokens", None),
+                "top_p": kwargs.get("top_p", None),
+                "timeout": kwargs.get("timeout", 300.0),  # Use 300s default timeout
+            }
+            
+            # Remove None values to use provider defaults
+            llm_kwargs = {k: v for k, v in llm_kwargs.items() if v is not None}
+            
+            response = llm_provider.complete([cast(MessageProtocol, msg) for msg in messages], **llm_kwargs)
 
             # Store response in task metadata
             if not task.metadata:

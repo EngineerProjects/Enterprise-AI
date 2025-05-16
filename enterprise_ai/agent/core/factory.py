@@ -15,7 +15,7 @@ from enterprise_ai.agent.core.types import AgentProtocol, AgentRole
 from enterprise_ai.agent.architecture.tools_manager import AgentToolsManager
 from enterprise_ai.agent.tools.tooling import AgentToolManager
 from enterprise_ai.tool.core.base import ToolCapability
-from enterprise_ai.config import get_config, load_config_file
+from enterprise_ai.config import get_config, load_config
 from enterprise_ai.logger import get_logger
 from enterprise_ai.mcp.client import ToolFilterStrategy
 
@@ -79,7 +79,7 @@ def create_agent(
     external_config = {}
     if config_path:
         try:
-            external_config = load_config_file(config_path)
+            external_config = load_config(config_path)
             logger.info(f"Loaded agent configuration from {config_path}")
         except Exception as e:
             logger.warning(f"Failed to load configuration from {config_path}: {e}")
@@ -745,7 +745,7 @@ def create_agents_from_config(config_path: str) -> Dict[str, AgentProtocol]:
         ValueError: If configuration is invalid
     """
     try:
-        config = load_config_file(config_path)
+        config = load_config(config_path)
         if not isinstance(config, dict) or "agents" not in config:
             raise ValueError("Invalid configuration: must contain 'agents' section")
             

@@ -201,7 +201,10 @@ def find_image_in_directory(extensions=['.png', '.jpg', '.jpeg', '.gif'],
         Path to the first image found, or None if no images are found
     """
     # Use specified images if provided
-    notebooks_images_dir = os.path.join('notebooks', 'images')
+    notebook_dir = os.path.dirname(os.path.abspath(__file__))
+    notebooks_images_dir = os.path.join(notebook_dir, 'images')
+
+    print_info(f"Looking for images in: {notebooks_images_dir}")
 
     # List of default images to try
     default_images = [
@@ -376,13 +379,24 @@ class Timer:
         duration = self.end_time - self.start_time
         print(f"{self.description} completed in {duration:.2f} seconds")
 
+    def start(self):
+        """Start the timer."""
+        self.start_time = time.time()
+        return self
+
+    def stop(self):
+        """Stop the timer and print duration."""
+        self.end_time = time.time()
+        duration = self.end_time - self.start_time
+        print(f"{self.description} completed in {duration:.2f} seconds")
+
     @property
     def duration(self):
         if self.start_time is None:
             return 0
         end = self.end_time if self.end_time is not None else time.time()
         return end - self.start_time
-
+    
 # Async timer utility
 class AsyncTimer:
     """Async timer for measuring async operations."""
@@ -401,13 +415,24 @@ class AsyncTimer:
         duration = self.end_time - self.start_time
         print(f"{self.description} completed in {duration:.2f} seconds")
 
+    def start(self):
+        """Start the timer."""
+        self.start_time = time.time()
+        return self
+
+    def stop(self):
+        """Stop the timer and print duration."""
+        self.end_time = time.time()
+        duration = self.end_time - self.start_time
+        print(f"{self.description} completed in {duration:.2f} seconds")
+
     @property
     def duration(self):
         if self.start_time is None:
             return 0
         end = self.end_time if self.end_time is not None else time.time()
         return end - self.start_time
-
+    
 # Run async function in sync context
 def run_async(coro):
     """Run an async function in a synchronous context."""

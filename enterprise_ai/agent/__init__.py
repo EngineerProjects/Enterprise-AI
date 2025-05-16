@@ -134,6 +134,12 @@ from enterprise_ai.agent.architecture import (
     retry_sync,
 )
 
+# Import patches
+try:
+    from enterprise_ai.agent.patches import llm_agent_fix
+except ImportError:
+    pass
+
 __all__ = [
     # Core types
     "AgentProtocol",

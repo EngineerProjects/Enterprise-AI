@@ -80,7 +80,15 @@ def safe_serialize(obj: Any) -> Dict[str, Any]:
     if hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
         return cast(Serializable, obj).to_dict()
     elif hasattr(obj, '__dict__'):
-        return dict(obj.__dict__)
+        # Filter out unserializable types and use string representations
+        result = {}
+        for key, value in obj.__dict__.items():
+            if isinstance(value, (dict, list, str, int, float, bool, type(None))):
+                result[key] = value
+            else:
+                # Use string representation for complex objects
+                result[key] = f"{type(value).__name__}({str(value)})"
+        return result
     elif isinstance(obj, (dict, list, str, int, float, bool, type(None))):
         return obj if isinstance(obj, dict) else {"value": obj}
     else:
@@ -228,3 +236,42 @@ def timer(name: Optional[str] = None) -> Callable:
         return wrapper
         
     return decorator
+
+
+class TimerContext:
+    """Context manager for timing code blocks."""
+    
+    def __init__(self, name: str):
+        """Initialize the timer context.
+        
+        Args:
+            name: Name for this timer
+        """
+        self.name = name
+        self.start_time = None
+        self.end_time = None
+        
+    def __enter__(self):
+        """Start the timer."""
+        self.start_time = datetime.now()
+        logger.debug(f"Starting {self.name}")
+        return self
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Stop the timer and log the duration."""
+        self.end_time = datetime.now()
+        elapsed = (self.end_time - self.start_time).total_seconds() * 1000
+        logger.debug(f"Completed {self.name} in {elapsed:.2f}ms")
+        
+    @property
+    def duration(self) -> float:
+        """Get the elapsed duration in seconds.
+        
+        Returns:
+            Duration in seconds
+        """
+        if not self.start_time:
+            return 0.0
+            
+        end = self.end_time or datetime.now()
+        return (end - self.start_time).total_seconds()

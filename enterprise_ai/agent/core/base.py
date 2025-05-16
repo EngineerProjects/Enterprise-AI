@@ -244,11 +244,10 @@ class BaseAgent:
 
     def __del__(self) -> None:
         """Clean up resources when object is destroyed."""
-        try:
-            # Try using existing event loop
-            run_async(self.terminate())
-        except Exception as e:
-            logger.warning(f"Error during agent cleanup: {e}")
+        # Don't try to await coroutines in __del__, it's not reliable
+        # Instead, just log that the agent is being destroyed
+        logger.debug(f"Agent {self.id} is being destroyed")
+        # The proper way to clean up is to explicitly call terminate() before the agent is no longer needed
 
 
 class LLMAgent(BaseAgent):
@@ -308,17 +307,16 @@ class LLMAgent(BaseAgent):
         if use_tools:
             self._tools = AgentToolsManager(self)
             
-            # Enable MCP if requested
-            if enable_mcp:
-                async def init_mcp():
-                    await self._tools.enable_mcp(
-                        tool_categories=tool_categories,
-                        tool_names=tool_names
-                    )
-                
-                run_async(init_mcp())
+            # Store MCP config for later initialization rather than trying to initialize now
+            # This avoids the coroutine handling issue with run_async
+            self._mcp_config = {
+                "enable": enable_mcp,
+                "categories": tool_categories,
+                "names": tool_names
+            }
         else:
             self._tools = None
+            self._mcp_config = None
         
         # Create reasoning manager with specified framework
         self._reasoning = ReasoningManager(
@@ -327,6 +325,18 @@ class LLMAgent(BaseAgent):
         )
         
         logger.info(f"Initialized LLM agent {self.id} with framework {reasoning_framework}")
+        
+    async def initialize_mcp(self) -> bool:
+        """Initialize MCP when it's actually needed."""
+        if self._tools and hasattr(self, "_mcp_config") and self._mcp_config and self._mcp_config["enable"]:
+            await self._tools.enable_mcp(
+                tool_categories=self._mcp_config["categories"],
+                tool_names=self._mcp_config["names"]
+            )
+            # Clear the config to avoid re-initialization
+            self._mcp_config = None
+            return True
+        return False
 
     async def process_message(
         self, message: Union[str, MessageProtocol], **kwargs: Any
@@ -346,6 +356,10 @@ class LLMAgent(BaseAgent):
         else:
             input_message = message
         
+        # Initialize MCP if needed before processing
+        if hasattr(self, "_tools") and self._tools and hasattr(self, "_mcp_config") and self._mcp_config and self._mcp_config["enable"]:
+            await self.initialize_mcp()
+        
         # Record message in conversation history
         conversation_id = kwargs.get("conversation_id", "default")
         self._conversation.add_message(input_message, conversation_id=conversation_id)
@@ -353,9 +367,11 @@ class LLMAgent(BaseAgent):
         # Get full conversation history
         messages = self._conversation.get_messages(conversation_id=conversation_id)
         
-        # Set LLM provider if not specified
-        if "llm_provider" not in kwargs and self._llm_provider:
-            kwargs["llm_provider"] = self._llm_provider
+        # Ensure timeout is set to minimum required timeout
+        if "timeout" not in kwargs and hasattr(self, "_llm_provider") and self._llm_provider:
+            # Default to 300 seconds or provider's timeout if it's higher
+            provider_timeout = getattr(self._llm_provider, "_timeout", 60.0)
+            kwargs["timeout"] = max(300.0, provider_timeout)
         
         # Process using execution manager
         response = await self._execution.process_message(messages, **kwargs)
@@ -377,14 +393,20 @@ class LLMAgent(BaseAgent):
         Returns:
             Response message
         """
+        # Initialize MCP if needed before processing
+        if hasattr(self, "_tools") and self._tools and hasattr(self, "_mcp_config") and self._mcp_config and self._mcp_config["enable"]:
+            await self.initialize_mcp()
+        
         # Record messages in conversation history
         conversation_id = kwargs.get("conversation_id", "default")
         for message in messages:
             self._conversation.add_message(message, conversation_id=conversation_id)
         
-        # Set LLM provider if not specified
-        if "llm_provider" not in kwargs and self._llm_provider:
-            kwargs["llm_provider"] = self._llm_provider
+        # Ensure timeout is set to minimum required timeout
+        if "timeout" not in kwargs and hasattr(self, "_llm_provider") and self._llm_provider:
+            # Default to 300 seconds or provider's timeout if it's higher
+            provider_timeout = getattr(self._llm_provider, "_timeout", 60.0)
+            kwargs["timeout"] = max(300.0, provider_timeout)
         
         # Process using execution manager
         response = await self._execution.process_message(messages, **kwargs)
@@ -416,6 +438,10 @@ class LLMAgent(BaseAgent):
         Returns:
             Task status
         """
+        # Initialize MCP if needed before processing
+        if hasattr(self, "_tools") and self._tools and hasattr(self, "_mcp_config") and self._mcp_config and self._mcp_config["enable"]:
+            await self.initialize_mcp()
+            
         # Get current task from lifecycle manager
         task = None
         if hasattr(self._lifecycle, "current_task"):
@@ -425,8 +451,12 @@ class LLMAgent(BaseAgent):
             logger.warning(f"No task assigned to agent {self.id}")
             return None
         
-        # Set LLM provider
-        kwargs = {"llm_provider": self._llm_provider} if self._llm_provider else {}
+        # Ensure timeout is properly set
+        kwargs = {}
+        if hasattr(self, "_llm_provider") and self._llm_provider:
+            # Default to 300 seconds or provider's timeout if it's higher
+            provider_timeout = getattr(self._llm_provider, "_timeout", 60.0)
+            kwargs["timeout"] = max(300.0, provider_timeout)
         
         # Process using execution manager
         result = await self._execution.process_task(task, **kwargs)
@@ -493,6 +523,10 @@ class LLMAgent(BaseAgent):
                 "Tools not enabled for this agent",
                 error_code=AgentErrorCode.INVALID_CONFIGURATION
             )
+        
+        # Check if we need to initialize MCP
+        if hasattr(self, "_mcp_config") and self._mcp_config and self._mcp_config["enable"]:
+            await self.initialize_mcp()
         
         return await self._tools.execute_tool(tool_name, **kwargs)
     

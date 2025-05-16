@@ -262,8 +262,9 @@ class ReasoningManager:
             
             # Add any required context to kwargs
             kwargs["reasoning_mode"] = self.current_mode
-            if "llm_provider" not in kwargs and hasattr(self.agent, "_llm_provider"):
-                kwargs["llm_provider"] = getattr(self.agent, "_llm_provider")
+            
+            # Note: We don't add llm_provider to kwargs anymore - it will be retrieved
+            # directly from the agent in the reasoning framework to prevent serialization issues
             
             # Process input
             response = await self._process_with_framework(framework, messages, **kwargs)
@@ -379,8 +380,9 @@ class ReasoningManager:
             
             # Add any required context to kwargs
             kwargs["reasoning_mode"] = self.current_mode
-            if "llm_provider" not in kwargs and hasattr(self.agent, "_llm_provider"):
-                kwargs["llm_provider"] = getattr(self.agent, "_llm_provider")
+            
+            # Note: We don't add llm_provider to kwargs anymore - it will be retrieved
+            # directly from the agent in the reasoning framework to prevent serialization issues
             
             # Process task
             result = await self._process_task_with_framework(framework, task, **kwargs)

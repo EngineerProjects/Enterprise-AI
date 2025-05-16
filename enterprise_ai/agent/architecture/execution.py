@@ -12,7 +12,7 @@ from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 
 from enterprise_ai.agent.architecture.errors import AgentError, AgentErrorCode, ErrorManager
-from enterprise_ai.agent.architecture.utils import timer, ensure_event_loop
+from enterprise_ai.agent.architecture.utils import timer, TimerContext, ensure_event_loop
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message
 from enterprise_ai.types import MessageProtocol
@@ -257,7 +257,7 @@ class ExecutionManager:
                 )
             
             # Process message with reasoning framework
-            with timer("message_processing"):
+            with TimerContext("message_processing"):
                 if kwargs.get("llm_provider") is None and hasattr(self.agent, "_llm_provider"):
                     kwargs["llm_provider"] = getattr(self.agent, "_llm_provider")
                 
@@ -340,7 +340,7 @@ class ExecutionManager:
                 )
             
             # Process task with reasoning framework
-            with timer("task_processing"):
+            with TimerContext("task_processing"):
                 if kwargs.get("llm_provider") is None and hasattr(self.agent, "_llm_provider"):
                     kwargs["llm_provider"] = getattr(self.agent, "_llm_provider")
                 

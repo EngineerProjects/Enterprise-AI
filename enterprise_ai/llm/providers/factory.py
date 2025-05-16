@@ -52,8 +52,14 @@ def create_provider(
 
     # Create and return provider instance
     try:
+        # Special case for Ollama - we need to ensure model_name is provided
+        if provider_name.lower() == "ollama" and provider_cls.__name__ == "OllamaProvider":
+            provider_model = model_name or merged_config.get("model_name") or get_config("llm.ollama.model", "smollm2")
+            merged_config["model_name"] = provider_model
+            logger.debug(f"Creating Ollama provider with model: {provider_model}")
+            
         provider = provider_cls(**merged_config)
-        logger.debug(f"Created provider: {provider_name}")
+        logger.debug(f"Created provider: {provider_name} with model: {provider.model_name}")
         return provider
     except Exception as e:
         logger.error(f"Failed to create provider {provider_name}: {e}")
