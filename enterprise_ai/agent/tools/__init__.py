@@ -27,7 +27,6 @@ __all__ = [
     # Tool management
     "AgentToolManager",
     "ToolUsageMetrics",
-    
     # Tool integration utilities
     "parse_message_for_tool_calls",
     "format_tool_response_message",
@@ -36,7 +35,7 @@ __all__ = [
     "get_tool_error_handling_prompt",
     "get_tool_capabilities_description",
     "execute_tool_with_retry",
-    "ToolIntegrationError", 
+    "ToolIntegrationError",
     "FunctionCallingFormatter",
     "merge_tool_schemas",
 ]

@@ -26,7 +26,9 @@ logger = get_logger("agent.tool_integration")
 class ToolIntegrationError(Exception):
     """Error raised during tool integration."""
 
-    def __init__(self, message: str, error_code: Optional[str] = None, tool_name: Optional[str] = None):
+    def __init__(
+        self, message: str, error_code: Optional[str] = None, tool_name: Optional[str] = None
+    ):
         self.message = message
         self.error_code = error_code
         self.tool_name = tool_name
@@ -67,12 +69,14 @@ class FunctionCallingFormatter:
                 except json.JSONDecodeError:
                     params = {}
 
-                tool_calls.append({
-                    "name": name, 
-                    "parameters": params,
-                    "type": "function_call",
-                    "id": function_call.get("id", str(time.time()))
-                })
+                tool_calls.append(
+                    {
+                        "name": name,
+                        "parameters": params,
+                        "type": "function_call",
+                        "id": function_call.get("id", str(time.time())),
+                    }
+                )
 
         # Check for tool_calls in the message (newer OpenAI format)
         elif "tool_calls" in message:
@@ -88,12 +92,14 @@ class FunctionCallingFormatter:
                     except json.JSONDecodeError:
                         params = {}
 
-                    tool_calls.append({
-                        "name": name, 
-                        "parameters": params, 
-                        "type": "tool_call",
-                        "id": tool_call.get("id", str(time.time()))
-                    })
+                    tool_calls.append(
+                        {
+                            "name": name,
+                            "parameters": params,
+                            "type": "tool_call",
+                            "id": tool_call.get("id", str(time.time())),
+                        }
+                    )
 
         # Check for metadata with tool_calls (Anthropic format)
         elif "metadata" in message and "tool_calls" in message["metadata"]:
@@ -101,17 +107,19 @@ class FunctionCallingFormatter:
                 name = tool_call.get("name", "")
                 params = tool_call.get("parameters", {})
 
-                tool_calls.append({
-                    "name": name, 
-                    "parameters": params, 
-                    "type": "anthropic_tool",
-                    "id": tool_call.get("id", str(time.time()))
-                })
+                tool_calls.append(
+                    {
+                        "name": name,
+                        "parameters": params,
+                        "type": "anthropic_tool",
+                        "id": tool_call.get("id", str(time.time())),
+                    }
+                )
 
         # Check content for specific format (fallback for text-based tools)
         elif "content" in message and message["content"]:
             content = message["content"]
-            
+
             # Look for tool request format like:
             # <tool_request>
             # "tool": "tool_name",
@@ -126,12 +134,14 @@ class FunctionCallingFormatter:
                     name = request_data.get("tool", "")
                     params = request_data.get("parameters", {})
 
-                    tool_calls.append({
-                        "name": name, 
-                        "parameters": params,
-                        "type": "text_tool",
-                        "id": request_data.get("id", str(time.time()))
-                    })
+                    tool_calls.append(
+                        {
+                            "name": name,
+                            "parameters": params,
+                            "type": "text_tool",
+                            "id": request_data.get("id", str(time.time())),
+                        }
+                    )
                 except json.JSONDecodeError:
                     # If not valid JSON, try to extract key-value pairs
                     name_match = re.search(r'"tool":\s*"([^"]+)"', request_text)
@@ -146,7 +156,10 @@ class FunctionCallingFormatter:
                                 params = json.loads(params_match.group(1))
                             except json.JSONDecodeError:
                                 # If can't parse params as JSON, extract key-value pairs
-                                param_matches = re.findall(r'"([^"]+)":\s*("[^"]*"|[\d.]+|\{.*?\}|\[.*?\]|true|false)', params_match.group(1))
+                                param_matches = re.findall(
+                                    r'"([^"]+)":\s*("[^"]*"|[\d.]+|\{.*?\}|\[.*?\]|true|false)',
+                                    params_match.group(1),
+                                )
                                 for param_name, param_value in param_matches:
                                     # Convert value to appropriate type
                                     if param_value.startswith('"') and param_value.endswith('"'):
@@ -165,12 +178,14 @@ class FunctionCallingFormatter:
                                         # Default to string
                                         params[param_name] = param_value
 
-                        tool_calls.append({
-                            "name": name, 
-                            "parameters": params,
-                            "type": "text_tool",
-                            "id": str(time.time())
-                        })
+                        tool_calls.append(
+                            {
+                                "name": name,
+                                "parameters": params,
+                                "type": "text_tool",
+                                "id": str(time.time()),
+                            }
+                        )
 
             # Also check for ReAct format: Action: tool_name(param1=value1, param2=value2)
             action_matches = re.findall(r"Action:\s*(\w+)\s*\(([^)]*)\)", content)
@@ -196,35 +211,41 @@ class FunctionCallingFormatter:
                             value = value[1:-1]
                         params[key] = value
 
-                tool_calls.append({
-                    "name": tool_name, 
-                    "parameters": params,
-                    "type": "react_action",
-                    "id": str(time.time())
-                })
-                
+                tool_calls.append(
+                    {
+                        "name": tool_name,
+                        "parameters": params,
+                        "type": "react_action",
+                        "id": str(time.time()),
+                    }
+                )
+
         # Look for JSON-formatted tool calls inline in the content
         if "content" in message and message["content"]:
             content = message["content"]
-            
+
             # Match JSON objects that have a "tool" field
-            json_tool_matches = re.findall(r'```(?:json)?\s*({[\s\S]*?})```', content)
+            json_tool_matches = re.findall(r"```(?:json)?\s*({[\s\S]*?})```", content)
             for json_str in json_tool_matches:
                 try:
                     json_data = json.loads(json_str)
                     if isinstance(json_data, dict) and "tool" in json_data:
                         name = json_data.get("tool", "")
                         params = json_data.get("parameters", {})
-                        
+
                         # Only add if not already captured above
-                        if name and not any(call["name"] == name and call["parameters"] == params 
-                                           for call in tool_calls):
-                            tool_calls.append({
-                                "name": name, 
-                                "parameters": params,
-                                "type": "json_tool",
-                                "id": json_data.get("id", str(time.time()))
-                            })
+                        if name and not any(
+                            call["name"] == name and call["parameters"] == params
+                            for call in tool_calls
+                        ):
+                            tool_calls.append(
+                                {
+                                    "name": name,
+                                    "parameters": params,
+                                    "type": "json_tool",
+                                    "id": json_data.get("id", str(time.time())),
+                                }
+                            )
                 except json.JSONDecodeError:
                     pass
 
@@ -232,10 +253,10 @@ class FunctionCallingFormatter:
 
     @staticmethod
     def format_tool_response(
-        tool_name: str, 
-        tool_result: ToolResult, 
+        tool_name: str,
+        tool_result: ToolResult,
         tool_call_id: Optional[str] = None,
-        include_metadata: bool = False
+        include_metadata: bool = False,
     ) -> Dict[str, Any]:
         """
         Format a tool execution result for LLM function calling.
@@ -258,58 +279,54 @@ class FunctionCallingFormatter:
             status = "success"
 
         # Create the base response
-        result = {
-            "tool": tool_name, 
-            "status": status, 
-            "output": content
-        }
+        result = {"tool": tool_name, "status": status, "output": content}
 
         # Add tool_call_id if provided
         if tool_call_id:
             result["tool_call_id"] = tool_call_id
-            
+
         # Add execution time if available
         if tool_result.metadata and tool_result.metadata.execution_time_ms is not None:
             result["execution_time_ms"] = tool_result.metadata.execution_time_ms
-            
+
         # Add metadata if requested
         if include_metadata and tool_result.metadata:
             meta_dict = {}
-            
+
             # Add tool name
             if tool_result.metadata.tool_name:
                 meta_dict["tool_name"] = tool_result.metadata.tool_name
-                
+
             # Add tool version
             if tool_result.metadata.tool_version:
                 meta_dict["tool_version"] = tool_result.metadata.tool_version
-                
+
             # Add execution ID
             if tool_result.metadata.execution_id:
                 meta_dict["execution_id"] = tool_result.metadata.execution_id
-                
+
             # Add timestamps
             if tool_result.metadata.start_time:
                 meta_dict["start_time"] = tool_result.metadata.start_time.isoformat()
             if tool_result.metadata.end_time:
                 meta_dict["end_time"] = tool_result.metadata.end_time.isoformat()
-                
+
             # Add cache info
             if tool_result.metadata.cache_hit:
                 meta_dict["cache_hit"] = True
-                
+
             # Add to result if we have metadata
             if meta_dict:
                 result["metadata"] = meta_dict
-                
+
         # Add error details for failures
         if tool_result.error and isinstance(tool_result, ToolFailure):
             if tool_result.error_code:
                 result["error_code"] = tool_result.error_code
-                
+
             if hasattr(tool_result, "retryable") and tool_result.retryable:
                 result["retryable"] = True
-                
+
             if hasattr(tool_result, "suggestions") and tool_result.suggestions:
                 result["suggestions"] = tool_result.suggestions
 
@@ -317,10 +334,10 @@ class FunctionCallingFormatter:
 
     @staticmethod
     def format_tool_response_as_message(
-        tool_name: str, 
-        tool_result: ToolResult, 
+        tool_name: str,
+        tool_result: ToolResult,
         tool_call_id: Optional[str] = None,
-        response_format: str = "json"
+        response_format: str = "json",
     ) -> str:
         """
         Format a tool execution result as a text message.
@@ -337,7 +354,7 @@ class FunctionCallingFormatter:
         response = FunctionCallingFormatter.format_tool_response(
             tool_name, tool_result, tool_call_id
         )
-        
+
         if response_format == "json":
             return f"""<tool_result>
 {json.dumps(response, indent=2)}
@@ -358,10 +375,10 @@ class FunctionCallingFormatter:
                     return f"Observation: {tool_result.output}"
         else:  # markdown format
             result_md = f"### Tool Result: {tool_name}\n\n"
-            
+
             if tool_result.error:
                 result_md += f"**Error:** {tool_result.error}\n\n"
-                
+
                 # Add suggestions if available
                 if isinstance(tool_result, ToolFailure) and tool_result.suggestions:
                     result_md += "**Suggestions:**\n"
@@ -379,11 +396,11 @@ class FunctionCallingFormatter:
                         result_md += f"{tool_result.output}\n"
                 else:
                     result_md += f"{tool_result.output}\n"
-                    
+
             # Add metadata if available
             if tool_result.metadata and tool_result.metadata.execution_time_ms is not None:
                 result_md += f"\n*Execution time: {tool_result.metadata.execution_time_ms:.2f}ms*"
-                
+
             return result_md
 
 
@@ -424,10 +441,10 @@ def parse_message_for_tool_calls(message: MessageProtocol) -> List[Dict[str, Any
 
 
 def format_tool_response_message(
-    tool_name: str, 
-    tool_result: ToolResult, 
+    tool_name: str,
+    tool_result: ToolResult,
     tool_call_id: Optional[str] = None,
-    response_format: str = "json"
+    response_format: str = "json",
 ) -> MessageProtocol:
     """
     Format a tool execution result as a user message.
@@ -444,22 +461,18 @@ def format_tool_response_message(
     response_text = FunctionCallingFormatter.format_tool_response_as_message(
         tool_name, tool_result, tool_call_id, response_format
     )
-    
+
     # Create metadata for the message
-    metadata = {
-        "tool_result": True,
-        "tool_name": tool_name,
-        "success": tool_result.error is None
-    }
-    
+    metadata = {"tool_result": True, "tool_name": tool_name, "success": tool_result.error is None}
+
     # Add tool call ID if provided
     if tool_call_id:
         metadata["tool_call_id"] = tool_call_id
-        
+
     # Add execution time if available
     if tool_result.metadata and tool_result.metadata.execution_time_ms is not None:
         metadata["execution_time_ms"] = tool_result.metadata.execution_time_ms
-        
+
     # Add error info if applicable
     if tool_result.error:
         metadata["error"] = tool_result.error
@@ -472,9 +485,10 @@ def format_tool_response_message(
         return cast(MessageProtocol, Message.user_message(response_text, metadata=metadata))
     elif tool_call_id:
         # Use tool message if tool_call_id is provided
-        return cast(MessageProtocol, Message.tool_message(
-            response_text, tool_name, tool_call_id, metadata=metadata
-        ))
+        return cast(
+            MessageProtocol,
+            Message.tool_message(response_text, tool_name, tool_call_id, metadata=metadata),
+        )
     else:
         # Default to user message
         return cast(MessageProtocol, Message.user_message(response_text, metadata=metadata))
@@ -538,7 +552,7 @@ When I respond with tool results, they will be in this format:
 def get_tool_error_handling_prompt() -> str:
     """
     Get a prompt for handling tool errors.
-    
+
     Returns:
         Formatted error handling prompt
     """
@@ -548,7 +562,7 @@ def get_tool_error_handling_prompt() -> str:
             return prompt
     except Exception as e:
         logger.warning(f"Error formatting tool error prompt: {e}")
-    
+
     # Fallback to a default prompt
     return """When a tool execution returns an error, follow these steps:
 
@@ -567,26 +581,24 @@ Common error types:
 
 
 def get_tool_capabilities_description(
-    capabilities: List[Union[str, ToolCapability]], 
-    detailed: bool = True
+    capabilities: List[Union[str, ToolCapability]], detailed: bool = True
 ) -> str:
     """
     Get a description of tool capabilities.
-    
+
     Args:
         capabilities: List of capabilities
         detailed: Whether to include detailed descriptions
-        
+
     Returns:
         Formatted capabilities description
     """
-    cap_names = [cap.value if isinstance(cap, ToolCapability) else str(cap) 
-                 for cap in capabilities]
-    
+    cap_names = [cap.value if isinstance(cap, ToolCapability) else str(cap) for cap in capabilities]
+
     if not detailed:
         # Simple list
         return ", ".join(cap_names)
-    
+
     # Detailed descriptions
     capability_descriptions = {
         "file_access": "Access to file system for reading and writing files",
@@ -604,30 +616,28 @@ def get_tool_capabilities_description(
         "search": "Ability to search for information",
         "utility": "Miscellaneous utility functions",
     }
-    
+
     descriptions = []
     for cap in cap_names:
         if cap in capability_descriptions:
             descriptions.append(f"- {cap}: {capability_descriptions[cap]}")
         else:
             descriptions.append(f"- {cap}")
-    
+
     return "\n".join(descriptions)
 
 
 def validate_tool_parameters(
-    tool_name: str, 
-    params: Dict[str, Any], 
-    schema: Dict[str, Any]
+    tool_name: str, params: Dict[str, Any], schema: Dict[str, Any]
 ) -> Tuple[bool, Optional[str]]:
     """
     Validate tool parameters against a schema.
-    
+
     Args:
         tool_name: Name of the tool
         params: Parameters to validate
         schema: JSON Schema for validation
-        
+
     Returns:
         Tuple of (is_valid, error_message)
     """
@@ -636,14 +646,14 @@ def validate_tool_parameters(
     for req in required:
         if req not in params:
             return False, f"Missing required parameter: {req}"
-            
+
     # Check parameter types
     properties = schema.get("properties", {})
     for name, value in params.items():
         if name in properties:
             prop = properties[name]
             prop_type = prop.get("type")
-            
+
             # Type validation
             if prop_type == "string" and not isinstance(value, str):
                 return False, f"Parameter '{name}' must be a string"
@@ -657,21 +667,24 @@ def validate_tool_parameters(
                 return False, f"Parameter '{name}' must be an array"
             elif prop_type == "object" and not isinstance(value, dict):
                 return False, f"Parameter '{name}' must be an object"
-                
+
             # Enum validation
             if "enum" in prop and value not in prop["enum"]:
-                return False, f"Parameter '{name}' must be one of: {', '.join(map(str, prop['enum']))}"
-                
+                return (
+                    False,
+                    f"Parameter '{name}' must be one of: {', '.join(map(str, prop['enum']))}",
+                )
+
     return True, None
 
 
 def merge_tool_schemas(schemas: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """
     Merge multiple tool schemas into a single dictionary.
-    
+
     Args:
         schemas: List of tool schemas
-        
+
     Returns:
         Dictionary mapping tool names to schema objects
     """
@@ -686,16 +699,16 @@ def merge_tool_schemas(schemas: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any
 
 
 async def execute_tool_with_retry(
-    agent: AgentProtocol, 
-    tool_name: str, 
+    agent: AgentProtocol,
+    tool_name: str,
     parameters: Dict[str, Any],
     max_retries: int = 2,
     backoff_base: float = 1.0,
-    timeout: Optional[float] = None
+    timeout: Optional[float] = None,
 ) -> ToolResult:
     """
     Execute a tool with retry logic.
-    
+
     Args:
         agent: Agent to execute the tool
         tool_name: Name of the tool to execute
@@ -703,25 +716,19 @@ async def execute_tool_with_retry(
         max_retries: Maximum number of retry attempts
         backoff_base: Base time for exponential backoff
         timeout: Optional timeout for tool execution
-        
+
     Returns:
         Tool execution result
     """
     if not hasattr(agent, "_tool_manager"):
-        return ToolFailure(
-            error="Agent does not have a tool manager",
-            error_code="NO_TOOL_MANAGER"
-        )
-        
+        return ToolFailure(error="Agent does not have a tool manager", error_code="NO_TOOL_MANAGER")
+
     tool_manager = getattr(agent, "_tool_manager")
-    
+
     # Validate tool exists
     if tool_name not in tool_manager.list_tools():
-        return ToolFailure(
-            error=f"Tool not found: {tool_name}",
-            error_code="TOOL_NOT_FOUND"
-        )
-    
+        return ToolFailure(error=f"Tool not found: {tool_name}", error_code="TOOL_NOT_FOUND")
+
     # Execute with retry logic
     try:
         result = await tool_manager.execute_tool(
@@ -729,12 +736,9 @@ async def execute_tool_with_retry(
             timeout=timeout,
             retry_count=max_retries,
             retry_delay=backoff_base,
-            **parameters
+            **parameters,
         )
         return result
     except Exception as e:
         logger.error(f"Error executing tool {tool_name}: {e}")
-        return ToolFailure(
-            error=f"Tool execution error: {str(e)}",
-            error_code="EXECUTION_ERROR"
-        )
+        return ToolFailure(error=f"Tool execution error: {str(e)}", error_code="EXECUTION_ERROR")

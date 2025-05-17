@@ -24,7 +24,9 @@ ENV_PREFIX = "ENTERPRISE_AI_"
 DEFAULT_TEMPERATURE = 0.7
 DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TOP_P = 1.0
-DEFAULT_TIMEOUT = float(os.environ.get("ENTERPRISE_AI_DEFAULT_TIMEOUT", "60.0"))  # Read from env or use default
+DEFAULT_TIMEOUT = float(
+    os.environ.get("ENTERPRISE_AI_DEFAULT_TIMEOUT", "60.0")
+)  # Read from env or use default
 DEFAULT_MAX_RETRIES = 3
 
 # Ollama API

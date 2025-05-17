@@ -41,11 +41,9 @@ __all__ = [
     "TaskStatus",
     "ToolCapabilityProtocol",
     "ToolInteractionType",
-    
     # Agent implementations
     "BaseAgent",
     "LLMAgent",
-    
     # Factory functions
     "create_agent",
     "AgentBuilder",

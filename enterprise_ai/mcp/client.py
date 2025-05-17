@@ -363,7 +363,7 @@ class MCPClient:
         # Skip cleanup if already explicitly closed
         if hasattr(self, "_explicitly_closed") and self._explicitly_closed:
             return
-            
+
         if hasattr(self, "_session") and self._session is not None:
             try:
                 # Try using existing event loop

@@ -34,13 +34,11 @@ __all__ = [
     "ReasoningFramework",
     "ToolBasedReasoning",
     "BaseReasoning",
-    
     # Framework registry functions
     "register_framework",
     "get_framework",
     "list_frameworks",
     "get_framework_descriptions",
-    
     # Framework implementations
     "ReActReasoning",
     "ChainOfThoughtReasoning",

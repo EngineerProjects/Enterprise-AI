@@ -200,23 +200,24 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
             return []
 
         tool_manager = getattr(agent, "_tool_manager")
-        
+
         # Get all tools first
         all_tools = []
         if hasattr(tool_manager, "get_tool_schemas"):
             import asyncio
+
             loop = asyncio.get_event_loop()
             all_tools = loop.run_until_complete(tool_manager.get_tool_schemas())
-        
+
         # If no capabilities to filter by, return all tools
         if not capabilities:
             return all_tools
-            
+
         # Filter tools by capabilities
         result = []
         for tool in all_tools:
             tool_caps = []
-            
+
             # Extract tool capabilities from tool info
             if hasattr(tool_manager, "get_tool_info"):
                 tool_name = tool.get("function", {}).get("name")
@@ -224,11 +225,11 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
                     tool_info = tool_manager.get_tool_info(tool_name)
                     if "capabilities" in tool_info:
                         tool_caps = tool_info["capabilities"]
-            
+
             # Skip tools without capabilities
             if not tool_caps:
                 continue
-                
+
             # Check if tool matches capability criteria
             if match_all:
                 if all(cap in tool_caps for cap in capabilities):
@@ -236,7 +237,7 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
             else:
                 if any(cap in tool_caps for cap in capabilities):
                     result.append(tool)
-                    
+
         return result
 
     def validate_tool_params(
@@ -256,64 +257,64 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
             return False, "Agent has no tool manager"
 
         tool_manager = getattr(agent, "_tool_manager")
-        
+
         # Get tool schema if available
         if hasattr(tool_manager, "get_tool"):
             tool = tool_manager.get_tool(tool_name)
             if tool and hasattr(tool, "parameters"):
                 return validate_tool_parameters(tool_name, params, tool.parameters)
-                
+
         return True, None  # Default to valid if we can't validate
 
     async def execute_tools_parallel(
-        self, 
-        agent: AgentProtocol, 
-        tool_calls: List[Dict[str, Any]], 
-        **kwargs: Any
+        self, agent: AgentProtocol, tool_calls: List[Dict[str, Any]], **kwargs: Any
     ) -> List[Tuple[str, ToolResult]]:
         """Execute multiple tools in parallel.
-        
+
         Args:
             agent: The agent using this reasoning framework
             tool_calls: List of tool call specifications
             **kwargs: Additional parameters
-            
+
         Returns:
             List of tuples containing (tool_name, result)
         """
         if not hasattr(agent, "_tool_manager"):
             # Return error results if no tool manager
-            return [(call["name"], ToolFailure(
-                error="Agent does not have a tool manager",
-                error_code="NO_TOOL_MANAGER"
-            )) for call in tool_calls]
-            
+            return [
+                (
+                    call["name"],
+                    ToolFailure(
+                        error="Agent does not have a tool manager", error_code="NO_TOOL_MANAGER"
+                    ),
+                )
+                for call in tool_calls
+            ]
+
         tool_manager = getattr(agent, "_tool_manager")
-        
+
         # Prepare executions for parallel processing
         executions = []
         tool_names = []
-        
+
         for call in tool_calls:
             tool_name = call.get("name", "")
             params = call.get("parameters", {})
-            
+
             if not tool_name:
                 continue
-            
+
             # Add to execution list
-            executions.append({
-                "tool_name": tool_name,
-                "parameters": params,
-                "timeout": kwargs.get("timeout")
-            })
+            executions.append(
+                {"tool_name": tool_name, "parameters": params, "timeout": kwargs.get("timeout")}
+            )
             tool_names.append(tool_name)
-            
+
         # Execute tools in parallel if possible
         if hasattr(tool_manager, "execute_tools_parallel"):
             results = await tool_manager.execute_tools_parallel(executions)
             return results
-            
+
         # Fallback: execute sequentially
         results = []
         for execution in executions:
@@ -322,7 +323,7 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
                 agent, tool_name, execution["parameters"], **kwargs
             )
             results.append((tool_name, result))
-            
+
         return results
 
     @property
@@ -353,15 +354,15 @@ class BaseReasoning(ReasoningFramework):
         """
         # Extract LLM provider - first check if agent has one attached directly
         llm_provider = None
-        
+
         # First try to get it from the agent directly
         if hasattr(agent, "_llm_provider"):
             llm_provider = getattr(agent, "_llm_provider")
-        
+
         # If not found on agent, try kwargs (but remove it to avoid serialization issues)
         if not llm_provider and "llm_provider" in kwargs:
             llm_provider = kwargs.pop("llm_provider")
-            
+
         if not llm_provider:
             logger.error(f"No LLM provider available for agent {agent.id}")
             return cast(
@@ -373,8 +374,10 @@ class BaseReasoning(ReasoningFramework):
 
         # Simply pass messages to LLM provider
         try:
-            logger.info(f"Using LLM provider {type(llm_provider).__name__} with model {llm_provider.model_name}")
-            
+            logger.info(
+                f"Using LLM provider {type(llm_provider).__name__} with model {llm_provider.model_name}"
+            )
+
             # Don't pass all kwargs to the LLM provider, as they may include non-serializable objects
             # Only pass relevant parameters that the LLM provider might need
             llm_kwargs = {
@@ -383,10 +386,10 @@ class BaseReasoning(ReasoningFramework):
                 "top_p": kwargs.get("top_p", None),
                 "timeout": kwargs.get("timeout", 300.0),  # Use 300s default timeout
             }
-            
+
             # Remove None values to use provider defaults
             llm_kwargs = {k: v for k, v in llm_kwargs.items() if v is not None}
-            
+
             return cast(MessageProtocol, llm_provider.complete(messages, **llm_kwargs))
         except Exception as e:
             logger.error(f"Error in base reasoning for agent {agent.id}: {e}")
@@ -410,15 +413,15 @@ class BaseReasoning(ReasoningFramework):
         """
         # Extract LLM provider - first check if agent has one attached directly
         llm_provider = None
-        
+
         # First try to get it from the agent directly
         if hasattr(agent, "_llm_provider"):
             llm_provider = getattr(agent, "_llm_provider")
-        
+
         # If not found on agent, try kwargs (but remove it to avoid serialization issues)
         if not llm_provider and "llm_provider" in kwargs:
             llm_provider = kwargs.pop("llm_provider")
-            
+
         if not llm_provider:
             logger.error(f"No LLM provider available for agent {agent.id}")
             task.status = TaskStatus.FAILED
@@ -445,11 +448,13 @@ class BaseReasoning(ReasoningFramework):
                 "top_p": kwargs.get("top_p", None),
                 "timeout": kwargs.get("timeout", 300.0),  # Use 300s default timeout
             }
-            
+
             # Remove None values to use provider defaults
             llm_kwargs = {k: v for k, v in llm_kwargs.items() if v is not None}
-            
-            response = llm_provider.complete([cast(MessageProtocol, msg) for msg in messages], **llm_kwargs)
+
+            response = llm_provider.complete(
+                [cast(MessageProtocol, msg) for msg in messages], **llm_kwargs
+            )
 
             # Store response in task metadata
             if not task.metadata:
@@ -488,8 +493,8 @@ When asked about previous conversations or information shared by the user previo
 
         # Combine prompts
         enhanced_prompt = f"{base_prompt}\n\n{memory_instructions}"
-        
-        # Use the base.prompt template 
+
+        # Use the base.prompt template
         formatted_prompt = format_prompt("system.base", additional_instructions=enhanced_prompt)
         if formatted_prompt:
             return formatted_prompt
@@ -529,7 +534,7 @@ When asked about previous conversations or information shared by the user previo
         return ToolFailure(
             error="Tool execution is not supported with the base reasoning framework.",
             error_code="UNSUPPORTED_OPERATION",
-            metadata=ToolResultMetadata(tool_name=tool_name)
+            metadata=ToolResultMetadata(tool_name=tool_name),
         )
 
     def supports_function_calling(self) -> bool:

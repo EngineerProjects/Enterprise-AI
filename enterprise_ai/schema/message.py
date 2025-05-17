@@ -82,7 +82,7 @@ class Message:
     def assistant_message(cls, content: str, **kwargs: Any) -> "Message":
         """Create an assistant message."""
         return cls(role="assistant", content=content, **kwargs)
-        
+
     @classmethod
     def tool_message(cls, content: str, name: str, tool_call_id: str, **kwargs: Any) -> "Message":
         """Create a tool message."""
@@ -91,10 +91,10 @@ class Message:
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Message":
         """Create a message from a dictionary.
-        
+
         Args:
             data: Dictionary with message data
-            
+
         Returns:
             New Message instance
         """
@@ -103,7 +103,7 @@ class Message:
         content = data.get("content")
         name = data.get("name")
         tool_call_id = data.get("tool_call_id")
-        
+
         # Extract and convert timestamp if present
         timestamp = None
         if "timestamp" in data and data["timestamp"]:
@@ -111,10 +111,10 @@ class Message:
                 timestamp = datetime.fromisoformat(data["timestamp"])
             except (ValueError, TypeError):
                 timestamp = datetime.now()
-        
+
         # Extract metadata
         metadata = data.get("metadata", {})
-        
+
         # Create and return message
         return cls(
             role=role,
@@ -122,9 +122,9 @@ class Message:
             name=name,
             tool_call_id=tool_call_id,
             metadata=metadata,
-            timestamp=timestamp
+            timestamp=timestamp,
         )
-        
+
     def __str__(self) -> str:
         """String representation for easier debugging."""
         role_display = f"[{self.role.upper()}]"

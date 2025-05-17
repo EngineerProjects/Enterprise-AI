@@ -177,7 +177,7 @@ class OllamaProvider(LLMProvider):
         """
         # Get request timeout - allow override via kwargs or use the instance default
         request_timeout = kwargs.pop("timeout", self._timeout)
-        
+
         # Also check for environment override at the point of request
         env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
         if env_timeout:
@@ -734,7 +734,7 @@ class OllamaProvider(LLMProvider):
         """
         # Get request timeout - allow override via kwargs or use the instance default
         request_timeout = kwargs.pop("timeout", self._timeout)
-        
+
         # Also check for environment override at the point of request
         env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
         if env_timeout:

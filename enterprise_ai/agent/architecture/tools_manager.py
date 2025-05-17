@@ -11,7 +11,12 @@ import time
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple, Type, TypeVar, Union, cast
 
-from enterprise_ai.agent.architecture.errors import AgentError, AgentErrorCode, ErrorManager, ToolError
+from enterprise_ai.agent.architecture.errors import (
+    AgentError,
+    AgentErrorCode,
+    ErrorManager,
+    ToolError,
+)
 from enterprise_ai.agent.architecture.errors import RetryOptions, retry_async
 from enterprise_ai.agent.architecture.utils import ensure_event_loop, run_async, timer
 from enterprise_ai.logger import get_logger
@@ -41,12 +46,12 @@ class ToolUsageMetrics:
     ) -> None:
         """Record a tool execution."""
         self.total_executions += 1
-        
+
         if success:
             self.successful_executions += 1
         else:
             self.failed_executions += 1
-            
+
             # Track error counts by type
             if error:
                 error_type = error.split(":", 1)[0] if ":" in error else error
@@ -56,7 +61,7 @@ class ToolUsageMetrics:
         if tool_name not in self.execution_times:
             self.execution_times[tool_name] = []
         self.execution_times[tool_name].append(execution_time)
-        
+
         # Update last execution time
         self.last_execution_time[tool_name] = datetime.now()
 
@@ -65,7 +70,7 @@ class ToolUsageMetrics:
         if tool_name:
             times = self.execution_times.get(tool_name, [])
             return sum(times) / len(times) if times else 0.0
-        
+
         all_times = [time for times in self.execution_times.values() for time in times]
         return sum(all_times) / len(all_times) if all_times else 0.0
 
@@ -73,17 +78,18 @@ class ToolUsageMetrics:
         """Get success rate for a tool or overall."""
         if self.total_executions == 0:
             return 0.0
-            
+
         if tool_name:
             tool_executions = len(self.execution_times.get(tool_name, []))
             if tool_executions == 0:
                 return 0.0
-            
+
             # Calculate from overall stats since we don't track per-tool success
-            tool_errors = sum(count for t, count in self.error_counts.items() 
-                           if t.startswith(f"{tool_name}:"))
+            tool_errors = sum(
+                count for t, count in self.error_counts.items() if t.startswith(f"{tool_name}:")
+            )
             return (tool_executions - tool_errors) / tool_executions
-            
+
         return self.successful_executions / self.total_executions
 
 
@@ -104,7 +110,7 @@ class AgentToolsManager:
         self._execution_lock: Dict[str, asyncio.Lock] = {}
         self._registry = get_registry()
         self._error_manager = ErrorManager(self.agent_id)
-        
+
         # MCP client for tool integration
         self._mcp_client: Optional[AgentMCPClient] = None
         self._mcp_initialized = False
@@ -120,7 +126,7 @@ class AgentToolsManager:
 
     def add_capability(self, capability: Union[str, ToolCapability]) -> None:
         """Add a capability to this tool manager.
-        
+
         Args:
             capability: The capability to add
         """
@@ -131,15 +137,15 @@ class AgentToolsManager:
 
     def remove_capability(self, capability: Union[str, ToolCapability]) -> bool:
         """Remove a capability from this tool manager.
-        
+
         Args:
             capability: The capability to remove
-            
+
         Returns:
             True if the capability was removed, False if not found
         """
         cap_value = capability.value if isinstance(capability, ToolCapability) else capability
-        
+
         if cap_value in self._capabilities:
             self._capabilities.remove(cap_value)
             return True
@@ -152,15 +158,15 @@ class AgentToolsManager:
             tool: The tool to add
         """
         self._tools[tool.name] = tool
-        
+
         # Add an execution lock for this tool
         self._execution_lock[tool.name] = asyncio.Lock()
-        
+
         # Extract tool capabilities
-        if hasattr(tool, 'capabilities'):
+        if hasattr(tool, "capabilities"):
             for capability in tool.capabilities:
                 self.add_capability(capability)
-                
+
         logger.debug(f"Added tool '{tool.name}' to agent {self.agent_id}")
 
     def remove_tool(self, tool_name: str) -> bool:
@@ -176,23 +182,23 @@ class AgentToolsManager:
             # Remove the tool
             tool = self._tools[tool_name]
             del self._tools[tool_name]
-            
+
             # Remove the execution lock
             if tool_name in self._execution_lock:
                 del self._execution_lock[tool_name]
-                
+
             # Remove tool capabilities from the manager if no other tool has them
-            if hasattr(tool, 'capabilities'):
+            if hasattr(tool, "capabilities"):
                 remaining_capabilities = set()
                 for t in self._tools.values():
-                    if hasattr(t, 'capabilities'):
+                    if hasattr(t, "capabilities"):
                         for cap in t.capabilities:
                             cap_value = cap.value if isinstance(cap, ToolCapability) else cap
                             remaining_capabilities.add(cap_value)
-                
+
                 # Update capabilities - only keep those used by other tools
                 self._capabilities = self._capabilities.intersection(remaining_capabilities)
-                
+
             logger.debug(f"Removed tool '{tool_name}' from agent {self.agent_id}")
             return True
         return False
@@ -231,23 +237,25 @@ class AgentToolsManager:
 
     def get_tools_by_capability(self, capability: Union[str, ToolCapability]) -> List[BaseTool]:
         """Get all tools with the specified capability.
-        
+
         Args:
             capability: Capability to filter by
-            
+
         Returns:
             List of tools with the specified capability
         """
         cap_value = capability.value if isinstance(capability, ToolCapability) else capability
-        
+
         tools = []
         for tool in self._tools.values():
-            if hasattr(tool, 'capabilities'):
-                tool_caps = {cap.value if isinstance(cap, ToolCapability) else cap 
-                            for cap in tool.capabilities}
+            if hasattr(tool, "capabilities"):
+                tool_caps = {
+                    cap.value if isinstance(cap, ToolCapability) else cap
+                    for cap in tool.capabilities
+                }
                 if cap_value in tool_caps:
                     tools.append(tool)
-        
+
         return tools
 
     def get_tool_descriptions(self) -> Dict[str, str]:
@@ -268,17 +276,17 @@ class AgentToolsManager:
                         descriptions[name] = tool["function"]["description"]
             except Exception as e:
                 logger.warning(f"Failed to get MCP tool descriptions: {e}")
-                
+
         return descriptions
 
     @timer("tool_execution")
     async def execute_tool(
-        self, 
-        tool_name: str, 
+        self,
+        tool_name: str,
         timeout: Optional[float] = None,
         retry_count: int = 2,
         retry_delay: float = 1.0,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> ToolResult:
         """Execute a tool with the given parameters.
 
@@ -295,29 +303,29 @@ class AgentToolsManager:
         start_time = datetime.now()
         success = False
         error_message = None
-        
+
         # Get the tool configuration
         tool_config = None
         if tool_name in self._tools:
             tool = self._tools[tool_name]
-            tool_config = getattr(tool, 'config', None)
-            
+            tool_config = getattr(tool, "config", None)
+
         # Use timeout from tool config if available and not overridden
-        if timeout is None and tool_config and hasattr(tool_config, 'timeout'):
+        if timeout is None and tool_config and hasattr(tool_config, "timeout"):
             timeout = tool_config.timeout
 
         # Apply lock for this specific tool if available
         lock = self._execution_lock.get(tool_name)
-        
+
         try:
             # Create retry options
             retry_options = RetryOptions(
                 max_retries=retry_count,
                 base_delay=retry_delay,
                 max_delay=30.0,  # Cap at 30 seconds
-                backoff_factor=2.0
+                backoff_factor=2.0,
             )
-            
+
             # Execute with retry
             result = await retry_async(
                 self._execute_tool_internal,
@@ -326,54 +334,47 @@ class AgentToolsManager:
                 tool_name=tool_name,
                 timeout=timeout,
                 use_lock=lock is not None,
-                **kwargs
+                **kwargs,
             )
-            
+
             # Record execution result
             success = result.error is None
             error_message = result.error
-            
+
             return result
-            
+
         except Exception as e:
             # Handle unhandled exceptions
             logger.error(f"Unhandled error executing tool {tool_name}: {e}")
-            
+
             # Create failure result
             error_message = f"Tool execution error: {str(e)}"
             result = ToolFailure(
-                error=error_message,
-                metadata=ToolResultMetadata(tool_name=tool_name)
+                error=error_message, metadata=ToolResultMetadata(tool_name=tool_name)
             )
-            
+
             success = False
             return result
-            
+
         finally:
             # Record tool usage regardless of success/failure
             execution_time = (datetime.now() - start_time).total_seconds()
             self._record_tool_usage(tool_name, start_time, kwargs, result, execution_time)
-            
+
             # Record metrics
-            self._metrics.record_execution(
-                tool_name, success, execution_time, error_message
-            )
+            self._metrics.record_execution(tool_name, success, execution_time, error_message)
 
     async def _execute_tool_internal(
-        self, 
-        tool_name: str, 
-        timeout: Optional[float] = None,
-        use_lock: bool = True,
-        **kwargs: Any
+        self, tool_name: str, timeout: Optional[float] = None, use_lock: bool = True, **kwargs: Any
     ) -> ToolResult:
         """Internal method to execute a tool.
-        
+
         Args:
             tool_name: Name of the tool to execute
             timeout: Optional timeout in seconds
             use_lock: Whether to use a lock for this tool
             **kwargs: Arguments to pass to the tool
-            
+
         Returns:
             Tool execution result
         """
@@ -381,20 +382,16 @@ class AgentToolsManager:
         if tool_name in self._tools:
             tool = self._tools[tool_name]
             lock = self._execution_lock.get(tool_name) if use_lock else None
-            
+
             # Use the lock if available
             if lock:
                 async with lock:
-                    result = await self._execute_local_tool(
-                        tool, timeout=timeout, **kwargs
-                    )
+                    result = await self._execute_local_tool(tool, timeout=timeout, **kwargs)
             else:
-                result = await self._execute_local_tool(
-                    tool, timeout=timeout, **kwargs
-                )
-                
+                result = await self._execute_local_tool(tool, timeout=timeout, **kwargs)
+
             return result
-        
+
         # Check if we should try MCP
         elif self._mcp_client:
             # Initialize MCP client if not already done
@@ -404,40 +401,35 @@ class AgentToolsManager:
             # Try to execute via MCP
             if self._mcp_initialized:
                 logger.info(f"Agent {self.agent_id} executing MCP tool '{tool_name}'")
-                
-                result = await self._mcp_client.execute_tool(
-                    tool_name, timeout=timeout, **kwargs
-                )
-                
+
+                result = await self._mcp_client.execute_tool(tool_name, timeout=timeout, **kwargs)
+
                 return result
             else:
                 # MCP not initialized
                 return ToolFailure(
                     error=f"MCP not initialized for tool: {tool_name}",
-                    metadata=ToolResultMetadata(tool_name=tool_name)
+                    metadata=ToolResultMetadata(tool_name=tool_name),
                 )
-        
+
         else:
             # Tool not found anywhere
             logger.error(f"Tool '{tool_name}' not found for agent {self.agent_id}")
             return ToolFailure(
                 error=f"Tool not found: {tool_name}",
-                metadata=ToolResultMetadata(tool_name=tool_name)
+                metadata=ToolResultMetadata(tool_name=tool_name),
             )
 
     async def _execute_local_tool(
-        self, 
-        tool: BaseTool, 
-        timeout: Optional[float] = None,
-        **kwargs: Any
+        self, tool: BaseTool, timeout: Optional[float] = None, **kwargs: Any
     ) -> ToolResult:
         """Execute a local tool with timeout.
-        
+
         Args:
             tool: Tool to execute
             timeout: Optional timeout in seconds
             **kwargs: Arguments to pass to the tool
-            
+
         Returns:
             Tool execution result
         """
@@ -447,7 +439,7 @@ class AgentToolsManager:
                 tool._update_state(ToolState.RUNNING)
         except Exception as e:
             logger.warning(f"Error updating tool state: {e}")
-            
+
         try:
             # Execute with timeout if specified
             if timeout:
@@ -462,15 +454,15 @@ class AgentToolsManager:
                             await tool_task
                         except asyncio.CancelledError:
                             pass
-                    
+
                     return ToolFailure(
                         error=f"Tool execution timed out after {timeout} seconds",
-                        metadata=ToolResultMetadata(tool_name=tool.name)
+                        metadata=ToolResultMetadata(tool_name=tool.name),
                     )
             else:
                 # No timeout specified
                 result = await tool(**kwargs)
-                
+
             # Check if result is already a ToolResult
             if isinstance(result, ToolResult):
                 # Ensure metadata includes tool name
@@ -478,30 +470,27 @@ class AgentToolsManager:
                     result.metadata = ToolResultMetadata(tool_name=tool.name)
                 elif result.metadata.tool_name is None:
                     result.metadata.tool_name = tool.name
-                    
+
                 return result
             else:
                 # Convert to ToolResult
-                return ToolResult(
-                    output=result,
-                    metadata=ToolResultMetadata(tool_name=tool.name)
-                )
+                return ToolResult(output=result, metadata=ToolResultMetadata(tool_name=tool.name))
         except Exception as e:
             logger.error(f"Error executing local tool {tool.name}: {e}")
-            
+
             # Check if this is already a ToolError
             if isinstance(e, ToolError):
                 # Create proper failure result
                 return ToolFailure(
                     error=e.message,
                     error_code=e.error_code,
-                    metadata=ToolResultMetadata(tool_name=tool.name)
+                    metadata=ToolResultMetadata(tool_name=tool.name),
                 )
             else:
                 # Create generic failure result
                 return ToolFailure(
                     error=f"Tool execution error: {str(e)}",
-                    metadata=ToolResultMetadata(tool_name=tool.name)
+                    metadata=ToolResultMetadata(tool_name=tool.name),
                 )
         finally:
             # Reset tool state if needed
@@ -512,15 +501,15 @@ class AgentToolsManager:
                 logger.warning(f"Error resetting tool state: {e}")
 
     def _record_tool_usage(
-        self, 
-        tool_name: str, 
-        start_time: datetime, 
-        parameters: Dict[str, Any], 
+        self,
+        tool_name: str,
+        start_time: datetime,
+        parameters: Dict[str, Any],
         result: ToolResult,
-        execution_time: float
+        execution_time: float,
     ) -> None:
         """Record tool usage for history tracking.
-        
+
         Args:
             tool_name: Name of the tool
             start_time: Start time of execution
@@ -536,13 +525,12 @@ class AgentToolsManager:
                 "parameters": parameters,
                 "success": result.error is None,
                 "error": result.error,
-                "output_summary": str(result.output)[:100] if result.output else None
+                "output_summary": str(result.output)[:100] if result.output else None,
             }
         )
 
     async def execute_tools_parallel(
-        self, 
-        executions: List[Dict[str, Any]]
+        self, executions: List[Dict[str, Any]]
     ) -> List[Tuple[str, ToolResult]]:
         """Execute multiple tools in parallel.
 
@@ -570,9 +558,7 @@ class AgentToolsManager:
             timeout = execution.get("timeout")
 
             # Create task
-            task = asyncio.create_task(
-                self.execute_tool(tool_name, timeout=timeout, **parameters)
-            )
+            task = asyncio.create_task(self.execute_tool(tool_name, timeout=timeout, **parameters))
 
             tasks.append(task)
             tool_names.append(tool_name)
@@ -605,13 +591,13 @@ class AgentToolsManager:
             List of tool usage records
         """
         return self._tool_usage_history.copy()
-        
+
     def get_tool_metrics(self, tool_name: Optional[str] = None) -> Dict[str, Any]:
         """Get metrics for a specific tool or all tools.
-        
+
         Args:
             tool_name: Optional name of tool to get metrics for
-            
+
         Returns:
             Dictionary of metrics
         """
@@ -620,21 +606,21 @@ class AgentToolsManager:
                 "avg_execution_time": self._metrics.get_avg_execution_time(tool_name),
                 "success_rate": self._metrics.get_success_rate(tool_name),
                 "execution_count": len(self._metrics.execution_times.get(tool_name, [])),
-                "last_execution": self._metrics.last_execution_time.get(tool_name)
+                "last_execution": self._metrics.last_execution_time.get(tool_name),
             }
-        
+
         return {
             "total_executions": self._metrics.total_executions,
             "successful_executions": self._metrics.successful_executions,
             "failed_executions": self._metrics.failed_executions,
             "success_rate": self._metrics.get_success_rate(),
             "avg_execution_time": self._metrics.get_avg_execution_time(),
-            "error_types": dict(self._metrics.error_counts)
+            "error_types": dict(self._metrics.error_counts),
         }
 
-    def get_formatted_tool_descriptions(self, 
-                                       include_capabilities: bool = True, 
-                                       include_examples: bool = True) -> str:
+    def get_formatted_tool_descriptions(
+        self, include_capabilities: bool = True, include_examples: bool = True
+    ) -> str:
         """Get formatted tool descriptions for prompts.
 
         Args:
@@ -649,41 +635,43 @@ class AgentToolsManager:
             if self._mcp_client and self._mcp_initialized:
                 tools = self._mcp_client.discover_tools()
                 base_descriptions = format_tool_descriptions(tools)
-                
+
                 if not (include_capabilities or include_examples):
                     return base_descriptions
-                    
+
                 # Add capabilities and examples if requested
                 enhanced_descriptions = []
                 for tool in tools:
                     if "function" not in tool:
                         continue
-                        
+
                     tool_name = tool["function"].get("name")
                     if not tool_name:
                         continue
-                        
+
                     enhanced_description = f"Tool: {tool_name}\n"
-                    enhanced_description += f"Description: {tool['function'].get('description', '')}\n"
-                    
+                    enhanced_description += (
+                        f"Description: {tool['function'].get('description', '')}\n"
+                    )
+
                     # Add parameters
                     parameters = tool["function"].get("parameters", {})
                     if parameters and "properties" in parameters:
                         enhanced_description += "Parameters:\n"
                         properties = parameters.get("properties", {})
                         required = parameters.get("required", [])
-                        
+
                         for param_name, param_info in properties.items():
                             param_type = param_info.get("type", "any")
                             description = param_info.get("description", "")
                             is_required = param_name in required
-                            
+
                             req_str = " (required)" if is_required else " (optional)"
                             enhanced_description += f"  - {param_name}: {param_type}{req_str}"
                             if description:
                                 enhanced_description += f" - {description}"
                             enhanced_description += "\n"
-                    
+
                     # Add capabilities if available
                     if include_capabilities:
                         info = self._mcp_client.get_tool_info(tool_name)
@@ -691,7 +679,7 @@ class AgentToolsManager:
                             enhanced_description += "Capabilities:\n"
                             for cap in info["capabilities"]:
                                 enhanced_description += f"  - {cap}\n"
-                    
+
                     # Add example if available
                     if include_examples and self._mcp_client:
                         try:
@@ -707,9 +695,9 @@ class AgentToolsManager:
                                 enhanced_description += "```\n"
                         except Exception as e:
                             logger.debug(f"Error getting examples for {tool_name}: {e}")
-                    
+
                     enhanced_descriptions.append(enhanced_description)
-                
+
                 return "\n".join(enhanced_descriptions)
 
             # Format local tools
@@ -721,45 +709,45 @@ class AgentToolsManager:
                         tools_list.append(tool_dict)
                 except Exception as e:
                     logger.warning(f"Error formatting tool {name}: {e}")
-            
+
             base_descriptions = format_tool_descriptions(tools_list)
-            
+
             if not (include_capabilities or include_examples):
                 return base_descriptions
-                
+
             # Add capabilities and examples if requested
             enhanced_descriptions = []
             for name, tool in self._tools.items():
                 enhanced_description = f"Tool: {name}\n"
                 enhanced_description += f"Description: {tool.description}\n"
-                
+
                 # Add parameters
                 if tool.parameters:
                     params = tool.parameters
                     enhanced_description += "Parameters:\n"
-                    
+
                     if "properties" in params:
                         properties = params.get("properties", {})
                         required = params.get("required", [])
-                        
+
                         for param_name, param_info in properties.items():
                             param_type = param_info.get("type", "any")
                             description = param_info.get("description", "")
                             is_required = param_name in required
-                            
+
                             req_str = " (required)" if is_required else " (optional)"
                             enhanced_description += f"  - {param_name}: {param_type}{req_str}"
                             if description:
                                 enhanced_description += f" - {description}"
                             enhanced_description += "\n"
-                
+
                 # Add capabilities if available
                 if include_capabilities and hasattr(tool, "capabilities"):
                     enhanced_description += "Capabilities:\n"
                     for cap in tool.capabilities:
                         cap_str = cap.value if hasattr(cap, "value") else str(cap)
                         enhanced_description += f"  - {cap_str}\n"
-                
+
                 # Add example if available
                 if include_examples and hasattr(tool, "usage_examples") and tool.usage_examples:
                     example = tool.usage_examples[0]
@@ -769,11 +757,11 @@ class AgentToolsManager:
                         for param, value in example["parameters"].items():
                             enhanced_description += f"  {param}: {value}\n"
                     enhanced_description += "```\n"
-                
+
                 enhanced_descriptions.append(enhanced_description)
-            
+
             return "\n".join(enhanced_descriptions)
-            
+
         except Exception as e:
             logger.error(f"Error formatting tool descriptions: {e}")
             return "Error retrieving tool descriptions"
@@ -788,31 +776,34 @@ class AgentToolsManager:
             List of tool schemas in function calling format
         """
         schemas = []
-        
+
         # Local tools
         for tool in self._tools.values():
             # Skip tools that don't match our capabilities if filtering is enabled
             if filter_by_capabilities and hasattr(tool, "capabilities"):
-                tool_caps = {cap.value if hasattr(cap, "value") else str(cap) 
-                            for cap in tool.capabilities}
-                
+                tool_caps = {
+                    cap.value if hasattr(cap, "value") else str(cap) for cap in tool.capabilities
+                }
+
                 # Skip if no intersection with agent capabilities
                 if not tool_caps.intersection(self._capabilities):
                     continue
-                    
+
             # Add tool schema
             if hasattr(tool, "to_param"):
                 schemas.append(tool.to_param())
             else:
                 # Create basic schema
-                schemas.append({
-                    "type": "function",
-                    "function": {
-                        "name": tool.name,
-                        "description": tool.description,
-                        "parameters": tool.parameters or {}
+                schemas.append(
+                    {
+                        "type": "function",
+                        "function": {
+                            "name": tool.name,
+                            "description": tool.description,
+                            "parameters": tool.parameters or {},
+                        },
                     }
-                })
+                )
 
         # Add MCP tools if initialized
         if self._mcp_client:
@@ -825,23 +816,22 @@ class AgentToolsManager:
                 if filter_by_capabilities and self._capabilities:
                     # Convert capabilities to list
                     cap_list = list(self._capabilities)
-                    
+
                     # Search tools by capabilities
                     mcp_tools = self._mcp_client.search_tools(
-                        capabilities=cap_list,
-                        match_all_capabilities=False
+                        capabilities=cap_list, match_all_capabilities=False
                     )
                 else:
                     # Get all tools
                     mcp_tools = self._mcp_client.discover_tools()
-                    
+
                 schemas.extend(mcp_tools)
 
         return schemas
 
     async def enable_mcp(
-        self, 
-        tool_categories: Optional[List[str]] = None, 
+        self,
+        tool_categories: Optional[List[str]] = None,
         tool_names: Optional[List[str]] = None,
         tool_capabilities: Optional[List[Union[str, ToolCapability]]] = None,
         filter_strategy: ToolFilterStrategy = ToolFilterStrategy.INCLUDE,
@@ -862,19 +852,19 @@ class AgentToolsManager:
             if tool_capabilities:
                 for cap in tool_capabilities:
                     self.add_capability(cap)
-                    
+
             # Create MCP client
             self._mcp_client = AgentMCPClient(
-                agent_id=self.agent_id, 
-                tool_categories=tool_categories, 
+                agent_id=self.agent_id,
+                tool_categories=tool_categories,
                 tool_names=tool_names,
                 tool_capabilities=tool_capabilities,
-                filter_strategy=filter_strategy
+                filter_strategy=filter_strategy,
             )
 
             # Initialize
             await self._init_mcp_client()
-            
+
             return True
         except Exception as e:
             error = self._error_manager.handle_error(
@@ -893,23 +883,23 @@ class AgentToolsManager:
         try:
             # Discover available tools to cache them
             tools = self._mcp_client.discover_tools()
-            
+
             # Update tool capabilities from discovered tools
             for tool in tools:
                 if "function" in tool and "name" in tool["function"]:
                     tool_name = tool["function"]["name"]
-                    
+
                     # Get tool info to extract capabilities
                     tool_info = self._mcp_client.get_tool_info(tool_name)
-                    
+
                     # Add capabilities to our set
                     if "capabilities" in tool_info:
                         for cap in tool_info["capabilities"]:
                             self.add_capability(cap)
-                    
+
                     # Cache tool info for later
                     self._tool_cache[tool_name] = tool_info
-            
+
             self._mcp_initialized = True
             logger.info(f"Initialized MCP for agent {self.agent_id}")
         except Exception as e:
@@ -946,73 +936,71 @@ class AgentToolsManager:
             if add_capabilities:
                 for cap in add_capabilities:
                     self.add_capability(cap)
-                    
+
             # Update MCP client tools
             await self._mcp_client.update_tools(
-                add_categories=add_categories, 
+                add_categories=add_categories,
                 add_capabilities=add_capabilities,
-                add_tools=add_tools, 
-                remove_tools=remove_tools
+                add_tools=add_tools,
+                remove_tools=remove_tools,
             )
-            
+
             # Refresh the tool cache
             self._tool_cache = {}
-            
+
             # Re-discover tools to update cache
             if self._mcp_initialized:
                 tools = self._mcp_client.discover_tools()
-                
+
                 # Update tool capabilities from discovered tools
                 for tool in tools:
                     if "function" in tool and "name" in tool["function"]:
                         tool_name = tool["function"]["name"]
-                        
+
                         # Get tool info to extract capabilities
                         tool_info = self._mcp_client.get_tool_info(tool_name)
-                        
+
                         # Add capabilities to our set
                         if "capabilities" in tool_info:
                             for cap in tool_info["capabilities"]:
                                 self.add_capability(cap)
-                        
+
                         # Cache tool info for later
                         self._tool_cache[tool_name] = tool_info
-            
+
             logger.info(f"Updated MCP tools for agent {self.agent_id}")
             return True
         except Exception as e:
-            error = self._error_manager.handle_error(
-                e, error_code=AgentErrorCode.EXECUTION_FAILED
-            )
+            error = self._error_manager.handle_error(e, error_code=AgentErrorCode.EXECUTION_FAILED)
             logger.error(f"Failed to update MCP tools for agent {self.agent_id}: {e}")
             return False
 
     async def discover_tools_by_capability(
-        self, 
-        capabilities: List[Union[str, ToolCapability]],
-        match_all: bool = False
+        self, capabilities: List[Union[str, ToolCapability]], match_all: bool = False
     ) -> List[Dict[str, Any]]:
         """Discover tools that match specific capabilities.
-        
+
         Args:
             capabilities: List of capabilities to match
             match_all: If True, tools must have all capabilities
                       If False, tools must have at least one capability
-                      
+
         Returns:
             List of tool definitions matching the capabilities
         """
         # Convert capabilities to strings
-        cap_strings = [cap.value if isinstance(cap, ToolCapability) else cap 
-                      for cap in capabilities]
-        
+        cap_strings = [
+            cap.value if isinstance(cap, ToolCapability) else cap for cap in capabilities
+        ]
+
         # Local tools that match capabilities
         local_tools = []
         for tool in self._tools.values():
             if hasattr(tool, "capabilities"):
-                tool_caps = {cap.value if hasattr(cap, "value") else str(cap) 
-                            for cap in tool.capabilities}
-                
+                tool_caps = {
+                    cap.value if hasattr(cap, "value") else str(cap) for cap in tool.capabilities
+                }
+
                 if match_all:
                     # Must have all capabilities
                     if all(cap in tool_caps for cap in cap_strings):
@@ -1021,15 +1009,14 @@ class AgentToolsManager:
                     # Must have at least one capability
                     if any(cap in tool_caps for cap in cap_strings):
                         local_tools.append(tool.to_param())
-        
+
         # MCP tools that match capabilities
         mcp_tools = []
         if self._mcp_client and self._mcp_initialized:
             mcp_tools = self._mcp_client.search_tools(
-                capabilities=cap_strings,
-                match_all_capabilities=match_all
+                capabilities=cap_strings, match_all_capabilities=match_all
             )
-        
+
         # Combine results
         return local_tools + mcp_tools
 

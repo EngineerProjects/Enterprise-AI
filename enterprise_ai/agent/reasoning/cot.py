@@ -377,7 +377,7 @@ class ChainOfThoughtReasoning(ReasoningFramework):
         return ToolFailure(
             error="Tool execution is not a primary focus of the CoT reasoning framework.",
             error_code="UNSUPPORTED_OPERATION",
-            metadata=ToolResultMetadata(tool_name=tool_name)
+            metadata=ToolResultMetadata(tool_name=tool_name),
         )
 
     def supports_function_calling(self) -> bool:
@@ -489,16 +489,16 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                     try:
                         # Validate parameters if possible
                         is_valid, error_msg = self.validate_tool_params(agent, tool_name, params)
-                        
+
                         if not is_valid:
                             # Add parameter validation error
                             tool_result = ToolFailure(
                                 error=f"Invalid parameters: {error_msg}",
                                 error_code="INVALID_PARAMETERS",
                                 retryable=True,
-                                metadata=ToolResultMetadata(tool_name=tool_name)
+                                metadata=ToolResultMetadata(tool_name=tool_name),
                             )
-                            
+
                             tool_response = format_tool_response_message(
                                 tool_name, tool_result, tool_id
                             )
@@ -510,12 +510,12 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                         loop = self._get_event_loop()
                         tool_result = loop.run_until_complete(
                             self._execute_tool_with_retries(
-                                agent, 
-                                tool_name, 
+                                agent,
+                                tool_name,
                                 params,
                                 timeout=kwargs.get("timeout"),
                                 max_retries=kwargs.get("max_retries", 2),
-                                retry_delay=kwargs.get("retry_delay", 1.0)
+                                retry_delay=kwargs.get("retry_delay", 1.0),
                             )
                         )
 
@@ -532,9 +532,9 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                         error_result = ToolFailure(
                             error=f"Error executing tool: {str(e)}",
                             error_code="EXECUTION_ERROR",
-                            metadata=ToolResultMetadata(tool_name=tool_name)
+                            metadata=ToolResultMetadata(tool_name=tool_name),
                         )
-                        
+
                         error_response = format_tool_response_message(
                             tool_name, error_result, tool_id
                         )
@@ -559,7 +559,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                         if hasattr(tool_manager, "get_formatted_tool_descriptions"):
                             tools_description = tool_manager.get_formatted_tool_descriptions(
                                 include_capabilities=True,  # Include capability info
-                                include_examples=True       # Include usage examples
+                                include_examples=True,  # Include usage examples
                             )
 
                     # Create combined prompt
@@ -581,8 +581,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                 tool_manager = getattr(agent, "_tool_manager")
                 if hasattr(tool_manager, "get_formatted_tool_descriptions"):
                     tools_description = tool_manager.get_formatted_tool_descriptions(
-                        include_capabilities=True,
-                        include_examples=True
+                        include_capabilities=True, include_examples=True
                     )
 
             # Create combined prompt
@@ -597,12 +596,12 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
         try:
             # Support function calling if the model supports it
             sanitized_kwargs = {k: v for k, v in kwargs.items() if k != "llm_provider"}
-            
+
             # Set up function calling if model supports it
             function_calling = False
             if hasattr(llm_provider, "supports_feature"):
                 function_calling = llm_provider.supports_feature("function_calling")
-                
+
             if function_calling and hasattr(agent, "_tool_manager"):
                 # Get available tools
                 tool_manager = getattr(agent, "_tool_manager")
@@ -614,10 +613,10 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                     )
                     if tools_schema:
                         sanitized_kwargs["tools"] = tools_schema
-                    
+
             # Generate response
             response = llm_provider.complete(messages, **sanitized_kwargs)
-            
+
             # Ensure response follows CoT format if needed
             if response.content and not self._is_cot_format(response.content):
                 formatted_content = self._format_as_cot(response.content)
@@ -625,7 +624,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                     MessageProtocol,
                     Message.assistant_message(formatted_content, metadata=response.metadata),
                 )
-                
+
             return cast(MessageProtocol, response)
         except Exception as e:
             logger.error(f"Error in Tool-augmented CoT reasoning for agent {agent.id}: {e}")
@@ -638,7 +637,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
 
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         """Get or create an event loop for async operations.
-        
+
         Returns:
             An asyncio event loop
         """
@@ -657,10 +656,10 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
         params: Dict[str, Any],
         timeout: Optional[float] = None,
         max_retries: int = 2,
-        retry_delay: float = 1.0
+        retry_delay: float = 1.0,
     ) -> ToolResult:
         """Execute a tool with retry mechanism.
-        
+
         Args:
             agent: The agent using this reasoning framework
             tool_name: Name of the tool to execute
@@ -668,7 +667,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
             timeout: Optional timeout in seconds
             max_retries: Maximum number of retry attempts
             retry_delay: Base delay between retries (doubles each attempt)
-            
+
         Returns:
             Tool execution result
         """
@@ -676,16 +675,16 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
             return ToolFailure(
                 error="Agent does not have a tool manager",
                 error_code="NO_TOOL_MANAGER",
-                metadata=ToolResultMetadata(tool_name=tool_name)
+                metadata=ToolResultMetadata(tool_name=tool_name),
             )
-            
+
         tool_manager = getattr(agent, "_tool_manager")
-        
+
         # Try execution with retries
         attempt = 0
         last_error = None
         delay = retry_delay
-        
+
         while attempt <= max_retries:
             try:
                 # Add delay for retries (not on first attempt)
@@ -694,46 +693,44 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                     await asyncio.sleep(delay)
                     # Exponential backoff
                     delay *= 2
-                    
+
                 # Execute tool
-                result = await tool_manager.execute_tool(
-                    tool_name, timeout=timeout, **params
-                )
-                
+                result = await tool_manager.execute_tool(tool_name, timeout=timeout, **params)
+
                 # If successful or permanent error, return result
                 if not result.error or (
-                    isinstance(result, ToolFailure) and 
-                    hasattr(result, 'retryable') and 
-                    not result.retryable
+                    isinstance(result, ToolFailure)
+                    and hasattr(result, "retryable")
+                    and not result.retryable
                 ):
                     return result
-                    
+
                 # For temporary errors, retry if attempts remain
                 last_error = result.error
                 attempt += 1
-                
+
                 # Check if we've used all retries
                 if attempt > max_retries:
                     return result
-                    
+
             except Exception as e:
                 logger.error(f"Error executing tool {tool_name}: {e}")
                 last_error = str(e)
                 attempt += 1
-                
+
                 # If out of retries, return error
                 if attempt > max_retries:
                     return ToolFailure(
                         error=f"Tool execution failed after {max_retries} attempts: {last_error}",
                         error_code="MAX_RETRIES_EXCEEDED",
-                        metadata=ToolResultMetadata(tool_name=tool_name)
+                        metadata=ToolResultMetadata(tool_name=tool_name),
                     )
-                
+
         # We should only get here if all retries failed
         return ToolFailure(
             error=f"Tool execution failed after {max_retries} attempts: {last_error}",
             error_code="MAX_RETRIES_EXCEEDED",
-            metadata=ToolResultMetadata(tool_name=tool_name)
+            metadata=ToolResultMetadata(tool_name=tool_name),
         )
 
     def _get_cot_tool_system_prompt(
@@ -775,7 +772,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
 
         # Add error handling guidance
         error_handling = get_tool_error_handling_prompt()
-        
+
         # Fallback to get_tool_prompt_for_reasoning which uses template system
         tool_prompt = get_tool_prompt_for_reasoning("cot", tools_description)
         return f"{tool_prompt}\n\n{error_handling}"
@@ -799,7 +796,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
             return ToolFailure(
                 error="Agent does not have a tool manager",
                 error_code="NO_TOOL_MANAGER",
-                metadata=ToolResultMetadata(tool_name=tool_name)
+                metadata=ToolResultMetadata(tool_name=tool_name),
             )
 
         tool_manager = getattr(agent, "_tool_manager")
@@ -808,15 +805,14 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
             # Execute tool with async handling
             loop = self._get_event_loop()
             start_time = datetime.now()
-            
+
             # Support timeout if provided
             timeout = kwargs.get("timeout")
             if timeout:
                 try:
                     result = loop.run_until_complete(
                         asyncio.wait_for(
-                            tool_manager.execute_tool(tool_name, **tool_params),
-                            timeout=timeout
+                            tool_manager.execute_tool(tool_name, **tool_params), timeout=timeout
                         )
                     )
                 except asyncio.TimeoutError:
@@ -825,43 +821,41 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                         error=f"Tool execution timed out after {timeout} seconds",
                         error_code="TIMEOUT",
                         retryable=True,
-                        metadata=ToolResultMetadata(tool_name=tool_name)
+                        metadata=ToolResultMetadata(tool_name=tool_name),
                     )
             else:
                 result = loop.run_until_complete(
                     tool_manager.execute_tool(tool_name, **tool_params)
                 )
-                
+
             # Track execution time
             execution_time = (datetime.now() - start_time).total_seconds() * 1000
-            
+
             # Update result metadata
             if not isinstance(result, ToolResult):
                 result = ToolResult(
                     output=result,
                     metadata=ToolResultMetadata(
-                        tool_name=tool_name,
-                        execution_time_ms=execution_time
-                    )
+                        tool_name=tool_name, execution_time_ms=execution_time
+                    ),
                 )
             elif result.metadata:
                 result.metadata.tool_name = tool_name
                 result.metadata.execution_time_ms = execution_time
             else:
                 result.metadata = ToolResultMetadata(
-                    tool_name=tool_name,
-                    execution_time_ms=execution_time
+                    tool_name=tool_name, execution_time_ms=execution_time
                 )
-                
+
             logger.info(f"Executed tool {tool_name} for agent {agent.id}")
             return result
-            
+
         except Exception as e:
             logger.error(f"Error executing tool {tool_name}: {e}")
             return ToolFailure(
                 error=f"Tool execution error: {str(e)}",
                 error_code="EXECUTION_ERROR",
-                metadata=ToolResultMetadata(tool_name=tool_name)
+                metadata=ToolResultMetadata(tool_name=tool_name),
             )
 
     def parse_tool_calls(self, message: MessageProtocol, **kwargs: Any) -> List[Dict[str, Any]]:
@@ -891,12 +885,12 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
         """
         response_format = kwargs.get("response_format", "json")
         include_metadata = kwargs.get("include_metadata", False)
-        
+
         if response_format == "markdown":
             # Format as markdown with clearly visible sections
             if tool_result.error:
                 result = f"### ❌ Error using {tool_name}\n\n{tool_result.error}"
-                
+
                 # Add suggestions if available
                 if isinstance(tool_result, ToolFailure) and tool_result.suggestions:
                     result += "\n\n**Suggestions:**\n"
@@ -904,7 +898,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                         result += f"- {suggestion}\n"
             else:
                 result = f"### ✅ Result from {tool_name}\n\n"
-                
+
                 # Format based on output type
                 if isinstance(tool_result.output, (dict, list)):
                     try:
@@ -915,13 +909,13 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                         result += f"{tool_result.output}"
                 else:
                     result += f"{tool_result.output}"
-                    
+
             # Add metadata if requested
             if include_metadata and tool_result.metadata and tool_result.metadata.execution_time_ms:
                 result += f"\n\n*Execution time: {tool_result.metadata.execution_time_ms:.2f}ms*"
-                
+
             return result
-            
+
         elif response_format == "react":
             # ReAct format for observation
             if tool_result.error:

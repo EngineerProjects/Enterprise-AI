@@ -129,7 +129,7 @@ class BaseAgentState(AgentState):
                     "capabilities": role.capabilities,
                 },
             )
-            
+
         # Update capabilities from role
         if hasattr(role, "capabilities"):
             self._capabilities.update(role.capabilities)
@@ -137,7 +137,7 @@ class BaseAgentState(AgentState):
     @property
     def capabilities(self) -> Set[str]:
         """Get agent capabilities.
-        
+
         Returns:
             Set of capabilities
         """
@@ -145,7 +145,7 @@ class BaseAgentState(AgentState):
 
     def add_capability(self, capability: str) -> None:
         """Add a capability to the agent.
-        
+
         Args:
             capability: Capability to add
         """
@@ -154,26 +154,26 @@ class BaseAgentState(AgentState):
 
     def has_capability(self, capability: str) -> bool:
         """Check if agent has a capability.
-        
+
         Args:
             capability: Capability to check
-            
+
         Returns:
             True if agent has the capability, False otherwise
         """
         return capability in self._capabilities
-        
+
     def get_mcp_session_id(self) -> Optional[str]:
         """Get the ID of the associated MCP session.
-        
+
         Returns:
             MCP session ID or None if not set
         """
         return self._mcp_session_id
-        
+
     def set_mcp_session_id(self, session_id: str) -> None:
         """Set the ID of the associated MCP session.
-        
+
         Args:
             session_id: MCP session ID
         """
@@ -257,7 +257,7 @@ class BaseAgentState(AgentState):
                 # Load capabilities
                 if "capabilities" in state_data:
                     self._capabilities = set(state_data["capabilities"])
-                
+
                 # Load MCP session ID
                 if "mcp_session_id" in state_data:
                     self._mcp_session_id = state_data["mcp_session_id"]
@@ -278,10 +278,10 @@ class BaseAgentState(AgentState):
         except Exception as e:
             logger.error(f"Failed to load agent state: {e}")
             raise RuntimeError(f"Failed to load agent state: {e}")
-            
+
     async def save_async(self) -> bool:
         """Save state asynchronously.
-        
+
         Returns:
             True if successful, False otherwise
         """
@@ -293,10 +293,10 @@ class BaseAgentState(AgentState):
         except Exception as e:
             logger.error(f"Failed to save agent state asynchronously: {e}")
             return False
-            
+
     async def load_async(self) -> bool:
         """Load state asynchronously.
-        
+
         Returns:
             True if successful, False otherwise
         """
@@ -406,40 +406,40 @@ class ConversationState(BaseAgentState):
         state_dict["conversation_history"] = self._conversation_history
         state_dict["active_sessions"] = list(self._active_sessions)
         return state_dict
-        
+
     def start_session(self, session_id: str) -> None:
         """Start a new session.
-        
+
         Args:
             session_id: Session ID
         """
         self._active_sessions.add(session_id)
         self._memory.add("active_sessions", list(self._active_sessions))
-        
+
     def end_session(self, session_id: str) -> None:
         """End an active session.
-        
+
         Args:
             session_id: Session ID
         """
         if session_id in self._active_sessions:
             self._active_sessions.remove(session_id)
             self._memory.add("active_sessions", list(self._active_sessions))
-            
+
     def has_active_session(self, session_id: str) -> bool:
         """Check if a session is active.
-        
+
         Args:
             session_id: Session ID
-            
+
         Returns:
             True if session is active, False otherwise
         """
         return session_id in self._active_sessions
-        
+
     def get_active_sessions(self) -> Set[str]:
         """Get all active sessions.
-        
+
         Returns:
             Set of active session IDs
         """
@@ -448,11 +448,11 @@ class ConversationState(BaseAgentState):
 
 class ToolAwareState(ConversationState):
     """Agent state with enhanced tool tracking.
-    
+
     This implementation extends ConversationState with features
     specifically for tracking tool usage and state.
     """
-    
+
     def __init__(
         self,
         agent_id: str,
@@ -461,7 +461,7 @@ class ToolAwareState(ConversationState):
         max_history: int = 100,
     ) -> None:
         """Initialize tool-aware state.
-        
+
         Args:
             agent_id: Unique identifier for the agent
             memory_type: Type of memory to use
@@ -472,27 +472,29 @@ class ToolAwareState(ConversationState):
         self._tool_history: Dict[str, List[Dict[str, Any]]] = {}
         self._active_tools: Dict[str, Dict[str, Any]] = {}
         self._tool_sessions: Dict[str, str] = {}
-        
+
         # Initialize tool data in memory
         self._memory.add("tool_history", self._tool_history)
         self._memory.add("active_tools", self._active_tools)
-        
-    def record_tool_usage(self, tool_name: str, parameters: Dict[str, Any], 
-                          result: Any, success: bool) -> str:
+
+    def record_tool_usage(
+        self, tool_name: str, parameters: Dict[str, Any], result: Any, success: bool
+    ) -> str:
         """Record a tool usage event.
-        
+
         Args:
             tool_name: Name of the tool
             parameters: Parameters used for the tool
             result: Result of the tool execution
             success: Whether the execution was successful
-            
+
         Returns:
             ID of the recorded event
         """
         import uuid
+
         event_id = str(uuid.uuid4())
-        
+
         # Create usage record
         usage_record = {
             "id": event_id,
@@ -502,25 +504,25 @@ class ToolAwareState(ConversationState):
             "success": success,
             "result_summary": str(result)[:200] if result else None,
         }
-        
+
         # Add to tool history
         if tool_name not in self._tool_history:
             self._tool_history[tool_name] = []
-        
+
         self._tool_history[tool_name].append(usage_record)
-        
+
         # Trim history if needed (keep last 50 entries per tool)
         if len(self._tool_history[tool_name]) > 50:
             self._tool_history[tool_name] = self._tool_history[tool_name][-50:]
-        
+
         # Update in memory
         self._memory.add("tool_history", self._tool_history)
-        
+
         return event_id
-        
+
     def mark_tool_active(self, tool_name: str, session_id: Optional[str] = None) -> None:
         """Mark a tool as active.
-        
+
         Args:
             tool_name: Name of the tool
             session_id: Optional session ID associated with this tool usage
@@ -529,69 +531,69 @@ class ToolAwareState(ConversationState):
             "start_time": time.time(),
             "session_id": session_id,
         }
-        
+
         # Associate tool with session if provided
         if session_id:
             self._tool_sessions[tool_name] = session_id
-            
+
         self._memory.add("active_tools", self._active_tools)
-        
+
     def mark_tool_inactive(self, tool_name: str) -> None:
         """Mark a tool as inactive.
-        
+
         Args:
             tool_name: Name of the tool
         """
         if tool_name in self._active_tools:
             del self._active_tools[tool_name]
             self._memory.add("active_tools", self._active_tools)
-            
+
     def is_tool_active(self, tool_name: str) -> bool:
         """Check if a tool is active.
-        
+
         Args:
             tool_name: Name of the tool
-            
+
         Returns:
             True if tool is active, False otherwise
         """
         return tool_name in self._active_tools
-        
+
     def get_active_tools(self) -> Dict[str, Dict[str, Any]]:
         """Get all active tools.
-        
+
         Returns:
             Dictionary mapping tool names to activation info
         """
         return self._active_tools.copy()
-        
+
     def get_tool_history(self, tool_name: Optional[str] = None) -> Dict[str, List[Dict[str, Any]]]:
         """Get tool usage history.
-        
+
         Args:
             tool_name: Optional name of the tool to get history for
-            
+
         Returns:
             Dictionary mapping tool names to usage history
         """
         if tool_name:
             return {tool_name: self._tool_history.get(tool_name, [])}
         return self._tool_history.copy()
-        
+
     def get_tool_session(self, tool_name: str) -> Optional[str]:
         """Get the session ID associated with a tool.
-        
+
         Args:
             tool_name: Name of the tool
-            
+
         Returns:
             Session ID or None if not associated
         """
         return self._tool_sessions.get(tool_name)
-        
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary.
-        
+
         Returns:
             Dictionary representation of state
         """
@@ -604,11 +606,11 @@ class ToolAwareState(ConversationState):
 
 class MCPSessionState(ToolAwareState):
     """Agent state with MCP session integration.
-    
+
     This implementation extends ToolAwareState with features
     specifically for integrating with MCP sessions.
     """
-    
+
     def __init__(
         self,
         agent_id: str,
@@ -618,7 +620,7 @@ class MCPSessionState(ToolAwareState):
         mcp_session_id: Optional[str] = None,
     ) -> None:
         """Initialize MCP session state.
-        
+
         Args:
             agent_id: Unique identifier for the agent
             memory_type: Type of memory to use
@@ -627,113 +629,110 @@ class MCPSessionState(ToolAwareState):
             mcp_session_id: Optional ID of the MCP session to use
         """
         super().__init__(agent_id, memory_type, state_dir, max_history)
-        
+
         self._mcp_session_id = mcp_session_id
         self._mcp_client = None
         self._mcp_tools: List[Dict[str, Any]] = []
         self._mcp_history: List[Dict[str, Any]] = []
-        
+
         # Initialize MCP client if session ID provided
         if self._mcp_session_id:
             self._init_mcp_client()
-            
+
     def _init_mcp_client(self) -> None:
         """Initialize the MCP client."""
         try:
             # Lazy import to avoid circular imports
             from enterprise_ai.mcp.client import MCPClient
-            
-            self._mcp_client = MCPClient(
-                self._mcp_session_id, 
-                create_if_not_exists=True
-            )
+
+            self._mcp_client = MCPClient(self._mcp_session_id, create_if_not_exists=True)
             logger.debug(f"Initialized MCP client for session {self._mcp_session_id}")
         except Exception as e:
             logger.error(f"Failed to initialize MCP client: {e}")
             self._mcp_client = None
-            
+
     def set_mcp_session_id(self, session_id: str) -> None:
         """Set the MCP session ID.
-        
+
         Args:
             session_id: ID of the MCP session
         """
         self._mcp_session_id = session_id
-        
+
         # Re-initialize MCP client
         self._init_mcp_client()
-        
+
         # Save to memory
         self._memory.add("mcp_session_id", session_id)
-        
+
     def sync_from_mcp(self) -> bool:
         """Sync state from MCP session.
-        
+
         Returns:
             True if sync succeeded, False otherwise
         """
         if not self._mcp_client:
             logger.warning("Cannot sync from MCP: client not initialized")
             return False
-            
+
         try:
             # Get available tools
             self._mcp_tools = self._mcp_client.discover_tools()
             self._memory.add("mcp_tools", self._mcp_tools)
-            
+
             # Get session info
             session_info = self._mcp_client.get_session_info()
             self._memory.add("mcp_session_info", session_info)
-            
+
             logger.debug(f"Synced state from MCP session {self._mcp_session_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to sync from MCP session: {e}")
             return False
-            
+
     def sync_to_mcp(self) -> bool:
         """Sync state to MCP session.
-        
+
         Returns:
             True if sync succeeded, False otherwise
         """
         if not self._mcp_client:
             logger.warning("Cannot sync to MCP: client not initialized")
             return False
-            
+
         try:
             # Set agent state in MCP context
             self._mcp_client.set_context("agent_id", self._agent_id)
             self._mcp_client.set_context("agent_capabilities", list(self._capabilities))
-            
+
             # Set active tools
             self._mcp_client.set_context("active_tools", self._active_tools)
-            
+
             logger.debug(f"Synced state to MCP session {self._mcp_session_id}")
             return True
         except Exception as e:
             logger.error(f"Failed to sync to MCP session: {e}")
             return False
-            
+
     def execute_mcp_tool(self, tool_name: str, **kwargs: Any) -> Any:
         """Execute a tool using the MCP session.
-        
+
         Args:
             tool_name: Name of the tool to execute
             **kwargs: Parameters for tool execution
-            
+
         Returns:
             Tool execution result
-            
+
         Raises:
             RuntimeError: If MCP client is not initialized
         """
         if not self._mcp_client:
             raise RuntimeError("MCP client not initialized")
-            
+
         # Import here to avoid circular imports
         import asyncio
-        
+
         # Get the current event loop
         try:
             loop = asyncio.get_event_loop()
@@ -741,15 +740,13 @@ class MCPSessionState(ToolAwareState):
             # Create a new event loop if none exists
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
+
         # Run the tool execution
-        return loop.run_until_complete(
-            self._mcp_client.execute_tool(tool_name, **kwargs)
-        )
-        
+        return loop.run_until_complete(self._mcp_client.execute_tool(tool_name, **kwargs))
+
     def get_mcp_tools(self) -> List[Dict[str, Any]]:
         """Get available tools from MCP session.
-        
+
         Returns:
             List of available tools
         """
@@ -759,12 +756,12 @@ class MCPSessionState(ToolAwareState):
                 self._mcp_tools = self._mcp_client.discover_tools()
             except Exception as e:
                 logger.error(f"Failed to discover MCP tools: {e}")
-                
+
         return self._mcp_tools.copy()
-        
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert state to dictionary.
-        
+
         Returns:
             Dictionary representation of state
         """
@@ -772,43 +769,43 @@ class MCPSessionState(ToolAwareState):
         state_dict["mcp_session_id"] = self._mcp_session_id
         state_dict["mcp_tools"] = self._mcp_tools
         return state_dict
-        
+
     async def sync_from_mcp_async(self) -> bool:
         """Sync state from MCP session asynchronously.
-        
+
         Returns:
             True if sync succeeded, False otherwise
         """
         # Run in thread pool to avoid blocking the event loop
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.sync_from_mcp)
-        
+
     async def sync_to_mcp_async(self) -> bool:
         """Sync state to MCP session asynchronously.
-        
+
         Returns:
             True if sync succeeded, False otherwise
         """
         # Run in thread pool to avoid blocking the event loop
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self.sync_to_mcp)
-        
+
     async def execute_mcp_tool_async(self, tool_name: str, **kwargs: Any) -> Any:
         """Execute a tool using the MCP session asynchronously.
-        
+
         Args:
             tool_name: Name of the tool to execute
             **kwargs: Parameters for tool execution
-            
+
         Returns:
             Tool execution result
-            
+
         Raises:
             RuntimeError: If MCP client is not initialized
         """
         if not self._mcp_client:
             raise RuntimeError("MCP client not initialized")
-            
+
         return await self._mcp_client.execute_tool(tool_name, **kwargs)
 
 

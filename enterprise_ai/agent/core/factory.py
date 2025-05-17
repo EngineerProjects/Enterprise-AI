@@ -24,22 +24,22 @@ logger = get_logger("agent.factory")
 
 def extract_llm_provider_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """Extract LLM provider kwargs from the agent creation kwargs.
-    
+
     Args:
         kwargs: Agent creation kwargs
-        
+
     Returns:
         Dictionary of LLM provider kwargs
     """
     # Extract the llm_provider_kwargs if present
     llm_provider_kwargs = kwargs.pop("llm_provider_kwargs", {}).copy()
-    
+
     # Also check for direct provider parameters in kwargs
     direct_provider_params = {}
     for key in list(kwargs.keys()):
         if key in ("model_name", "base_url", "temperature", "max_tokens", "top_p", "timeout"):
             direct_provider_params[key] = kwargs.pop(key)
-    
+
     # Merge them, with llm_provider_kwargs taking precedence
     return {**direct_provider_params, **llm_provider_kwargs}
 
@@ -113,46 +113,58 @@ def create_agent(
             logger.info(f"Loaded agent configuration from {config_path}")
         except Exception as e:
             logger.warning(f"Failed to load configuration from {config_path}: {e}")
-    
+
     # Load from template if specified
     template_config = {}
     if template_id:
         try:
-            template_path = os.path.join(get_config("agent.templates_directory", "templates"), f"{template_id}.json")
+            template_path = os.path.join(
+                get_config("agent.templates_directory", "templates"), f"{template_id}.json"
+            )
             if os.path.exists(template_path):
                 with open(template_path, "r") as f:
                     template_config = json.load(f)
                 logger.info(f"Applied agent template: {template_id}")
         except Exception as e:
             logger.warning(f"Failed to load template {template_id}: {e}")
-    
+
     # Merge configurations (priority: kwargs > external_config > template_config)
     merged_config = {**template_config, **external_config}
-    
+
     # Extract configuration values, preferring function parameters over config
     agent_type = agent_type or merged_config.get("agent_type", "base")
     name = name or merged_config.get("name", f"{agent_type.capitalize()}Agent")
-    
+
     # Handle role configuration - either use provided role object or create a new one
     final_role = role
     if not final_role and (role_type or merged_config.get("role_type")):
         role_type = role_type or merged_config.get("role_type")
         role_kwargs = role_kwargs or merged_config.get("role", {})
-    
-    state_type = state_type or merged_config.get("state_type", "base" if agent_type == "base" else "conversation")
+
+    state_type = state_type or merged_config.get(
+        "state_type", "base" if agent_type == "base" else "conversation"
+    )
     state_kwargs = state_kwargs or merged_config.get("state", {})
     reasoning_framework = reasoning_framework or merged_config.get("reasoning_framework", "base")
     use_tools = use_tools if use_tools is not None else merged_config.get("use_tools", False)
     enable_mcp = enable_mcp if enable_mcp is not None else merged_config.get("enable_mcp", False)
-    
+
     # Tool selection options
     tool_categories = tool_categories or merged_config.get("tool_categories", [])
     tool_names = tool_names or merged_config.get("tool_names", [])
     tool_capabilities = tool_capabilities or merged_config.get("tool_capabilities", [])
-    capability_match_all = capability_match_all if capability_match_all is not None else merged_config.get("capability_match_all", False)
+    capability_match_all = (
+        capability_match_all
+        if capability_match_all is not None
+        else merged_config.get("capability_match_all", False)
+    )
     filter_strategy_str = merged_config.get("filter_strategy", "include")
     if isinstance(filter_strategy_str, str) and not isinstance(filter_strategy, ToolFilterStrategy):
-        filter_strategy = ToolFilterStrategy.INCLUDE if filter_strategy_str.lower() == "include" else ToolFilterStrategy.EXCLUDE
+        filter_strategy = (
+            ToolFilterStrategy.INCLUDE
+            if filter_strategy_str.lower() == "include"
+            else ToolFilterStrategy.EXCLUDE
+        )
 
     # Set state directory from config if not specified
     if "state_dir" not in state_kwargs:
@@ -176,18 +188,18 @@ def create_agent(
             state_kwargs=state_kwargs,
             **kwargs,
         )
-        
+
         # Apply any remaining configuration
         if merged_config:
             if hasattr(agent, "update_config"):
                 agent.update_config(merged_config)
-                
+
         return agent
-    
+
     elif agent_type.lower() == "llm":
         # Get LLM provider - either use provided object or create a new one
         final_llm_provider = llm_provider
-        
+
         if not final_llm_provider:
             # For backward compatibility, handle both llm_provider_kwargs and model_params
             provider_kwargs = {}
@@ -195,22 +207,26 @@ def create_agent(
                 provider_kwargs.update(llm_provider_kwargs)
             if model_params:
                 provider_kwargs.update(model_params)
-            
+
             # Also extract provider parameters from kwargs
             provider_kwargs.update(extract_llm_provider_kwargs(kwargs))
-            
+
             # Set reasonable default timeout if not specified
             if "timeout" not in provider_kwargs:
                 provider_kwargs["timeout"] = 300.0
-            
+
             # Create the provider
             provider_name = llm_provider_name or merged_config.get("llm_provider")
             if provider_name:
                 from enterprise_ai.llm import create_provider
+
                 final_llm_provider = create_provider(provider_name, **provider_kwargs)
-                logger.info(f"Created LLM provider: {provider_name} with parameters: {provider_kwargs}")
+                logger.info(
+                    f"Created LLM provider: {provider_name} with parameters: {provider_kwargs}"
+                )
             else:
                 from enterprise_ai.llm import get_default_provider
+
                 final_llm_provider = get_default_provider(**provider_kwargs)
                 logger.info(f"Created default LLM provider with parameters: {provider_kwargs}")
 
@@ -218,6 +234,7 @@ def create_agent(
         final_role_object = final_role
         if not final_role_object and role_type:
             from enterprise_ai.agent.role import create_role
+
             final_role_object = create_role(role_type, **role_kwargs or {})
             logger.info(f"Created role: {role_type}")
 
@@ -235,24 +252,24 @@ def create_agent(
             "tool_names": tool_names,
             **kwargs,
         }
-        
+
         # Add role information
         if final_role_object:
             agent_kwargs["role"] = final_role_object
         else:
             agent_kwargs["role_type"] = role_type
             agent_kwargs["role_kwargs"] = role_kwargs
-        
+
         # Create the agent
         agent = LLMAgent(**agent_kwargs)
-        
+
         # Apply any remaining configuration
         if merged_config:
             if hasattr(agent, "update_config"):
                 agent.update_config(merged_config)
-                
+
         return agent
-    
+
     else:
         logger.error(f"Unknown agent type: {agent_type}")
         raise ValueError(f"Unknown agent type: {agent_type}")
@@ -270,21 +287,21 @@ class AgentBuilder:
         self._agent_type: str = "base"
         self._agent_id: Optional[str] = None
         self._name: Optional[str] = None
-        
+
         # Role configuration
         self._role: Optional[AgentRole] = None
         self._role_type: Optional[str] = None
         self._role_kwargs: Dict[str, Any] = {}
-        
+
         # State configuration
         self._state_type: Optional[str] = None
         self._state_kwargs: Dict[str, Any] = {}
-        
+
         # LLM provider configuration
         self._llm_provider: Optional[Any] = None
         self._llm_provider_name: Optional[str] = None
         self._llm_provider_kwargs: Dict[str, Any] = {}
-        
+
         self._reasoning_framework: str = "base"
         self._use_tools: bool = False
         self._enable_mcp: bool = False
@@ -458,55 +475,53 @@ class AgentBuilder:
         """
         self._tool_names = tool_names
         return self
-    
+
     def with_tool_capabilities(
-        self, 
-        capabilities: List[Union[str, ToolCapability]], 
-        match_all: bool = False
+        self, capabilities: List[Union[str, ToolCapability]], match_all: bool = False
     ) -> "AgentBuilder":
         """Set tool capabilities to filter by.
-        
+
         Args:
             capabilities: List of capabilities
             match_all: Whether tools must have all capabilities or just one
-            
+
         Returns:
             Builder instance for chaining
         """
         self._tool_capabilities = capabilities
         self._capability_match_all = match_all
         return self
-    
+
     def with_filter_strategy(self, strategy: ToolFilterStrategy) -> "AgentBuilder":
         """Set the tool filter strategy.
-        
+
         Args:
             strategy: Include or exclude strategy for tools
-            
+
         Returns:
             Builder instance for chaining
         """
         self._filter_strategy = strategy
         return self
-    
+
     def from_template(self, template_id: str) -> "AgentBuilder":
         """Build agent from a template.
-        
+
         Args:
             template_id: ID of the template to use
-            
+
         Returns:
             Builder instance for chaining
         """
         self._template_id = template_id
         return self
-    
+
     def from_config(self, config_path: str) -> "AgentBuilder":
         """Build agent from a configuration file.
-        
+
         Args:
             config_path: Path to configuration file
-            
+
         Returns:
             Builder instance for chaining
         """
@@ -549,28 +564,29 @@ class AgentBuilder:
             "template_id": self._template_id,
             "filter_strategy": self._filter_strategy,
         }
-        
+
         # Add role configuration
         if self._role:
             agent_kwargs["role"] = self._role
         else:
             agent_kwargs["role_type"] = self._role_type
             agent_kwargs["role_kwargs"] = self._role_kwargs
-            
+
         # Add LLM provider configuration
         if self._llm_provider:
             agent_kwargs["llm_provider"] = self._llm_provider
         else:
             agent_kwargs["llm_provider_name"] = self._llm_provider_name
             agent_kwargs["llm_provider_kwargs"] = self._llm_provider_kwargs
-            
+
         # Add any additional kwargs
         agent_kwargs.update(self._kwargs)
-        
+
         return create_agent(**agent_kwargs)
 
 
 # Specialized factory functions for common agent types
+
 
 def create_developer_agent(
     agent_id: Optional[str] = None,
@@ -601,16 +617,16 @@ def create_developer_agent(
     """
     # Set up developer-focused tool categories
     tool_categories = kwargs.pop("tool_categories", ["development", "file", "execution"])
-    
+
     # Set up developer-focused capabilities if not specified
     if tool_capabilities is None:
         tool_capabilities = [
-            "code_generation", 
-            "code_execution", 
-            "file_access", 
-            "version_control", 
+            "code_generation",
+            "code_execution",
+            "file_access",
+            "version_control",
             "testing",
-            "debugging"
+            "debugging",
         ]
 
     return create_agent(
@@ -658,16 +674,16 @@ def create_manager_agent(
     """
     # Set up manager-focused tool categories
     tool_categories = kwargs.pop("tool_categories", ["planning", "utility", "productivity"])
-    
+
     # Set up manager-focused capabilities if not specified
     if tool_capabilities is None:
         tool_capabilities = [
-            "planning", 
-            "scheduling", 
-            "communication", 
-            "task_management", 
+            "planning",
+            "scheduling",
+            "communication",
+            "task_management",
             "coordination",
-            "reporting"
+            "reporting",
         ]
 
     return create_agent(
@@ -715,16 +731,16 @@ def create_researcher_agent(
     """
     # Set up researcher-focused tool categories
     tool_categories = kwargs.pop("tool_categories", ["research", "file", "content", "analysis"])
-    
+
     # Set up researcher-focused capabilities if not specified
     if tool_capabilities is None:
         tool_capabilities = [
-            "research", 
-            "information_retrieval", 
-            "data_analysis", 
-            "document_processing", 
+            "research",
+            "information_retrieval",
+            "data_analysis",
+            "document_processing",
             "search",
-            "synthesis"
+            "synthesis",
         ]
 
     return create_agent(
@@ -772,16 +788,19 @@ def create_data_scientist_agent(
     tool_categories = kwargs.pop(
         "tool_categories", ["analysis", "data_processing", "visualization", "file"]
     )
-    
+
     # Set up data science-focused capabilities
-    tool_capabilities = kwargs.pop("tool_capabilities", [
-        "data_analysis", 
-        "data_visualization", 
-        "statistical_analysis", 
-        "machine_learning", 
-        "data_processing",
-        "reporting"
-    ])
+    tool_capabilities = kwargs.pop(
+        "tool_capabilities",
+        [
+            "data_analysis",
+            "data_visualization",
+            "statistical_analysis",
+            "machine_learning",
+            "data_processing",
+            "reporting",
+        ],
+    )
 
     return create_agent(
         agent_type=agent_type,
@@ -852,13 +871,13 @@ def create_tool_agent(
 
 def create_agents_from_config(config_path: str) -> Dict[str, AgentProtocol]:
     """Create multiple agents from a configuration file.
-    
+
     Args:
         config_path: Path to configuration file
-        
+
     Returns:
         Dictionary mapping agent IDs to agent instances
-        
+
     Raises:
         ValueError: If configuration is invalid
     """
@@ -866,12 +885,12 @@ def create_agents_from_config(config_path: str) -> Dict[str, AgentProtocol]:
         config = load_config(config_path)
         if not isinstance(config, dict) or "agents" not in config:
             raise ValueError("Invalid configuration: must contain 'agents' section")
-            
+
         agents = {}
         for agent_id, agent_config in config["agents"].items():
             # Ensure agent_id is set in the config
             agent_config["agent_id"] = agent_id
-            
+
             # Create agent from configuration
             try:
                 agent = create_agent(**agent_config)
@@ -879,7 +898,7 @@ def create_agents_from_config(config_path: str) -> Dict[str, AgentProtocol]:
                 logger.info(f"Created agent '{agent_id}' from configuration")
             except Exception as e:
                 logger.error(f"Failed to create agent '{agent_id}': {e}")
-                
+
         return agents
     except Exception as e:
         logger.error(f"Failed to load agent configuration: {e}")

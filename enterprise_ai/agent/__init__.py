@@ -148,14 +148,12 @@ __all__ = [
     "AgentMemory",
     "AgentMessage",
     "Task",
-    "TaskStatus", 
+    "TaskStatus",
     "ToolCapabilityProtocol",
     "ToolInteractionType",
-    
     # Base agent classes
     "BaseAgent",
     "LLMAgent",
-    
     # Factory functions
     "create_agent",
     "AgentBuilder",
@@ -165,20 +163,17 @@ __all__ = [
     "create_tool_agent",
     "create_data_scientist_agent",
     "create_agents_from_config",
-    
     # Memory implementations
     "DictMemory",
-    "NamespacedMemory", 
+    "NamespacedMemory",
     "ScopedMemory",
     "create_memory",
-    
     # State implementations
     "BaseAgentState",
     "ConversationState",
     "ToolAwareState",
     "MCPSessionState",
     "create_agent_state",
-    
     # Role implementations
     "BaseAgentRole",
     "SimpleRole",
@@ -187,7 +182,6 @@ __all__ = [
     "ManagerRole",
     "ResearcherRole",
     "create_role",
-    
     # Message implementations
     "BaseAgentMessage",
     "TaskAssignmentMessage",
@@ -198,7 +192,6 @@ __all__ = [
     "NotificationMessage",
     "ErrorMessage",
     "create_message",
-    
     # Tool integration
     "AgentToolManager",
     "ToolUsageMetrics",
@@ -212,7 +205,6 @@ __all__ = [
     "ToolIntegrationError",
     "FunctionCallingFormatter",
     "merge_tool_schemas",
-    
     # Reasoning frameworks
     "ReasoningFramework",
     "ToolBasedReasoning",
@@ -226,7 +218,6 @@ __all__ = [
     "ToolAugmentedCoT",
     "SoftwareEngineeringReasoning",
     "MCPReasoning",
-    
     # Architecture components
     "AgentLifecycleManager",
     "ConversationManager",

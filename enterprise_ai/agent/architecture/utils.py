@@ -17,15 +17,15 @@ from enterprise_ai.types import MessageProtocol, Serializable
 
 logger = get_logger("agent.utils")
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 def generate_id(prefix: str = "") -> str:
     """Generate a unique identifier with optional prefix.
-    
+
     Args:
         prefix: Optional prefix for the ID
-        
+
     Returns:
         Unique identifier string
     """
@@ -35,7 +35,7 @@ def generate_id(prefix: str = "") -> str:
 
 def ensure_event_loop() -> asyncio.AbstractEventLoop:
     """Get or create an event loop for async operations.
-    
+
     Returns:
         An asyncio event loop
     """
@@ -50,12 +50,12 @@ def ensure_event_loop() -> asyncio.AbstractEventLoop:
 
 def run_async(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Run an async function synchronously.
-    
+
     Args:
         func: Async function to run
         *args: Positional arguments to pass to the function
         **kwargs: Keyword arguments to pass to the function
-        
+
     Returns:
         Result of the async function
     """
@@ -70,16 +70,16 @@ def run_async(func: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
 
 def safe_serialize(obj: Any) -> Dict[str, Any]:
     """Safely serialize an object to a dictionary.
-    
+
     Args:
         obj: Object to serialize
-        
+
     Returns:
         Dictionary representation
     """
-    if hasattr(obj, 'to_dict') and callable(getattr(obj, 'to_dict')):
+    if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
         return cast(Serializable, obj).to_dict()
-    elif hasattr(obj, '__dict__'):
+    elif hasattr(obj, "__dict__"):
         # Filter out unserializable types and use string representations
         result = {}
         for key, value in obj.__dict__.items():
@@ -97,16 +97,16 @@ def safe_serialize(obj: Any) -> Dict[str, Any]:
 
 def merge_dicts(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
     """Recursively merge two dictionaries.
-    
+
     Args:
         dict1: First dictionary
         dict2: Second dictionary to merge into the first
-        
+
     Returns:
         Merged dictionary
     """
     result = dict1.copy()
-    
+
     for key, value in dict2.items():
         if key in result and isinstance(result[key], dict) and isinstance(value, dict):
             # Recursive merge for nested dictionaries
@@ -114,16 +114,16 @@ def merge_dicts(dict1: Dict[str, Any], dict2: Dict[str, Any]) -> Dict[str, Any]:
         else:
             # Replace or add value
             result[key] = value
-            
+
     return result
 
 
 def format_timestamp(timestamp: Optional[datetime] = None) -> str:
     """Format a timestamp for logging and display.
-    
+
     Args:
         timestamp: Timestamp to format, or current time if None
-        
+
     Returns:
         Formatted timestamp string
     """
@@ -133,10 +133,10 @@ def format_timestamp(timestamp: Optional[datetime] = None) -> str:
 
 def parse_tool_args(args_str: str) -> Dict[str, Any]:
     """Parse tool arguments from a string representation.
-    
+
     Args:
         args_str: String representation of tool arguments
-        
+
     Returns:
         Dictionary of parsed arguments
     """
@@ -146,23 +146,23 @@ def parse_tool_args(args_str: str) -> Dict[str, Any]:
     except json.JSONDecodeError:
         # Fall back to parsing key=value pairs
         result = {}
-        parts = args_str.split(',')
-        
+        parts = args_str.split(",")
+
         for part in parts:
             part = part.strip()
-            if '=' in part:
-                key, value = part.split('=', 1)
+            if "=" in part:
+                key, value = part.split("=", 1)
                 key = key.strip()
                 value = value.strip()
-                
+
                 # Handle different value types
-                if value.lower() == 'true':
+                if value.lower() == "true":
                     result[key] = True
-                elif value.lower() == 'false':
+                elif value.lower() == "false":
                     result[key] = False
                 elif value.isdigit():
                     result[key] = int(value)
-                elif value.replace('.', '', 1).isdigit():
+                elif value.replace(".", "", 1).isdigit():
                     result[key] = float(value)
                 else:
                     # Remove quotes if present
@@ -171,107 +171,108 @@ def parse_tool_args(args_str: str) -> Dict[str, Any]:
                     ):
                         value = value[1:-1]
                     result[key] = value
-        
+
         return result
 
 
 def deduplicate_list(items: List[T]) -> List[T]:
     """Remove duplicates from a list while preserving order.
-    
+
     Args:
         items: List to deduplicate
-        
+
     Returns:
         Deduplicated list
     """
     seen: Set[Any] = set()
     result: List[T] = []
-    
+
     for item in items:
         if item not in seen:
             seen.add(item)
             result.append(item)
-            
+
     return result
 
 
 def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
     """Truncate text to a maximum length with a suffix.
-    
+
     Args:
         text: Text to truncate
         max_length: Maximum length
         suffix: Suffix to add if truncated
-        
+
     Returns:
         Truncated text
     """
     if len(text) <= max_length:
         return text
-    return text[:max_length - len(suffix)] + suffix
+    return text[: max_length - len(suffix)] + suffix
 
 
 def timer(name: Optional[str] = None) -> Callable:
     """Decorator to time function execution.
-    
+
     Args:
         name: Optional name for the timer
-        
+
     Returns:
         Decorator function
     """
+
     def decorator(func: Callable) -> Callable:
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             timer_name = name or func.__name__
             start_time = datetime.now()
             logger.debug(f"Starting {timer_name}")
-            
+
             try:
                 result = func(*args, **kwargs)
                 return result
             finally:
                 elapsed = (datetime.now() - start_time).total_seconds() * 1000
                 logger.debug(f"Completed {timer_name} in {elapsed:.2f}ms")
-                
+
         return wrapper
-        
+
     return decorator
 
 
 class TimerContext:
     """Context manager for timing code blocks."""
-    
+
     def __init__(self, name: str):
         """Initialize the timer context.
-        
+
         Args:
             name: Name for this timer
         """
         self.name = name
         self.start_time = None
         self.end_time = None
-        
+
     def __enter__(self):
         """Start the timer."""
         self.start_time = datetime.now()
         logger.debug(f"Starting {self.name}")
         return self
-        
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Stop the timer and log the duration."""
         self.end_time = datetime.now()
         elapsed = (self.end_time - self.start_time).total_seconds() * 1000
         logger.debug(f"Completed {self.name} in {elapsed:.2f}ms")
-        
+
     @property
     def duration(self) -> float:
         """Get the elapsed duration in seconds.
-        
+
         Returns:
             Duration in seconds
         """
         if not self.start_time:
             return 0.0
-            
+
         end = self.end_time or datetime.now()
         return (end - self.start_time).total_seconds()

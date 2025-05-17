@@ -93,8 +93,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                         tool_manager = getattr(agent, "_tool_manager")
                         if hasattr(tool_manager, "get_formatted_tool_descriptions"):
                             tools_description = tool_manager.get_formatted_tool_descriptions(
-                                include_capabilities=True,
-                                include_examples=True
+                                include_capabilities=True, include_examples=True
                             )
 
                     # Format SWE system prompt
@@ -116,8 +115,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 tool_manager = getattr(agent, "_tool_manager")
                 if hasattr(tool_manager, "get_formatted_tool_descriptions"):
                     tools_description = tool_manager.get_formatted_tool_descriptions(
-                        include_capabilities=True,
-                        include_examples=True
+                        include_capabilities=True, include_examples=True
                     )
 
             # Format SWE system prompt
@@ -136,24 +134,27 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
             # Prepare tools for function calling if supported
             tools_schema = []
             function_calling = False
-            
+
             if hasattr(llm_provider, "supports_feature"):
                 function_calling = llm_provider.supports_feature("function_calling")
-            
+
             if function_calling and hasattr(agent, "_tool_manager"):
                 tool_manager = getattr(agent, "_tool_manager")
                 if hasattr(tool_manager, "get_tool_schemas"):
                     # Run in event loop to get tool schemas with focus on development tools
                     loop = self._get_event_loop()
                     tools_schema = loop.run_until_complete(
-                        tool_manager.get_tool_schemas(
-                            filter_by_capabilities=True
-                        )
+                        tool_manager.get_tool_schemas(filter_by_capabilities=True)
                     )
-                    
+
                     # Log available development tools
-                    dev_tools = [t for t in tools_schema if "code" in str(t).lower() or 
-                                  "file" in str(t).lower() or "test" in str(t).lower()]
+                    dev_tools = [
+                        t
+                        for t in tools_schema
+                        if "code" in str(t).lower()
+                        or "file" in str(t).lower()
+                        or "test" in str(t).lower()
+                    ]
                     if dev_tools:
                         logger.debug(f"Development tools available: {len(dev_tools)}")
 
@@ -164,10 +165,10 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
 
             # Generate response
             response = llm_provider.complete(updated_messages, **sanitized_kwargs)
-            
+
             # Post-process the response for better development workflows
             processed_response = self._post_process_swe_response(response)
-            
+
             return cast(MessageProtocol, processed_response)
         except Exception as e:
             logger.error(f"Error in SWE reasoning for agent {agent.id}: {e}", exc_info=True)
@@ -210,18 +211,18 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
     ) -> List[MessageProtocol]:
         """
         Process any tool calls in previous messages.
-        
+
         Args:
             agent: The agent using this reasoning framework
             messages: List of messages to process
             **kwargs: Additional parameters
-            
+
         Returns:
             Updated list of messages
         """
         # Make a copy to avoid modifying the original
         updated_messages = list(messages)
-        
+
         # Check for the last assistant message
         last_assistant_msg = None
         for msg in reversed(updated_messages):
@@ -253,30 +254,31 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
 
                         # Format result as tool response with appropriate response format
                         tool_response = format_tool_response_message(
-                            tool_name, tool_result, tool_id,
-                            response_format=kwargs.get("tool_response_format", "json")
+                            tool_name,
+                            tool_result,
+                            tool_id,
+                            response_format=kwargs.get("tool_response_format", "json"),
                         )
                         updated_messages.append(tool_response)
 
                         logger.info(f"Added tool result for {tool_name} to conversation")
-                        
+
                         # For development tools, add additional guidance for code errors
                         if self._is_development_tool(tool_name) and tool_result.error:
                             error_guidance = self._generate_dev_error_guidance(
                                 tool_name, params, tool_result
                             )
                             if error_guidance:
-                                updated_messages.append(cast(
-                                    MessageProtocol,
-                                    Message.user_message(error_guidance)
-                                ))
+                                updated_messages.append(
+                                    cast(MessageProtocol, Message.user_message(error_guidance))
+                                )
                     except Exception as e:
                         logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
                         # Add error response
                         error_result = ToolFailure(
                             error=f"Error executing tool: {str(e)}",
                             error_code="EXECUTION_ERROR",
-                            metadata=ToolResultMetadata(tool_name=tool_name)
+                            metadata=ToolResultMetadata(tool_name=tool_name),
                         )
                         error_response = format_tool_response_message(
                             tool_name, error_result, tool_id
@@ -288,94 +290,120 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
     def _is_development_tool(self, tool_name: str) -> bool:
         """
         Check if a tool is a development tool.
-        
+
         Args:
             tool_name: Name of the tool
-            
+
         Returns:
             True if the tool is a development tool
         """
         development_tools = [
-            "execute_code", "python_execute", "execute_python", "run_code",
-            "debug_code", "test_code", "create_file", "read_file", "write_file",
-            "view_file", "create_test", "run_test", "generate_docs",
-            "git_commit", "version_code", "code_review", "lint_code"
+            "execute_code",
+            "python_execute",
+            "execute_python",
+            "run_code",
+            "debug_code",
+            "test_code",
+            "create_file",
+            "read_file",
+            "write_file",
+            "view_file",
+            "create_test",
+            "run_test",
+            "generate_docs",
+            "git_commit",
+            "version_code",
+            "code_review",
+            "lint_code",
         ]
-        
-        return tool_name.lower() in [t.lower() for t in development_tools] or \
-               any(keyword in tool_name.lower() for keyword in 
-                   ["code", "file", "test", "debug", "git", "doc"])
+
+        return tool_name.lower() in [t.lower() for t in development_tools] or any(
+            keyword in tool_name.lower()
+            for keyword in ["code", "file", "test", "debug", "git", "doc"]
+        )
 
     def _generate_dev_error_guidance(
         self, tool_name: str, params: Dict[str, Any], result: ToolResult
     ) -> Optional[str]:
         """
         Generate guidance for development tool errors.
-        
+
         Args:
             tool_name: Name of the tool
             params: Parameters passed to the tool
             result: Error result from the tool
-            
+
         Returns:
             Guidance message or None
         """
         if not result.error:
             return None
-            
+
         error_msg = result.error
-        
+
         # Syntax error guidance
         if "SyntaxError" in error_msg:
             line_match = re.search(r"line (\d+)", error_msg)
             line_num = line_match.group(1) if line_match else "unknown"
-            return (f"There appears to be a syntax error in your code at line {line_num}. "
-                   f"Please check for missing parentheses, colons, or other syntax issues. "
-                   f"Fix the syntax error and try again.")
-                   
+            return (
+                f"There appears to be a syntax error in your code at line {line_num}. "
+                f"Please check for missing parentheses, colons, or other syntax issues. "
+                f"Fix the syntax error and try again."
+            )
+
         # Import error guidance
         elif "ImportError" or "ModuleNotFoundError" in error_msg:
             module_match = re.search(r"No module named '([^']+)'", error_msg)
             module = module_match.group(1) if module_match else "the requested module"
-            return (f"The code is missing a required import for {module}. "
-                   f"Please check that you're using standard library modules or "
-                   f"provide an implementation for any custom modules.")
-                   
+            return (
+                f"The code is missing a required import for {module}. "
+                f"Please check that you're using standard library modules or "
+                f"provide an implementation for any custom modules."
+            )
+
         # Type error guidance
         elif "TypeError" in error_msg:
-            return (f"There is a type error in your code: {error_msg}. "
-                   f"Please check that you're using the correct data types and "
-                   f"function signatures.")
-                   
+            return (
+                f"There is a type error in your code: {error_msg}. "
+                f"Please check that you're using the correct data types and "
+                f"function signatures."
+            )
+
         # Name error guidance
         elif "NameError" in error_msg:
             var_match = re.search(r"name '([^']+)' is not defined", error_msg)
             var = var_match.group(1) if var_match else "a variable"
-            return (f"The code references {var} which is not defined. "
-                   f"Please make sure all variables are properly defined before use.")
-                   
+            return (
+                f"The code references {var} which is not defined. "
+                f"Please make sure all variables are properly defined before use."
+            )
+
         # General code execution guidance
         elif "code execution" in error_msg.lower():
-            return (f"The code execution failed. Please review the error message: {error_msg}. "
-                   f"Try simplifying your code or breaking it into smaller parts to identify "
-                   f"the issue.")
-        
-        # Default guidance for other errors        
-        return (f"There was an error with the {tool_name} tool: {error_msg}. "
-               f"Please review your code and fix any issues before trying again.")
+            return (
+                f"The code execution failed. Please review the error message: {error_msg}. "
+                f"Try simplifying your code or breaking it into smaller parts to identify "
+                f"the issue."
+            )
+
+        # Default guidance for other errors
+        return (
+            f"There was an error with the {tool_name} tool: {error_msg}. "
+            f"Please review your code and fix any issues before trying again."
+        )
 
     def _execute_dev_tool_with_handling(
         self, agent: AgentProtocol, tool_name: str, params: Dict[str, Any], **kwargs: Any
     ) -> ToolResult:
         """
         Execute a development tool with enhanced error handling.
-        
+
         Args:
             agent: The agent using this reasoning framework
             tool_name: Name of the tool to execute
             params: Parameters for tool execution
             **kwargs: Additional parameters
-            
+
         Returns:
             Tool execution result
         """
@@ -383,22 +411,24 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
             return ToolFailure(
                 error="Agent does not have a tool manager",
                 error_code="NO_TOOL_MANAGER",
-                metadata=ToolResultMetadata(tool_name=tool_name)
+                metadata=ToolResultMetadata(tool_name=tool_name),
             )
 
         tool_manager = getattr(agent, "_tool_manager")
-        
+
         # Validate parameters against tool schema if validation is enabled
         if hasattr(tool_manager, "get_tool") and kwargs.get("validate_params", True):
             tool = tool_manager.get_tool(tool_name)
             if tool and hasattr(tool, "parameters"):
-                valid_params, error_msg = validate_tool_parameters(tool_name, params, tool.parameters)
+                valid_params, error_msg = validate_tool_parameters(
+                    tool_name, params, tool.parameters
+                )
                 if not valid_params:
                     return ToolFailure(
                         error=f"Invalid parameters: {error_msg}",
                         error_code="INVALID_PARAMETERS",
                         retryable=True,
-                        metadata=ToolResultMetadata(tool_name=tool_name)
+                        metadata=ToolResultMetadata(tool_name=tool_name),
                     )
 
         # Development-specific parameter handling
@@ -414,23 +444,30 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                     # Add safety imports for Python if appropriate and not already present
                     if "import sys" not in code and "import os" not in code:
                         params["code"] = "import sys\nimport os\n\n" + code
-        
+
         # Add version tracking for file operations
         if tool_name.lower() in ["write_file", "create_file"] and "content" in params:
             # Add timestamp comment for versioning if appropriate
             content = params["content"]
             file_path = params.get("file_path", params.get("path", "unknown"))
-            
+
             # Only add versioning comments to appropriate file types
-            if any(file_path.endswith(ext) for ext in [".py", ".js", ".ts", ".java", ".c", ".cpp", ".h"]):
+            if any(
+                file_path.endswith(ext)
+                for ext in [".py", ".js", ".ts", ".java", ".c", ".cpp", ".h"]
+            ):
                 timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                
+
                 # Different comment styles for different languages
                 if file_path.endswith((".py")):
-                    header = f"# Version: Generated on {timestamp}\n# Auto-generated by SWE agent\n\n"
+                    header = (
+                        f"# Version: Generated on {timestamp}\n# Auto-generated by SWE agent\n\n"
+                    )
                 elif file_path.endswith((".js", ".ts", ".java", ".c", ".cpp", ".h")):
-                    header = f"// Version: Generated on {timestamp}\n// Auto-generated by SWE agent\n\n"
-                
+                    header = (
+                        f"// Version: Generated on {timestamp}\n// Auto-generated by SWE agent\n\n"
+                    )
+
                 # Add the versioning header if not already present
                 if not content.startswith(("# Version", "// Version")):
                     params["content"] = header + content
@@ -440,7 +477,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
         if tool_name.lower() in ["execute_code", "python_execute", "execute_python", "run_code"]:
             # Increase timeout for code execution
             timeout = kwargs.get("code_execution_timeout", 30.0)
-            
+
         retry_count = kwargs.get("retry_count", 1)  # Default to fewer retries for dev tools
         retry_delay = kwargs.get("retry_delay", 1.0)
 
@@ -453,12 +490,12 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                     timeout=timeout,
                     retry_count=retry_count,
                     retry_delay=retry_delay,
-                    **params
+                    **params,
                 )
             )
-            
+
             logger.info(f"Executed tool {tool_name} for agent {agent.id}")
-            
+
             # Process result for better development experience
             if isinstance(result, ToolResult):
                 # Add documentation generation info if this was a file creation/modification
@@ -469,9 +506,14 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                             f"File '{file_path}' created/updated successfully. "
                             f"Consider adding docstrings and type hints for better documentation."
                         )
-                
+
                 # Enhance code execution output for better readability
-                if tool_name.lower() in ["execute_code", "python_execute", "execute_python", "run_code"]:
+                if tool_name.lower() in [
+                    "execute_code",
+                    "python_execute",
+                    "execute_python",
+                    "run_code",
+                ]:
                     if result.output:
                         if isinstance(result.output, str) and len(result.output) > 1000:
                             # Truncate very long outputs for readability
@@ -479,22 +521,22 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                             return ToolResult(
                                 output=trunc_output,
                                 system=f"Output truncated. Original length: {len(result.output)} chars.",
-                                metadata=result.metadata
+                                metadata=result.metadata,
                             )
-            
+
             return cast(ToolResult, result)
         except Exception as e:
             logger.error(f"Error executing tool {tool_name}: {e}", exc_info=True)
             return ToolFailure(
                 error=f"Tool execution error: {str(e)}",
                 error_code="EXECUTION_ERROR",
-                metadata=ToolResultMetadata(tool_name=tool_name)
+                metadata=ToolResultMetadata(tool_name=tool_name),
             )
 
     def _get_event_loop(self) -> asyncio.AbstractEventLoop:
         """
         Get or create an event loop.
-        
+
         Returns:
             Event loop instance
         """
@@ -509,18 +551,18 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
     def _post_process_swe_response(self, response: MessageProtocol) -> MessageProtocol:
         """
         Post-process an LLM response for better development workflows.
-        
+
         Args:
             response: LLM response message
-            
+
         Returns:
             Processed response message
         """
         if not response.content:
             return response
-            
+
         content = response.content
-        
+
         # Enhance code formatting for common languages
         for lang in ["python", "javascript", "typescript", "java", "cpp", "go"]:
             pattern = f"```{lang}(.*?)```"
@@ -529,25 +571,33 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 # Check if the code already has proper spacing
                 if not match.startswith("\n"):
                     # Add newline after opening code block
-                    content = content.replace(f"```{lang}{match}```", f"```{lang}\n{match.lstrip()}```")
-        
+                    content = content.replace(
+                        f"```{lang}{match}```", f"```{lang}\n{match.lstrip()}```"
+                    )
+
         # Add missing language annotations for unlabeled code blocks
         if "```\n" in content:
             # Add python as default language for unlabeled code blocks
             content = content.replace("```\n", "```python\n")
-        
+
         # Check for documentation gaps in code
         if "```python" in content.lower():
             python_blocks = re.findall(r"```python\s+(.*?)\s+```", content, re.DOTALL)
             for block in python_blocks:
-                if "def " in block and not re.search(r'""".*?"""', block, re.DOTALL) and not block.count('#'):
+                if (
+                    "def " in block
+                    and not re.search(r'""".*?"""', block, re.DOTALL)
+                    and not block.count("#")
+                ):
                     # Code has functions but no docstrings or comments
-                    note = ("\n\nNote: Consider adding docstrings to functions for better documentation. "
-                            "This helps with code maintainability.")
+                    note = (
+                        "\n\nNote: Consider adding docstrings to functions for better documentation. "
+                        "This helps with code maintainability."
+                    )
                     if note not in content:
                         content += note
                         break
-        
+
         # Return the enhanced response
         return Message.assistant_message(content, metadata=response.metadata)
 
@@ -581,8 +631,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
             tool_manager = getattr(agent, "_tool_manager")
             if hasattr(tool_manager, "get_formatted_tool_descriptions"):
                 tools_description = tool_manager.get_formatted_tool_descriptions(
-                    include_capabilities=True,
-                    include_examples=True
+                    include_capabilities=True, include_examples=True
                 )
 
         # Get SWE system prompt
@@ -615,12 +664,19 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
         task.status = TaskStatus.IN_PROGRESS
         if not task.metadata:
             task.metadata = {}
-        
+
         task.metadata["start_time"] = datetime.now().isoformat()
         task.metadata["is_development_task"] = is_dev_task
-        
+
         # Track development stages for software tasks
-        dev_stages = ["requirements", "design", "implementation", "testing", "refactoring", "documentation"]
+        dev_stages = [
+            "requirements",
+            "design",
+            "implementation",
+            "testing",
+            "refactoring",
+            "documentation",
+        ]
         current_stage_idx = 0
         if is_dev_task:
             task.metadata["development_stages"] = {
@@ -629,7 +685,9 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
             task.metadata["current_stage"] = dev_stages[current_stage_idx]
 
         # Process with LLM in a loop until task is completed or max iterations reached
-        max_iterations = kwargs.get("max_iterations", 15)  # Increase default iterations for dev tasks
+        max_iterations = kwargs.get(
+            "max_iterations", 15
+        )  # Increase default iterations for dev tasks
         current_iteration = 0
 
         while current_iteration < max_iterations:
@@ -647,12 +705,12 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                         tools_schema = loop.run_until_complete(
                             tool_manager.get_tool_schemas(filter_by_capabilities=True)
                         )
-                
+
                 # Prepare completion parameters
                 completion_kwargs = {}
                 if tools_schema:
                     completion_kwargs["tools"] = tools_schema
-                
+
                 # Add any additional parameters from kwargs
                 for key, value in kwargs.items():
                     if key != "llm_provider" and key != "tools_description":
@@ -660,8 +718,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
 
                 # Get response from LLM
                 response = llm_provider.complete(
-                    [cast(MessageProtocol, msg) for msg in messages],
-                    **completion_kwargs
+                    [cast(MessageProtocol, msg) for msg in messages], **completion_kwargs
                 )
                 messages.append(cast(Message, response))
 
@@ -674,13 +731,15 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                         if current_stage_idx < len(dev_stages):
                             current_stage = dev_stages[current_stage_idx]
                             prev_stage = dev_stages[current_stage_idx - 1]
-                            
+
                             # Mark previous stage as completed
                             task.metadata["development_stages"][prev_stage]["completed"] = True
                             task.metadata["current_stage"] = current_stage
-                            
+
                             # Log stage transition
-                            logger.info(f"Development task progressed from {prev_stage} to {current_stage}")
+                            logger.info(
+                                f"Development task progressed from {prev_stage} to {current_stage}"
+                            )
 
                 # Check if task appears to be complete
                 if self._is_task_completed(response.content or "", is_dev_task):
@@ -733,19 +792,21 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
 
                         # Format result as tool response with appropriate format
                         tool_response = format_tool_response_message(
-                            tool_name, tool_result, tool_id,
-                            response_format=kwargs.get("tool_response_format", "json")
+                            tool_name,
+                            tool_result,
+                            tool_id,
+                            response_format=kwargs.get("tool_response_format", "json"),
                         )
                         tool_response_message = cast(Message, tool_response)
                         messages.append(tool_response_message)
-                        
+
                         # Track artifacts for dev tasks
                         if is_dev_task:
                             current_stage = dev_stages[current_stage_idx]
                             self._track_dev_artifact(
                                 task, tool_name, params, tool_result, current_stage
                             )
-                        
+
                         # Add error guidance for development tools
                         if self._is_development_tool(tool_name) and tool_result.error:
                             error_guidance = self._generate_dev_error_guidance(
@@ -774,12 +835,13 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
         task.metadata["response"] = final_response
         task.metadata["iterations"] = current_iteration
         task.metadata["end_time"] = datetime.now().isoformat()
-        
+
         # Generate documentation summary for dev tasks
-        if is_dev_task and all(task.metadata["development_stages"][stage]["completed"] 
-                              for stage in dev_stages[:4]):  # First 4 stages must be completed
+        if is_dev_task and all(
+            task.metadata["development_stages"][stage]["completed"] for stage in dev_stages[:4]
+        ):  # First 4 stages must be completed
             self._generate_documentation_summary(task)
-            
+
         task.status = TaskStatus.COMPLETED
 
         return task.status
@@ -787,31 +849,61 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
     def _detect_dev_stage(self, content: str, current_stage_idx: int) -> int:
         """
         Detect the current development stage from content.
-        
+
         Args:
             content: Message content to analyze
             current_stage_idx: Current stage index
-            
+
         Returns:
             Updated stage index
         """
         # Stage transition indicators
         stage_indicators = {
-            "requirements": ["requirements gathering", "requirements analysis", "understanding the task"],
+            "requirements": [
+                "requirements gathering",
+                "requirements analysis",
+                "understanding the task",
+            ],
             "design": ["design", "architecture", "solution approach", "high-level design"],
-            "implementation": ["implementation", "coding", "let's implement", "here's the code", "```python"],
-            "testing": ["testing", "test cases", "unit test", "let's test", "validating", "verifying"],
+            "implementation": [
+                "implementation",
+                "coding",
+                "let's implement",
+                "here's the code",
+                "```python",
+            ],
+            "testing": [
+                "testing",
+                "test cases",
+                "unit test",
+                "let's test",
+                "validating",
+                "verifying",
+            ],
             "refactoring": ["refactoring", "optimization", "improving", "enhance", "clean up"],
-            "documentation": ["documentation", "documenting", "adding comments", "docstring", "readme"]
+            "documentation": [
+                "documentation",
+                "documenting",
+                "adding comments",
+                "docstring",
+                "readme",
+            ],
         }
-        
+
         # Convert stage indicators to a list matching the stage order
-        stages = ["requirements", "design", "implementation", "testing", "refactoring", "documentation"]
-        
+        stages = [
+            "requirements",
+            "design",
+            "implementation",
+            "testing",
+            "refactoring",
+            "documentation",
+        ]
+
         # Figure out the furthest stage mentioned in the content
         furthest_stage_idx = current_stage_idx
         content_lower = content.lower()
-        
+
         for i, stage in enumerate(stages):
             # Only consider stages beyond our current position
             if i > current_stage_idx:
@@ -819,24 +911,26 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 if any(indicator in content_lower for indicator in indicators):
                     # Found evidence of this stage
                     furthest_stage_idx = i
-        
+
         # Special case: if the content has code blocks, we're at least at implementation
         if "```" in content and furthest_stage_idx < 2:  # 2 is implementation
             furthest_stage_idx = 2
-            
+
         # Special case: if there are test results, we're at least at testing
-        if re.search(r"test.*?pass|fail|error|assert", content_lower) and furthest_stage_idx < 3:  # 3 is testing
+        if (
+            re.search(r"test.*?pass|fail|error|assert", content_lower) and furthest_stage_idx < 3
+        ):  # 3 is testing
             furthest_stage_idx = 3
-            
+
         return furthest_stage_idx
 
     def _get_stage_guidance(self, stage: str) -> str:
         """
         Get guidance for the current development stage.
-        
+
         Args:
             stage: Current development stage
-            
+
         Returns:
             Guidance message
         """
@@ -870,22 +964,19 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 "Continue documenting your solution. "
                 "Add clear comments and docstrings to your code. "
                 "Summarize your approach and any important details."
-            )
+            ),
         }
-        
-        return guidance.get(stage, "Continue working on this task. Let me know if you need any clarification.")
+
+        return guidance.get(
+            stage, "Continue working on this task. Let me know if you need any clarification."
+        )
 
     def _track_dev_artifact(
-        self, 
-        task: Task, 
-        tool_name: str, 
-        params: Dict[str, Any], 
-        result: ToolResult, 
-        stage: str
+        self, task: Task, tool_name: str, params: Dict[str, Any], result: ToolResult, stage: str
     ) -> None:
         """
         Track development artifacts in task metadata.
-        
+
         Args:
             task: Task to update
             tool_name: Name of the tool
@@ -895,7 +986,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
         """
         # Track artifacts based on tool type
         artifact = None
-        
+
         if tool_name.lower() in ["write_file", "create_file"]:
             # Track file artifacts
             file_path = params.get("file_path", params.get("path", "unknown"))
@@ -903,19 +994,19 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 "type": "file",
                 "path": file_path,
                 "time": datetime.now().isoformat(),
-                "success": result.error is None
+                "success": result.error is None,
             }
         elif tool_name.lower() in ["execute_code", "python_execute", "execute_python", "run_code"]:
             # Track code execution artifacts
             code_snippet = params.get("code", "")
             if len(code_snippet) > 100:
                 code_snippet = code_snippet[:100] + "..."
-                
+
             artifact = {
                 "type": "code_execution",
                 "snippet": code_snippet,
                 "time": datetime.now().isoformat(),
-                "success": result.error is None
+                "success": result.error is None,
             }
         elif "test" in tool_name.lower():
             # Track testing artifacts
@@ -923,9 +1014,9 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 "type": "test",
                 "details": str(params),
                 "time": datetime.now().isoformat(),
-                "success": result.error is None
+                "success": result.error is None,
             }
-        
+
         # Add artifact to task metadata if we created one
         if artifact and task.metadata and "development_stages" in task.metadata:
             if stage in task.metadata["development_stages"]:
@@ -934,34 +1025,34 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
     def _generate_documentation_summary(self, task: Task) -> None:
         """
         Generate a documentation summary for a development task.
-        
+
         Args:
             task: Task to document
         """
         if not task.metadata or "development_stages" not in task.metadata:
             return
-            
+
         # Collect artifacts from all stages
         all_artifacts = []
         dev_stages = task.metadata["development_stages"]
-        
+
         for stage, info in dev_stages.items():
             if info["completed"] and "artifacts" in info:
                 for artifact in info["artifacts"]:
                     artifact["stage"] = stage
                     all_artifacts.append(artifact)
-        
+
         # Generate summary if we have artifacts
         if all_artifacts:
             # Get file artifacts
             file_artifacts = [a for a in all_artifacts if a["type"] == "file"]
             file_paths = list(set(a["path"] for a in file_artifacts))
-            
+
             # Get test artifacts
             test_artifacts = [a for a in all_artifacts if a["type"] == "test"]
             test_count = len(test_artifacts)
             test_success = sum(1 for a in test_artifacts if a["success"])
-            
+
             # Create documentation summary
             summary = {
                 "files_created": file_paths,
@@ -969,9 +1060,9 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 "tests_run": test_count,
                 "tests_passed": test_success,
                 "development_completed": True,
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
-            
+
             task.metadata["documentation_summary"] = summary
 
     def _is_development_task(self, description: str) -> bool:
@@ -1039,7 +1130,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                 r"completed the task",
                 r"the code has been",
                 r"solution has been implemented",
-                r"all requirements have been met"
+                r"all requirements have been met",
             ]
             return has_code and any(
                 re.search(pattern, content, re.IGNORECASE) for pattern in completion_patterns
@@ -1096,7 +1187,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
             "- Write modular, testable code\n"
             "- Handle errors and edge cases gracefully\n"
         )
-        
+
         swe_prompt += doc_guidance
 
         # Combine with base prompt if provided
@@ -1183,7 +1274,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
             Formatted tool response
         """
         format_type = kwargs.get("response_format", "default")
-        
+
         if format_type == "react":
             # ReAct format
             if tool_result.error:
