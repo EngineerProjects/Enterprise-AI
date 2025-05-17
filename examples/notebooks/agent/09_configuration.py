@@ -33,9 +33,15 @@ from enterprise_ai.logger import get_logger
 # Configure logger
 logger = get_logger("agent_config_test")
 
+# Set a high timeout for our slow devices
+TIMEOUT = 1200  # 20 minutes for very slow GPU/CPU
+
 async def test_agent_configuration():
     """Test agent configuration and creation from config files."""
     print_title("TESTING AGENT CONFIGURATION")
+    
+    # Set environment variable for Ollama timeout
+    os.environ["ENTERPRISE_AI_OLLAMA_TIMEOUT"] = str(TIMEOUT)
 
     # Create a temporary directory for configuration files
     config_dir = "temp_agent_config"
@@ -53,7 +59,11 @@ async def test_agent_configuration():
             "reasoning_framework": "react",
             "use_tools": True,
             "tool_categories": ["research", "utility"],
-            "llm_provider": "anthropic",
+            "llm_provider_name": "ollama",  # Use llm_provider_name instead of llm_provider
+            "llm_provider_kwargs": {
+                "model_name": "smollm2",
+                "timeout": TIMEOUT
+            },
             "model_params": {
                 "temperature": 0.7,
                 "max_tokens": 1000
@@ -89,7 +99,12 @@ async def test_agent_configuration():
                     "agent_type": "llm",
                     "name": "Project Manager",
                     "role_type": "manager",
-                    "reasoning_framework": "cot"
+                    "reasoning_framework": "cot",
+                    "llm_provider_name": "ollama",  # Use llm_provider_name instead of llm_provider
+                    "llm_provider_kwargs": {
+                        "model_name": "smollm2",
+                        "timeout": TIMEOUT
+                    }
                 },
                 "developer": {
                     "agent_type": "llm",
@@ -97,7 +112,12 @@ async def test_agent_configuration():
                     "role_type": "developer",
                     "reasoning_framework": "swe",
                     "use_tools": True,
-                    "tool_categories": ["development", "utility"]
+                    "tool_categories": ["development", "utility"],
+                    "llm_provider_name": "ollama",  # Use llm_provider_name instead of llm_provider
+                    "llm_provider_kwargs": {
+                        "model_name": "smollm2",
+                        "timeout": TIMEOUT
+                    }
                 },
                 "researcher": {
                     "agent_type": "llm",
@@ -105,7 +125,12 @@ async def test_agent_configuration():
                     "role_type": "researcher",
                     "reasoning_framework": "react",
                     "use_tools": True,
-                    "tool_categories": ["research", "file"]
+                    "tool_categories": ["research", "file"],
+                    "llm_provider_name": "ollama",  # Use llm_provider_name instead of llm_provider
+                    "llm_provider_kwargs": {
+                        "model_name": "smollm2",
+                        "timeout": TIMEOUT
+                    }
                 }
             }
         }
@@ -131,7 +156,7 @@ async def test_agent_configuration():
             with Timer("Developer Response"):
                 response = await developer.aprocess_message(query)
             
-            print_info(f"Response snippet: '{response.content}'")
+            print_info(f"Response snippet: '{response.content}...'")
         
         print_success("All agent configuration tests completed successfully!")
         

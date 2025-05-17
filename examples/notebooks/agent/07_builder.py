@@ -7,6 +7,7 @@ customized agents with fluent API.
 """
 
 import asyncio
+import os
 from typing import Any, Dict, List, Optional
 
 # Import utilities
@@ -26,6 +27,8 @@ setup_project_path()
 
 # Import core components
 from enterprise_ai.agent.core.factory import AgentBuilder
+from enterprise_ai.llm.providers.factory import create_provider
+from enterprise_ai.llm.providers.ollama import OllamaProvider
 from enterprise_ai.logger import get_logger
 
 # Configure logger
@@ -34,6 +37,12 @@ logger = get_logger("agent_builder_test")
 async def test_agent_builder():
     """Test creating agents using the builder pattern."""
     print_title("TESTING AGENT BUILDER PATTERN")
+    
+    # Set a high timeout for our slow devices
+    TIMEOUT = 1200  # 20 minutes for very slow GPU/CPU
+    
+    # Set environment variable for Ollama timeout
+    os.environ["ENTERPRISE_AI_OLLAMA_TIMEOUT"] = str(TIMEOUT)
 
     # 1. Create a simple agent with the builder
     print_section("1. Creating a simple agent with builder")
@@ -43,6 +52,7 @@ async def test_agent_builder():
         .with_type("llm")
         .with_name("Simple Builder Agent")
         .with_reasoning("cot")
+        .with_llm_provider_name("ollama", model_name="smollm2", timeout=1200)
         .build()
     )
     
@@ -57,7 +67,7 @@ async def test_agent_builder():
     
     print_info(f"Response snippet: '{response.content}'")
     
-    # 2. Create a complex agent with the builder
+    # 2. Creating a complex agent with builder
     print_section("2. Creating a complex agent with builder")
     
     complex_agent = (
@@ -68,8 +78,8 @@ async def test_agent_builder():
         .with_reasoning("swe")
         .with_tools(True)
         .with_tool_categories(["development", "utility"])
+        .with_llm_provider_name("ollama", model_name="smollm2", timeout=1200)
         .with_param("temperature", 0.7)
-        .with_param("model", "claude-3.7-sonnet")
         .build()
     )
     
@@ -94,6 +104,7 @@ async def test_agent_builder():
         .with_reasoning("react")
         .with_tools(True)
         .with_tool_names(["calculator", "web_search"])
+        .with_llm_provider_name("ollama", model_name="smollm2", timeout=1200)
         .with_param("max_tokens", 1000)
         .with_param("top_p", 0.9)
         .build()

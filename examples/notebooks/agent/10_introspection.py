@@ -7,6 +7,7 @@ to examine and understand agent behavior and performance.
 """
 
 import asyncio
+import os
 from typing import Any, Dict, List, Optional
 
 # Import utilities
@@ -31,9 +32,15 @@ from enterprise_ai.logger import get_logger
 # Configure logger
 logger = get_logger("agent_introspection_test")
 
+# Set a high timeout for our slow devices
+TIMEOUT = 1200  # 20 minutes for very slow GPU/CPU
+
 async def test_agent_introspection():
     """Test agent introspection capabilities."""
     print_title("TESTING AGENT INTROSPECTION")
+    
+    # Set environment variable for Ollama timeout
+    os.environ["ENTERPRISE_AI_OLLAMA_TIMEOUT"] = str(TIMEOUT)
 
     # 1. Create an agent with different capabilities
     print_section("1. Creating an agent with various capabilities")
@@ -45,7 +52,9 @@ async def test_agent_introspection():
         reasoning_framework="react",
         use_tools=True,
         enable_mcp=True,
-        tool_categories=["research", "utility"]
+        tool_categories=["research", "utility"],
+        llm_provider_name="ollama",
+        llm_provider_kwargs={"model_name": "smollm2", "timeout": TIMEOUT}
     )
     
     print_success(f"Created agent: {agent.name} (ID: {agent.id})")
@@ -88,6 +97,16 @@ async def test_agent_introspection():
     # 4. Get agent metrics
     print_section("4. Getting agent performance metrics")
     
+    # Ensure agent.tools_manager has MCP initialized if needed
+    if hasattr(agent, "_tools") and agent._tools:
+        if hasattr(agent, "initialize_mcp") and callable(getattr(agent, "initialize_mcp")):
+            await agent.initialize_mcp()
+        elif hasattr(agent._tools, "_mcp_config") and agent._tools._mcp_config and agent._tools._mcp_config.get("enable"):
+            await agent._tools.enable_mcp(
+                tool_categories=agent._tools._mcp_config.get("categories"),
+                tool_names=agent._tools._mcp_config.get("names")
+            )
+    
     if hasattr(agent, "get_metrics"):
         # Process a request to generate some metrics
         await agent.aprocess_message("What is quantum computing?")
@@ -108,6 +127,25 @@ async def test_agent_introspection():
         print_info(tools_description)
     else:
         print_info("Agent does not support tool introspection")
+    
+    # Properly clean up and close MCP session
+    try:
+        # Set _explicitly_closed flag on the agent's MCP client
+        if hasattr(agent, "_tools") and agent._tools is not None:
+            if hasattr(agent._tools, "_mcp_client") and agent._tools._mcp_client is not None:
+                agent._tools._mcp_client._explicitly_closed = True
+                
+        # Terminate the agent properly
+        if hasattr(agent, "terminate"):
+            await agent.terminate()
+            
+        # Close the agent-specific MCP session through the server
+        agent_session_id = f"agent-{agent.id}"
+        from enterprise_ai.mcp.server import get_mcp_server
+        mcp_server = get_mcp_server()
+        await mcp_server.close_session(agent_session_id)
+    except Exception as e:
+        print_error(f"Error during cleanup: {e}")
     
     print_success("All agent introspection tests completed successfully!")
     separator()
