@@ -49,6 +49,7 @@ class MCPClient:
         """
         self.session_id = session_id
         self._config = config or {}
+        self._explicitly_closed = False
 
         # Import here to avoid circular imports
         from enterprise_ai.mcp.server import get_mcp_server
@@ -354,9 +355,15 @@ class MCPClient:
         if self._session is not None:
             await self._server.close_session(self.session_id)
             self._session = None
+            self._explicitly_closed = True
+            logger.debug(f"Explicitly closed MCP session: {self.session_id}")
 
     def __del__(self) -> None:
         """Clean up resources when object is destroyed."""
+        # Skip cleanup if already explicitly closed
+        if hasattr(self, "_explicitly_closed") and self._explicitly_closed:
+            return
+            
         if hasattr(self, "_session") and self._session is not None:
             try:
                 # Try using existing event loop
