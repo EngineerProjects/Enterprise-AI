@@ -303,10 +303,8 @@ async def test_multi_agent():
 
     # Extract the final solution from the workflow conversation
     final_solution = workflow_conversation[-1].content
-
-    # Print a snippet of the solution
-    solution_snippet = final_solution[:500] + "..." if len(final_solution) > 500 else final_solution
-    print_info(f"Final solution snippet:\n{solution_snippet}")
+    
+    print_info(f"Final solution snippet:\n{final_solution}")
 
     print_success("All multi-agent tests completed successfully!")
     separator()
