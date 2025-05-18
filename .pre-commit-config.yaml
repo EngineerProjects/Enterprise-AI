@@ -22,7 +22,7 @@ repos:
     hooks:
       - id: mypy
         additional_dependencies: [types-requests, types-PyYAML]
-        exclude: ^(tests/|examples/|notebooks/|enterprise_ai/temps/)
+        exclude: ^(tests/|examples/|notebooks/|examples/temps)
 
   - repo: local
     hooks:
