@@ -27,6 +27,7 @@ from enterprise_ai.agent.architecture.utils import (
 )
 from enterprise_ai.config import get_config
 from enterprise_ai.logger import get_logger
+from enterprise_ai.types import MessageProtocol
 
 logger = get_logger("agent.lifecycle")
 
@@ -61,7 +62,7 @@ class AgentLifecycleEvent(str, Enum):
 class LifecycleEventHandler:
     """Handler for agent lifecycle events."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize the event handler."""
         self._handlers: Dict[AgentLifecycleEvent, List[Callable[[Dict[str, Any]], None]]] = {
             event: [] for event in AgentLifecycleEvent
@@ -119,7 +120,7 @@ class LifecycleEventHandler:
 class AgentLifecycleManager:
     """Manager for agent lifecycle."""
 
-    def __init__(self, agent: Any):
+    def __init__(self, agent: Any) -> None:
         """Initialize the lifecycle manager.
 
         Args:
@@ -135,7 +136,7 @@ class AgentLifecycleManager:
         self.error_manager = ErrorManager(self.agent_id)
         self.event_handler = LifecycleEventHandler()
         self._state_dir = get_config("agent.state_directory")
-        self._config = {}
+        self._config: Dict[str, Any] = {}
         self._version = "1.0.0"
 
         # Trigger created event
@@ -380,7 +381,7 @@ class AgentLifecycleManager:
             return True
         except Exception as e:
             # Handle save error
-            error = self.error_manager.handle_error(e, error_code=AgentErrorCode.PERSISTENCE_ERROR)
+            self.error_manager.handle_error(e, error_code=AgentErrorCode.PERSISTENCE_ERROR)
 
             logger.error(f"Failed to save agent {self.agent_id} state: {e}")
             return False
@@ -423,7 +424,7 @@ class AgentLifecycleManager:
             return True
         except Exception as e:
             # Handle load error
-            error = self.error_manager.handle_error(e, error_code=AgentErrorCode.PERSISTENCE_ERROR)
+            self.error_manager.handle_error(e, error_code=AgentErrorCode.PERSISTENCE_ERROR)
 
             logger.error(f"Failed to load agent {self.agent_id} state: {e}")
             return False
@@ -525,8 +526,8 @@ class AgentLifecycleManager:
 
                         # Convert dict representations back to Message objects
                         for msg_dict in msg_dicts:
-                            # Create a Message from the dict
-                            message = Message.from_dict(msg_dict)
+                            # Create a Message from the dict - using cast to ensure type compatibility
+                            message = cast(MessageProtocol, Message.from_dict(msg_dict))
                             # Add to conversation
                             self.agent._conversation._conversations[conv_id].append(message)
 

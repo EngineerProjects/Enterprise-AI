@@ -285,9 +285,11 @@ class FunctionCallingFormatter:
         if tool_call_id:
             result["tool_call_id"] = tool_call_id
 
-        # Add execution time if available
+        # Check if execution time is available
         if tool_result.metadata and tool_result.metadata.execution_time_ms is not None:
-            result["execution_time_ms"] = tool_result.metadata.execution_time_ms
+            execution_time_ms: float = tool_result.metadata.execution_time_ms
+            # Convert float to string for dictionary value to match expected type
+            result["execution_time_ms"] = str(execution_time_ms)
 
         # Add metadata if requested
         if include_metadata and tool_result.metadata:
@@ -313,11 +315,13 @@ class FunctionCallingFormatter:
 
             # Add cache info
             if tool_result.metadata.cache_hit:
-                meta_dict["cache_hit"] = True
+                # Convert boolean to string as expected by the type annotation
+                meta_dict["cache_hit"] = str(True)
 
             # Add to result if we have metadata
             if meta_dict:
-                result["metadata"] = meta_dict
+                # Convert dict to string (JSON) to match expected type
+                result["metadata"] = json.dumps(meta_dict)
 
         # Add error details for failures
         if tool_result.error and isinstance(tool_result, ToolFailure):
@@ -325,10 +329,14 @@ class FunctionCallingFormatter:
                 result["error_code"] = tool_result.error_code
 
             if hasattr(tool_result, "retryable") and tool_result.retryable:
-                result["retryable"] = True
+                is_retryable: bool = tool_result.retryable
+                # Convert bool to string to match expected type
+                result["retryable"] = str(is_retryable)
 
             if hasattr(tool_result, "suggestions") and tool_result.suggestions:
-                result["suggestions"] = tool_result.suggestions
+                suggestion_list: List[str] = tool_result.suggestions
+                # Convert list to string (JSON) to match expected type
+                result["suggestions"] = json.dumps(suggestion_list)
 
         return result
 
@@ -469,15 +477,17 @@ def format_tool_response_message(
     if tool_call_id:
         metadata["tool_call_id"] = tool_call_id
 
-    # Add execution time if available
+    # Add metadata if available
     if tool_result.metadata and tool_result.metadata.execution_time_ms is not None:
-        metadata["execution_time_ms"] = tool_result.metadata.execution_time_ms
+        execution_time_ms: float = tool_result.metadata.execution_time_ms
+        metadata["execution_time_ms"] = execution_time_ms
 
     # Add error info if applicable
     if tool_result.error:
         metadata["error"] = tool_result.error
         if isinstance(tool_result, ToolFailure) and tool_result.error_code:
-            metadata["error_code"] = tool_result.error_code
+            error_code: str = tool_result.error_code
+            metadata["error_code"] = error_code
 
     # Create the message
     if response_format == "react":
@@ -738,7 +748,8 @@ async def execute_tool_with_retry(
             retry_delay=backoff_base,
             **parameters,
         )
-        return result
+        # Ensure we're returning a proper ToolResult
+        return cast(ToolResult, result)
     except Exception as e:
         logger.error(f"Error executing tool {tool_name}: {e}")
         return ToolFailure(error=f"Tool execution error: {str(e)}", error_code="EXECUTION_ERROR")

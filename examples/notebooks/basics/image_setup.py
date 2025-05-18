@@ -52,7 +52,7 @@ def setup_image_directory():
             print(f"  - {img}")
     else:
         print_warning("No images found in the directory.")
- 
+
     # Check for our specific expected images
     expected_images = [
         'animaux.jpg',

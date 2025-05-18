@@ -599,7 +599,7 @@ class SoftwareEngineeringReasoning(ToolBasedReasoning):
                         break
 
         # Return the enhanced response
-        return Message.assistant_message(content, metadata=response.metadata)
+        return cast(MessageProtocol, Message.assistant_message(content, metadata=response.metadata))
 
     def process_task(self, agent: AgentProtocol, task: Task, **kwargs: Any) -> TaskStatus:
         """

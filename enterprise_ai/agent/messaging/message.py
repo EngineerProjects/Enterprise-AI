@@ -11,7 +11,7 @@ from datetime import datetime
 from enum import Enum, auto
 from typing import Any, Dict, List, Optional, Set, Union, ClassVar, cast
 
-from enterprise_ai.agent.core.types import AgentMessage
+from enterprise_ai.agent.core.types import AgentMessage, ToolInteractionType
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message
 from enterprise_ai.types import MessageProtocol
@@ -50,6 +50,23 @@ class BaseAgentMessage(AgentMessage):
     role: str = "agent"
     message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     reply_to: Optional[str] = None
+    tool_interaction: Optional[ToolInteractionType] = None
+    tool_data: Optional[Dict[str, Any]] = None
+
+    @property
+    def contains_tool_call(self) -> bool:
+        """Check if the message contains a tool call."""
+        return (
+            self.tool_interaction == ToolInteractionType.TOOL_REQUEST and self.tool_data is not None
+        )
+
+    @property
+    def contains_tool_result(self) -> bool:
+        """Check if the message contains a tool result."""
+        return (
+            self.tool_interaction == ToolInteractionType.TOOL_RESPONSE
+            and self.tool_data is not None
+        )
 
     @property
     def is_broadcast(self) -> bool:
@@ -102,7 +119,7 @@ class BaseAgentMessage(AgentMessage):
 
         return result
 
-    def to_message(self) -> Message:
+    def to_message(self) -> MessageProtocol:
         """Convert to a standard Message object.
 
         This can be useful for compatibility with LLM interfaces that
@@ -127,13 +144,15 @@ class BaseAgentMessage(AgentMessage):
             "is_broadcast": self.is_broadcast,
         }
 
-        return Message(
+        msg = Message(
             role=self.role,
             content=self.content,
             name=self.name or f"agent_{self.sender_id}",
             metadata=metadata_dict,
             timestamp=self.timestamp,
         )
+
+        return cast(MessageProtocol, msg)
 
     @classmethod
     def from_message(

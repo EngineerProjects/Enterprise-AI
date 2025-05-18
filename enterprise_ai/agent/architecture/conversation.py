@@ -107,13 +107,15 @@ class ConversationManager:
             message: System message or content
         """
         if isinstance(message, str):
-            self._default_system_message = Message.system_message(message)
+            system_msg = Message.system_message(message)
+            self._default_system_message = cast(MessageProtocol, system_msg)
         else:
             if message.role != "system":
                 logger.warning(
                     f"Non-system message role provided: {message.role}, converting to system"
                 )
-                self._default_system_message = Message.system_message(message.content or "")
+                system_msg = Message.system_message(message.content or "")
+                self._default_system_message = cast(MessageProtocol, system_msg)
             else:
                 self._default_system_message = message
 
@@ -139,13 +141,17 @@ class ConversationManager:
         # Convert string to message if needed
         if isinstance(message, str):
             if role == "user":
-                processed_message = Message.user_message(message)
+                msg_user = Message.user_message(message)
+                processed_message = cast(MessageProtocol, msg_user)
             elif role == "assistant":
-                processed_message = Message.assistant_message(message)
+                msg_assistant = Message.assistant_message(message)
+                processed_message = cast(MessageProtocol, msg_assistant)
             elif role == "system":
-                processed_message = Message.system_message(message)
+                msg_system = Message.system_message(message)
+                processed_message = cast(MessageProtocol, msg_system)
             else:
-                processed_message = Message(role=role, content=message)
+                msg_generic = Message(role=role, content=message)
+                processed_message = cast(MessageProtocol, msg_generic)
         else:
             processed_message = message
 
@@ -233,12 +239,14 @@ class ConversationManager:
         if system_message:
             if isinstance(system_message, str):
                 self.add_message(
-                    Message.system_message(system_message), conversation_id=conversation_id
+                    cast(MessageProtocol, Message.system_message(system_message)),
+                    conversation_id=conversation_id,
                 )
             else:
                 self.add_message(system_message, conversation_id=conversation_id)
         elif self._default_system_message:
-            self.add_message(self._default_system_message, conversation_id=conversation_id)
+            system_msg = cast(MessageProtocol, self._default_system_message)
+            self.add_message(system_msg, conversation_id=conversation_id)
 
         return conversation_id
 

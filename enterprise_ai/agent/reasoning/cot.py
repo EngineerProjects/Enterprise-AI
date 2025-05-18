@@ -492,7 +492,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
 
                         if not is_valid:
                             # Add parameter validation error
-                            tool_result = ToolFailure(
+                            error_result = ToolFailure(
                                 error=f"Invalid parameters: {error_msg}",
                                 error_code="INVALID_PARAMETERS",
                                 retryable=True,
@@ -500,7 +500,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                             )
 
                             tool_response = format_tool_response_message(
-                                tool_name, tool_result, tool_id
+                                tool_name, error_result, tool_id
                             )
                             messages.append(tool_response)
                             continue
@@ -703,7 +703,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                     and hasattr(result, "retryable")
                     and not result.retryable
                 ):
-                    return result
+                    return ToolResult(output=result.output, metadata=result.metadata)
 
                 # For temporary errors, retry if attempts remain
                 last_error = result.error
@@ -711,7 +711,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
 
                 # Check if we've used all retries
                 if attempt > max_retries:
-                    return result
+                    return ToolResult(output=result.output, metadata=result.metadata)
 
             except Exception as e:
                 logger.error(f"Error executing tool {tool_name}: {e}")
@@ -793,10 +793,13 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
             Tool execution result
         """
         if not hasattr(agent, "_tool_manager"):
-            return ToolFailure(
-                error="Agent does not have a tool manager",
-                error_code="NO_TOOL_MANAGER",
-                metadata=ToolResultMetadata(tool_name=tool_name),
+            return cast(
+                ToolResult,
+                ToolFailure(
+                    error="Agent does not have a tool manager",
+                    error_code="NO_TOOL_MANAGER",
+                    metadata=ToolResultMetadata(tool_name=tool_name),
+                ),
             )
 
         tool_manager = getattr(agent, "_tool_manager")
@@ -817,11 +820,14 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                     )
                 except asyncio.TimeoutError:
                     logger.error(f"Tool {tool_name} execution timed out")
-                    return ToolFailure(
-                        error=f"Tool execution timed out after {timeout} seconds",
-                        error_code="TIMEOUT",
-                        retryable=True,
-                        metadata=ToolResultMetadata(tool_name=tool_name),
+                    return cast(
+                        ToolResult,
+                        ToolFailure(
+                            error=f"Tool execution timed out after {timeout} seconds",
+                            error_code="TIMEOUT",
+                            retryable=True,
+                            metadata=ToolResultMetadata(tool_name=tool_name),
+                        ),
                     )
             else:
                 result = loop.run_until_complete(
@@ -848,7 +854,12 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                 )
 
             logger.info(f"Executed tool {tool_name} for agent {agent.id}")
-            return result
+            if isinstance(result, ToolResult):
+                return result
+            return ToolResult(
+                output=result,
+                metadata=ToolResultMetadata(tool_name=tool_name, execution_time_ms=execution_time),
+            )
 
         except Exception as e:
             logger.error(f"Error executing tool {tool_name}: {e}")
@@ -905,7 +916,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                         result += "```json\n"
                         result += json.dumps(tool_result.output, indent=2)
                         result += "\n```"
-                    except:
+                    except Exception:
                         result += f"{tool_result.output}"
                 else:
                     result += f"{tool_result.output}"
@@ -926,7 +937,7 @@ class ToolAugmentedCoT(ChainOfThoughtReasoning, ToolBasedReasoning):
                     try:
                         formatted_output = json.dumps(tool_result.output, indent=2)
                         return f"Observation: {formatted_output}"
-                    except:
+                    except Exception:
                         return f"Observation: {tool_result.output}"
                 else:
                     return f"Observation: {tool_result.output}"

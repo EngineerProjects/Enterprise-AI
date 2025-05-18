@@ -23,38 +23,38 @@ T = TypeVar("T")
 class TimerContext:
     """Context manager for timing code blocks."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         """Initialize the timer context.
 
         Args:
             name: Name for this timer
         """
         self.name = name
-        self.start_time = None
-        self.end_time = None
+        self.start_time: Optional[datetime.datetime] = None
+        self.end_time: Optional[datetime.datetime] = None
 
-    def __enter__(self):
+    def __enter__(self) -> "TimerContext":
         """Start the timer."""
         self.start_time = datetime.datetime.now()
         logger.debug(f"Starting {self.name}")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Stop the timer and log the duration."""
         self.end_time = datetime.datetime.now()
-        elapsed = (self.end_time - self.start_time).total_seconds() * 1000
+        elapsed = (self.end_time - self.start_time).total_seconds() * 1000 if self.start_time else 0
         logger.debug(f"Completed {self.name} in {elapsed:.2f}ms")
 
-    async def __aenter__(self):
+    async def __aenter__(self) -> "TimerContext":
         """Start the timer in async context."""
         self.start_time = datetime.datetime.now()
         logger.debug(f"Starting async {self.name}")
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Stop the timer and log the duration in async context."""
         self.end_time = datetime.datetime.now()
-        elapsed = (self.end_time - self.start_time).total_seconds() * 1000
+        elapsed = (self.end_time - self.start_time).total_seconds() * 1000 if self.start_time else 0
         logger.debug(f"Completed async {self.name} in {elapsed:.2f}ms")
 
     @property
@@ -71,7 +71,7 @@ class TimerContext:
         return (end - self.start_time).total_seconds()
 
 
-def timer(name: Optional[str] = None) -> Callable:
+def timer(name: Optional[str] = None) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator to time function execution.
 
     Args:
@@ -81,9 +81,9 @@ def timer(name: Optional[str] = None) -> Callable:
         Decorator function
     """
 
-    def decorator(func: Callable) -> Callable:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+        def wrapper(*args: Any, **kwargs: Any) -> T:
             timer_name = name or func.__name__
             start_time = datetime.datetime.now()
             logger.debug(f"Starting {timer_name}")

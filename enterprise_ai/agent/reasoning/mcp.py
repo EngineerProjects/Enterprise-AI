@@ -319,9 +319,6 @@ class MCPReasoning(ToolBasedReasoning):
         if not response.content:
             return response
 
-        # Ensure tool calls are properly formatted if they appear in text
-        content = response.content
-
         # Check if response contains unstructured tool calls and format them
         # For example, convert natural language tool mentions to proper function calls
         return response
@@ -629,7 +626,7 @@ class MCPReasoning(ToolBasedReasoning):
                     try:
                         formatted_output = json.dumps(tool_result.output, indent=2)
                         return f"Observation: {formatted_output}"
-                    except:
+                    except Exception:
                         return f"Observation: {tool_result.output}"
                 else:
                     return f"Observation: {tool_result.output}"

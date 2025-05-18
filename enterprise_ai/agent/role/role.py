@@ -7,7 +7,7 @@ defined in types.py, enabling agent specialization.
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Set, cast
+from typing import Any, Dict, List, Optional, Set, Union, cast
 
 from enterprise_ai.agent.core.types import AgentRole
 from enterprise_ai.logger import get_logger
@@ -116,6 +116,36 @@ class SimpleRole(BaseAgentRole):
         """
         return self._capabilities.copy()
 
+    @property
+    def required_tools(self) -> List[str]:
+        """Get tools required by this role.
+
+        Returns:
+            List of required tool names
+        """
+        return []
+
+    @property
+    def preferred_reasoning(self) -> Optional[str]:
+        """Get preferred reasoning framework for this role.
+
+        Returns:
+            Name of preferred reasoning framework or None
+        """
+        return None
+
+    def has_capability(self, capability: Union[str, Any]) -> bool:
+        """Check if role has a specific capability.
+
+        Args:
+            capability: Capability to check
+
+        Returns:
+            True if role has the capability
+        """
+        cap_str = capability.value if hasattr(capability, "value") else str(capability)
+        return cap_str in self._capabilities
+
     def get_instructions(self) -> str:
         """Get role-specific instructions.
 
@@ -158,6 +188,36 @@ class TemplatedRole(BaseAgentRole):
         # Validate template exists
         if get_prompt(template_id) is None:
             logger.warning(f"Prompt template not found: {template_id}")
+
+    @property
+    def required_tools(self) -> List[str]:
+        """Get tools required by this role.
+
+        Returns:
+            List of required tool names
+        """
+        return []
+
+    @property
+    def preferred_reasoning(self) -> Optional[str]:
+        """Get preferred reasoning framework for this role.
+
+        Returns:
+            Name of preferred reasoning framework or None
+        """
+        return None
+
+    def has_capability(self, capability: Union[str, Any]) -> bool:
+        """Check if role has a specific capability.
+
+        Args:
+            capability: Capability to check
+
+        Returns:
+            True if role has the capability
+        """
+        cap_str = capability.value if hasattr(capability, "value") else str(capability)
+        return cap_str in self._capabilities
 
     @property
     def name(self) -> str:
@@ -253,6 +313,36 @@ class DeveloperRole(TemplatedRole):
             template_vars=vars_dict,
         )
 
+    @property
+    def required_tools(self) -> List[str]:
+        """Get tools required by this role.
+
+        Returns:
+            List of required tool names
+        """
+        return ["code_interpreter", "code_review"]
+
+    @property
+    def preferred_reasoning(self) -> Optional[str]:
+        """Get preferred reasoning framework for this role.
+
+        Returns:
+            Name of preferred reasoning framework or None
+        """
+        return "systematic"
+
+    def has_capability(self, capability: Union[str, Any]) -> bool:
+        """Check if role has a specific capability.
+
+        Args:
+            capability: Capability to check
+
+        Returns:
+            True if role has the capability
+        """
+        cap_str = capability.value if hasattr(capability, "value") else str(capability)
+        return cap_str in self._capabilities
+
 
 class ManagerRole(TemplatedRole):
     """Manager role implementation.
@@ -288,6 +378,36 @@ class ManagerRole(TemplatedRole):
             template_vars=vars_dict,
         )
 
+    @property
+    def required_tools(self) -> List[str]:
+        """Get tools required by this role.
+
+        Returns:
+            List of required tool names
+        """
+        return ["task_manager", "scheduler"]
+
+    @property
+    def preferred_reasoning(self) -> Optional[str]:
+        """Get preferred reasoning framework for this role.
+
+        Returns:
+            Name of preferred reasoning framework or None
+        """
+        return "executive"
+
+    def has_capability(self, capability: Union[str, Any]) -> bool:
+        """Check if role has a specific capability.
+
+        Args:
+            capability: Capability to check
+
+        Returns:
+            True if role has the capability
+        """
+        cap_str = capability.value if hasattr(capability, "value") else str(capability)
+        return cap_str in self._capabilities
+
 
 class ResearcherRole(TemplatedRole):
     """Researcher role implementation.
@@ -322,6 +442,36 @@ class ResearcherRole(TemplatedRole):
             ],
             template_vars=vars_dict,
         )
+
+    @property
+    def required_tools(self) -> List[str]:
+        """Get tools required by this role.
+
+        Returns:
+            List of required tool names
+        """
+        return ["search", "document_analysis"]
+
+    @property
+    def preferred_reasoning(self) -> Optional[str]:
+        """Get preferred reasoning framework for this role.
+
+        Returns:
+            Name of preferred reasoning framework or None
+        """
+        return "analytical"
+
+    def has_capability(self, capability: Union[str, Any]) -> bool:
+        """Check if role has a specific capability.
+
+        Args:
+            capability: Capability to check
+
+        Returns:
+            True if role has the capability
+        """
+        cap_str = capability.value if hasattr(capability, "value") else str(capability)
+        return cap_str in self._capabilities
 
 
 # Factory function to create roles

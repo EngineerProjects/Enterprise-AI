@@ -256,7 +256,6 @@ class ReActReasoning(ToolBasedReasoning):
                 for tool_call in tool_calls:
                     tool_name = tool_call.get("name", "")
                     params = tool_call.get("parameters", {})
-                    tool_id = tool_call.get("id")
 
                     if not tool_name:
                         continue
@@ -396,15 +395,18 @@ class ReActReasoning(ToolBasedReasoning):
         """
         if not hasattr(agent, "_tool_manager"):
             # Return error results if no tool manager
-            return [
-                (
-                    call["name"],
-                    ToolFailure(
-                        error="Agent does not have a tool manager", error_code="NO_TOOL_MANAGER"
-                    ),
-                )
-                for call in tool_calls
-            ]
+            return cast(
+                List[Tuple[str, ToolResult]],
+                [
+                    (
+                        call["name"],
+                        ToolFailure(
+                            error="Agent does not have a tool manager", error_code="NO_TOOL_MANAGER"
+                        ),
+                    )
+                    for call in tool_calls
+                ],
+            )
 
         tool_manager = getattr(agent, "_tool_manager")
 
@@ -440,7 +442,7 @@ class ReActReasoning(ToolBasedReasoning):
             # Use tool manager's parallel execution if available
             if hasattr(tool_manager, "execute_tools_parallel"):
                 results = await tool_manager.execute_tools_parallel(executions)
-                return results
+                return cast(List[Tuple[str, ToolResult]], results)
 
             # Fallback: create and gather tasks manually
             tasks = []
@@ -616,7 +618,6 @@ class ReActReasoning(ToolBasedReasoning):
         current_iteration = 0
 
         # Track previous actions to detect loops
-        previous_actions: List[str] = []
         action_counter: Dict[str, int] = {}
 
         # Initialize backtracking state
@@ -682,10 +683,10 @@ class ReActReasoning(ToolBasedReasoning):
                     action_info = self._extract_action_from_text(response.content or "")
 
                     if action_info:
-                        tool_name, params = action_info
+                        tool_name, tool_params = action_info
 
                         # Check if we're in a loop of the same action
-                        action_key = f"{tool_name}:{json.dumps(params, sort_keys=True)}"
+                        action_key = f"{tool_name}:{json.dumps(tool_params, sort_keys=True)}"
                         action_counter[action_key] = action_counter.get(action_key, 0) + 1
 
                         # Detect action loops and apply backtracking if needed
@@ -703,7 +704,7 @@ class ReActReasoning(ToolBasedReasoning):
 
                         # Execute tool
                         tool_result = self._execute_tool_with_handling(
-                            agent, tool_name, params, **kwargs
+                            agent, tool_name, tool_params, **kwargs
                         )
 
                         # Add observation
@@ -746,14 +747,14 @@ class ReActReasoning(ToolBasedReasoning):
                         # Process sequentially
                         for tool_call in tool_calls:
                             tool_name = tool_call.get("name", "")
-                            params = tool_call.get("parameters", {})
+                            call_params = tool_call.get("parameters", {})
 
                             if not tool_name:
                                 continue
 
                             # Execute tool
                             tool_result = self._execute_tool_with_handling(
-                                agent, tool_name, params, **kwargs
+                                agent, tool_name, call_params, **kwargs
                             )
 
                             # Add observation
@@ -866,28 +867,28 @@ class ReActReasoning(ToolBasedReasoning):
             params_text = action_match.group(2)
 
             # Parse parameters
-            params: Dict[str, Any] = {}
+            tool_params: Dict[str, Any] = {}
             param_matches = re.findall(r"(\w+)=([^,]+)(?:,|$)", params_text)
 
             for key, value in param_matches:
                 # Convert to appropriate types
                 if value.lower() == "true":
-                    params[key] = True
+                    tool_params[key] = True
                 elif value.lower() == "false":
-                    params[key] = False
+                    tool_params[key] = False
                 elif value.isdigit():
-                    params[key] = int(value)  # Type consistent with Dict[str, Any]
+                    tool_params[key] = int(value)  # Type consistent with Dict[str, Any]
                 elif value.replace(".", "", 1).isdigit():
-                    params[key] = float(value)  # Type consistent with Dict[str, Any]
+                    tool_params[key] = float(value)  # Type consistent with Dict[str, Any]
                 else:
                     # Remove quotes if present
                     if (value.startswith('"') and value.endswith('"')) or (
                         value.startswith("'") and value.endswith("'")
                     ):
                         value = value[1:-1]
-                    params[key] = value
+                    tool_params[key] = value
 
-            return tool_name, params
+            return tool_name, tool_params
 
         # Try to extract tool request format
         tool_match = re.search(r"<tool_request>(.*?)</tool_request>", content, re.DOTALL)
@@ -898,9 +899,9 @@ class ReActReasoning(ToolBasedReasoning):
             try:
                 tool_data = json.loads(tool_content)
                 tool_name = tool_data.get("tool", "")
-                params = tool_data.get("parameters", {})
+                tool_params = tool_data.get("parameters", {})
                 if tool_name:
-                    return tool_name, params
+                    return tool_name, tool_params
             except json.JSONDecodeError:
                 # Try to parse with regex if JSON parsing fails
                 tool_name_match = re.search(r'"tool":\s*"([^"]+)"', tool_content)
@@ -908,11 +909,11 @@ class ReActReasoning(ToolBasedReasoning):
 
                 if tool_name_match:
                     tool_name = tool_name_match.group(1)
-                    params = {}
+                    tool_params = {}
 
                     if params_match:
                         try:
-                            params = json.loads(params_match.group(1))
+                            tool_params = json.loads(params_match.group(1))
                         except json.JSONDecodeError:
                             # Extract parameters using regex if JSON parsing fails
                             param_matches = re.findall(
@@ -922,19 +923,19 @@ class ReActReasoning(ToolBasedReasoning):
                             for param_name, param_value, _ in param_matches:
                                 # Convert to appropriate types
                                 if param_value.lower() == "true":
-                                    params[param_name] = True
+                                    tool_params[param_name] = True
                                 elif param_value.lower() == "false":
-                                    params[param_name] = False
+                                    tool_params[param_name] = False
                                 elif param_value.isdigit():
-                                    params[param_name] = int(param_value)
+                                    tool_params[param_name] = int(param_value)
                                 elif param_value.replace(".", "", 1).isdigit():
-                                    params[param_name] = float(param_value)
+                                    tool_params[param_name] = float(param_value)
                                 elif param_value.startswith('"') and param_value.endswith('"'):
-                                    params[param_name] = param_value[1:-1]
+                                    tool_params[param_name] = param_value[1:-1]
                                 else:
-                                    params[param_name] = param_value
+                                    tool_params[param_name] = param_value
 
-                    return tool_name, params
+                    return tool_name, tool_params
 
         # Try to extract JSON format action
         json_match = re.search(r"```(?:json)?\s*({.*?})\s*```", content, re.DOTALL)

@@ -32,7 +32,7 @@ logger = get_logger("agent.tools_manager")
 class ToolUsageMetrics:
     """Tracks metrics for tool usage."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize tool usage metrics."""
         self.total_executions: int = 0
         self.successful_executions: int = 0
@@ -71,7 +71,7 @@ class ToolUsageMetrics:
             times = self.execution_times.get(tool_name, [])
             return sum(times) / len(times) if times else 0.0
 
-        all_times = [time for times in self.execution_times.values() for time in times]
+        all_times = [t for times in self.execution_times.values() for t in times]
         return sum(all_times) / len(all_times) if all_times else 0.0
 
     def get_success_rate(self, tool_name: Optional[str] = None) -> float:
@@ -96,7 +96,7 @@ class ToolUsageMetrics:
 class AgentToolsManager:
     """Manages tool access and execution for an agent."""
 
-    def __init__(self, agent: Any):
+    def __init__(self, agent: Any) -> None:
         """Initialize the tool manager for an agent.
 
         Args:
@@ -327,7 +327,7 @@ class AgentToolsManager:
             )
 
             # Execute with retry
-            result = await retry_async(
+            result: ToolResult = await retry_async(
                 self._execute_tool_internal,
                 retry_options,
                 (ToolError, asyncio.TimeoutError),
@@ -701,11 +701,11 @@ class AgentToolsManager:
                 return "\n".join(enhanced_descriptions)
 
             # Format local tools
-            tools_list = []
-            for name, tool in self._tools.items():
+            tools_list: List[Dict[str, Any]] = []
+            for name, tool_item in self._tools.items():
                 try:
-                    if hasattr(tool, "to_param"):
-                        tool_dict = tool.to_param()
+                    if hasattr(tool_item, "to_param"):
+                        tool_dict: Dict[str, Any] = cast(Dict[str, Any], tool_item.to_param())
                         tools_list.append(tool_dict)
                 except Exception as e:
                     logger.warning(f"Error formatting tool {name}: {e}")
@@ -717,13 +717,20 @@ class AgentToolsManager:
 
             # Add capabilities and examples if requested
             enhanced_descriptions = []
-            for name, tool in self._tools.items():
+            for name, tool_item in self._tools.items():
+                # Cast to BaseTool to ensure proper type checking
+                tool_inst = cast(BaseTool, tool_item)
                 enhanced_description = f"Tool: {name}\n"
-                enhanced_description += f"Description: {tool.description}\n"
+
+                # Access description safely
+                if hasattr(tool_inst, "description"):
+                    enhanced_description += f"Description: {tool_inst.description}\n"
+                else:
+                    enhanced_description += "Description: No description available\n"
 
                 # Add parameters
-                if tool.parameters:
-                    params = tool.parameters
+                if hasattr(tool_inst, "parameters") and tool_inst.parameters:
+                    params = tool_inst.parameters
                     enhanced_description += "Parameters:\n"
 
                     if "properties" in params:
@@ -867,9 +874,7 @@ class AgentToolsManager:
 
             return True
         except Exception as e:
-            error = self._error_manager.handle_error(
-                e, error_code=AgentErrorCode.INITIALIZATION_FAILED
-            )
+            self._error_manager.handle_error(e, error_code=AgentErrorCode.INITIALIZATION_FAILED)
             logger.error(f"Failed to enable MCP for agent {self.agent_id}: {e}")
             self._mcp_client = None
             self._mcp_initialized = False
@@ -903,9 +908,7 @@ class AgentToolsManager:
             self._mcp_initialized = True
             logger.info(f"Initialized MCP for agent {self.agent_id}")
         except Exception as e:
-            error = self._error_manager.handle_error(
-                e, error_code=AgentErrorCode.INITIALIZATION_FAILED
-            )
+            self._error_manager.handle_error(e, error_code=AgentErrorCode.INITIALIZATION_FAILED)
             logger.error(f"Failed to initialize MCP for agent {self.agent_id}: {e}")
             self._mcp_initialized = False
 
@@ -971,7 +974,7 @@ class AgentToolsManager:
             logger.info(f"Updated MCP tools for agent {self.agent_id}")
             return True
         except Exception as e:
-            error = self._error_manager.handle_error(e, error_code=AgentErrorCode.EXECUTION_FAILED)
+            self._error_manager.handle_error(e, error_code=AgentErrorCode.EXECUTION_FAILED)
             logger.error(f"Failed to update MCP tools for agent {self.agent_id}: {e}")
             return False
 

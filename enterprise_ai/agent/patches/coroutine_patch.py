@@ -13,7 +13,7 @@ import asyncio
 from typing import List, Dict, Any, Optional, Union, cast, Tuple
 
 
-def patch_llm_agent():
+def patch_llm_agent() -> bool:
     """
     Patch the LLMAgent class to properly handle coroutines in process_message.
     """
@@ -56,7 +56,7 @@ def patch_llm_agent():
         return False
 
 
-def patch_factory():
+def patch_factory() -> bool:
     """
     Patch the factory module to properly handle LLM provider parameters.
     """
@@ -79,22 +79,22 @@ def patch_factory():
         # Add the extract_llm_provider_kwargs function before create_agent
         function_def = '''def extract_llm_provider_kwargs(kwargs: Dict[str, Any]) -> Dict[str, Any]:
     """Extract LLM provider kwargs from the agent creation kwargs.
-    
+
     Args:
         kwargs: Agent creation kwargs
-        
+
     Returns:
         Dictionary of LLM provider kwargs
     """
     # Extract the llm_provider_kwargs if present
     llm_provider_kwargs = kwargs.pop("llm_provider_kwargs", {}).copy()
-    
+
     # Also check for direct provider parameters in kwargs
     direct_provider_params = {}
     for key in list(kwargs.keys()):
         if key in ("model_name", "base_url", "temperature", "max_tokens", "top_p", "timeout"):
             direct_provider_params[key] = kwargs.pop(key)
-    
+
     # Merge them, with llm_provider_kwargs taking precedence
     return {**direct_provider_params, **llm_provider_kwargs}
 
@@ -110,10 +110,10 @@ def patch_factory():
         llm_provider_replacement = """# Get LLM provider
         llm_provider = None
         provider_name = llm_provider_name or merged_config.get("llm_provider")
-        
+
         # Extract provider parameters
         provider_kwargs = extract_llm_provider_kwargs(kwargs)
-        
+
         # Create the provider
         if provider_name:
             from enterprise_ai.llm import create_provider
@@ -138,7 +138,7 @@ def patch_factory():
         return False
 
 
-def patch_example_scripts():
+def patch_example_scripts() -> bool:
     """
     Ensure all example scripts properly await async calls.
     """
@@ -186,7 +186,7 @@ def patch_example_scripts():
     return True
 
 
-def apply_patches():
+def apply_patches() -> int:
     """
     Apply all patches to fix coroutine handling in the codebase.
     """

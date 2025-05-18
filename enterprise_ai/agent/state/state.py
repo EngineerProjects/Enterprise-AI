@@ -9,7 +9,10 @@ import json
 import os
 import time
 import asyncio
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from enterprise_ai.mcp.client import MCPClient
 
 from enterprise_ai.agent.state.memory import DictMemory, NamespacedMemory, create_memory
 from enterprise_ai.agent.core.types import AgentMemory, AgentRole, AgentState, Task, TaskStatus
@@ -631,7 +634,7 @@ class MCPSessionState(ToolAwareState):
         super().__init__(agent_id, memory_type, state_dir, max_history)
 
         self._mcp_session_id = mcp_session_id
-        self._mcp_client = None
+        self._mcp_client: Optional["MCPClient"] = None
         self._mcp_tools: List[Dict[str, Any]] = []
         self._mcp_history: List[Dict[str, Any]] = []
 
@@ -645,8 +648,9 @@ class MCPSessionState(ToolAwareState):
             # Lazy import to avoid circular imports
             from enterprise_ai.mcp.client import MCPClient
 
-            self._mcp_client = MCPClient(self._mcp_session_id, create_if_not_exists=True)
-            logger.debug(f"Initialized MCP client for session {self._mcp_session_id}")
+            if self._mcp_session_id is not None:
+                self._mcp_client = MCPClient(self._mcp_session_id, create_if_not_exists=True)
+                logger.debug(f"Initialized MCP client for session {self._mcp_session_id}")
         except Exception as e:
             logger.error(f"Failed to initialize MCP client: {e}")
             self._mcp_client = None

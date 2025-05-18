@@ -179,7 +179,7 @@ def create_agent(
             logger.warning("Base agents don't support tools. Use LLM agents instead.")
 
         # Create the agent
-        agent = BaseAgent(
+        base_agent = BaseAgent(
             agent_id=agent_id,
             name=name,
             role_type=role_type,
@@ -189,12 +189,14 @@ def create_agent(
             **kwargs,
         )
 
+        agent_instance: AgentProtocol = cast(AgentProtocol, base_agent)
+
         # Apply any remaining configuration
         if merged_config:
-            if hasattr(agent, "update_config"):
-                agent.update_config(merged_config)
+            if hasattr(agent_instance, "update_config"):
+                agent_instance.update_config(merged_config)
 
-        return agent
+        return agent_instance
 
     elif agent_type.lower() == "llm":
         # Get LLM provider - either use provided object or create a new one
@@ -261,14 +263,17 @@ def create_agent(
             agent_kwargs["role_kwargs"] = role_kwargs
 
         # Create the agent
-        agent = LLMAgent(**agent_kwargs)
+        llm_agent = LLMAgent(**agent_kwargs)
+
+        # Cast to protocol type
+        agent_result: AgentProtocol = cast(AgentProtocol, llm_agent)
 
         # Apply any remaining configuration
         if merged_config:
-            if hasattr(agent, "update_config"):
-                agent.update_config(merged_config)
+            if hasattr(agent_result, "update_config"):
+                agent_result.update_config(merged_config)
 
-        return agent
+        return agent_result
 
     else:
         logger.error(f"Unknown agent type: {agent_type}")
@@ -547,7 +552,8 @@ class AgentBuilder:
         Returns:
             Constructed agent
         """
-        agent_kwargs = {
+        # Dictionary with Any values to accommodate various parameter types
+        agent_kwargs: Dict[str, Any] = {
             "agent_type": self._agent_type,
             "agent_id": self._agent_id,
             "name": self._name,
@@ -567,7 +573,8 @@ class AgentBuilder:
 
         # Add role configuration
         if self._role:
-            agent_kwargs["role"] = self._role
+            role_value = cast(AgentRole, self._role)
+            agent_kwargs["role"] = role_value
         else:
             agent_kwargs["role_type"] = self._role_type
             agent_kwargs["role_kwargs"] = self._role_kwargs
@@ -582,7 +589,10 @@ class AgentBuilder:
         # Add any additional kwargs
         agent_kwargs.update(self._kwargs)
 
-        return create_agent(**agent_kwargs)
+        # Create agent with the provided arguments
+        # Type ignore is needed because mypy cannot handle complex unpacking
+        # but the function will process the arguments correctly at runtime
+        return create_agent(**agent_kwargs)  # type: ignore
 
 
 # Specialized factory functions for common agent types
@@ -893,8 +903,8 @@ def create_agents_from_config(config_path: str) -> Dict[str, AgentProtocol]:
 
             # Create agent from configuration
             try:
-                agent = create_agent(**agent_config)
-                agents[agent_id] = agent
+                current_agent = create_agent(**agent_config)
+                agents[agent_id] = current_agent
                 logger.info(f"Created agent '{agent_id}' from configuration")
             except Exception as e:
                 logger.error(f"Failed to create agent '{agent_id}': {e}")

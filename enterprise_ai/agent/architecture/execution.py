@@ -115,7 +115,7 @@ class ExecutionContext:
         Returns:
             Dictionary of execution status information
         """
-        info = {
+        info: Dict[str, Any] = {
             "execution_id": self.execution_id,
             "execution_type": self.execution_type.value,
             "status": self.status.value,
@@ -129,7 +129,7 @@ class ExecutionContext:
             info["error"] = str(self.error)
 
         if self.metadata:
-            info["metadata"] = self.metadata
+            info["metadata"] = self.metadata.copy()
 
         return info
 
@@ -273,7 +273,9 @@ class ExecutionManager:
                         if i < len(formatted_messages) - 1:  # Not the latest message
                             msg.metadata["from_memory"] = True
 
-                response = await reasoning_manager.process_input(formatted_messages, **kwargs)
+                response: MessageProtocol = await reasoning_manager.process_input(
+                    formatted_messages, **kwargs
+                )
 
             # Mark execution as completed
             context.mark_completed(response)
@@ -289,17 +291,21 @@ class ExecutionManager:
             context.mark_canceled()
 
             # Create cancellation response
-            return Message.assistant_message(
+            cancellation_msg = Message.assistant_message(
                 "I'm sorry, but this operation was cancelled.",
                 metadata={"cancelled": True, "execution_id": execution_id},
             )
+
+            cancel_response: MessageProtocol = cast(MessageProtocol, cancellation_msg)
+
+            return cancel_response
         except Exception as e:
             # Handle execution error
             logger.error(f"Error processing message: {e}")
             context.mark_failed(e)
 
             # Create error response
-            error = self._error_manager.handle_error(
+            self._error_manager.handle_error(
                 e,
                 error_code=AgentErrorCode.EXECUTION_FAILED,
                 context={"execution_id": execution_id},
@@ -309,11 +315,15 @@ class ExecutionManager:
             if self.config.track_execution_history:
                 self._record_execution_history(context)
 
-            return Message.assistant_message(
+            error_msg = Message.assistant_message(
                 "I'm sorry, but I encountered an error while processing your message. "
                 "Please try again or rephrase your query.",
                 metadata={"error": str(e), "execution_id": execution_id},
             )
+
+            error_response: MessageProtocol = cast(MessageProtocol, error_msg)
+
+            return error_response
         finally:
             # Remove execution ID from active executions
             self._active_executions.discard(execution_id)
@@ -383,7 +393,7 @@ class ExecutionManager:
             context.mark_failed(e)
 
             # Create error and update task status if possible
-            error = self._error_manager.handle_error(
+            self._error_manager.handle_error(
                 e,
                 error_code=AgentErrorCode.EXECUTION_FAILED,
                 context={"execution_id": execution_id, "task_id": getattr(task, "id", "unknown")},

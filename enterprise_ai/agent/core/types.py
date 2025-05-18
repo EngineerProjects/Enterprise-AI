@@ -100,7 +100,7 @@ class AgentMemory(Protocol, Generic[T]):
         """
         ...
 
-    def get(self, key: str, default: T = None) -> T:
+    def get(self, key: str, default: Optional[T] = None) -> T:
         """Get an item from memory.
 
         Args:
@@ -144,7 +144,7 @@ class AgentMemory(Protocol, Generic[T]):
         """
         ...
 
-    async def get_async(self, key: str, default: T = None) -> T:
+    async def get_async(self, key: str, default: Optional[T] = None) -> T:
         """Get an item from memory asynchronously.
 
         Args:
@@ -184,11 +184,13 @@ class AgentRole(Protocol):
         ...
 
     @property
+    @abstractmethod
     def required_tools(self) -> List[str]:
         """Get tools required by this role."""
         ...
 
     @property
+    @abstractmethod
     def preferred_reasoning(self) -> Optional[str]:
         """Get preferred reasoning framework for this role."""
         ...
@@ -201,6 +203,7 @@ class AgentRole(Protocol):
         """
         ...
 
+    @abstractmethod
     def has_capability(self, capability: Union[str, ToolCapabilityProtocol]) -> bool:
         """Check if role has a specific capability.
 
@@ -301,18 +304,18 @@ class AgentMessage(MessageProtocol):
     @abstractmethod
     def is_broadcast(self) -> bool:
         """Check if message is a broadcast (no specific receiver)."""
-        ...
 
     @property
+    @abstractmethod
     def contains_tool_call(self) -> bool:
         """Check if the message contains a tool call."""
-        ...
 
     @property
+    @abstractmethod
     def contains_tool_result(self) -> bool:
         """Check if the message contains a tool result."""
-        ...
 
+    @abstractmethod
     def to_message(self) -> MessageProtocol:
         """Convert to a standard message.
 

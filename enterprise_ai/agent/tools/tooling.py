@@ -25,7 +25,7 @@ logger = get_logger("agent.tooling")
 class ToolUsageMetrics:
     """Tracks metrics for tool usage."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize tool usage metrics."""
         self.total_executions: int = 0
         self.successful_executions: int = 0
@@ -64,7 +64,7 @@ class ToolUsageMetrics:
             times = self.execution_times.get(tool_name, [])
             return sum(times) / len(times) if times else 0.0
 
-        all_times = [time for times in self.execution_times.values() for time in times]
+        all_times = [t for times in self.execution_times.values() for t in times]
         return sum(all_times) / len(all_times) if all_times else 0.0
 
     def get_success_rate(self, tool_name: Optional[str] = None) -> float:
@@ -255,7 +255,9 @@ class AgentToolManager:
         Returns:
             Dictionary mapping tool names to descriptions
         """
-        descriptions = {name: tool.description for name, tool in self._tools.items()}
+        descriptions = {
+            name: cast(BaseTool, tool).description for name, tool in self._tools.items()
+        }
 
         # Add MCP tool descriptions if initialized
         if self._mcp_client and self._mcp_initialized:
@@ -663,11 +665,14 @@ class AgentToolManager:
                 return "\n".join(enhanced_descriptions)
 
             # Format local tools
-            tools_list = []
-            for name, tool in self._tools.items():
+            tools_list: List[Dict[str, Any]] = []
+            for name, tool_item in self._tools.items():
                 try:
-                    if hasattr(tool, "to_param"):
-                        tool_dict = tool.to_param()
+                    # Ensure tool is treated as BaseTool
+                    tool_inst: BaseTool = cast(BaseTool, tool_item)
+                    if hasattr(tool_inst, "to_param"):
+                        # Explicitly specify that to_param returns a dictionary
+                        tool_dict: Dict[str, Any] = cast(Dict[str, Any], tool_inst.to_param())
                         tools_list.append(tool_dict)
                 except Exception as e:
                     logger.warning(f"Error formatting tool {name}: {e}")
@@ -679,18 +684,26 @@ class AgentToolManager:
 
             # Add capabilities and examples if requested
             enhanced_descriptions = []
-            for name, tool in self._tools.items():
-                enhanced_description = f"Tool: {name}\n"
-                enhanced_description += f"Description: {tool.description}\n"
+            for name, tool_item in self._tools.items():
+                try:
+                    # Ensure tool is treated as BaseTool
+                    tool_instance: BaseTool = cast(BaseTool, tool_item)
+                    enhanced_description = f"Tool: {name}\n"
 
-                # Add parameters
-                if tool.parameters:
-                    params = tool.parameters
-                    enhanced_description += "Parameters:\n"
+                    # Access description safely
+                    if hasattr(tool_instance, "description"):
+                        enhanced_description += f"Description: {tool_instance.description}\n"
+                    else:
+                        enhanced_description += "Description: No description available\n"
 
-                    if "properties" in params:
-                        properties = params.get("properties", {})
-                        required = params.get("required", [])
+                    # Add parameters
+                    if hasattr(tool_instance, "parameters") and tool_instance.parameters:
+                        params = tool_instance.parameters
+                        enhanced_description += "Parameters:\n"
+
+                        if "properties" in params:
+                            properties = params.get("properties", {})
+                            required = params.get("required", [])
 
                         for param_name, param_info in properties.items():
                             param_type = param_info.get("type", "any")
@@ -703,24 +716,34 @@ class AgentToolManager:
                                 enhanced_description += f" - {description}"
                             enhanced_description += "\n"
 
-                # Add capabilities if available
-                if include_capabilities and hasattr(tool, "capabilities"):
-                    enhanced_description += "Capabilities:\n"
-                    for cap in tool.capabilities:
-                        cap_str = cap.value if hasattr(cap, "value") else str(cap)
-                        enhanced_description += f"  - {cap_str}\n"
+                    # Add capabilities if available
+                    if include_capabilities and hasattr(tool_instance, "capabilities"):
+                        enhanced_description += "Capabilities:\n"
+                        for cap in tool_instance.capabilities:
+                            cap_str = cap.value if hasattr(cap, "value") else str(cap)
+                            enhanced_description += f"  - {cap_str}\n"
 
-                # Add example if available
-                if include_examples and hasattr(tool, "usage_examples") and tool.usage_examples:
-                    example = tool.usage_examples[0]
-                    enhanced_description += "Example:\n"
-                    enhanced_description += "```\n"
-                    if "parameters" in example:
-                        for param, value in example["parameters"].items():
-                            enhanced_description += f"  {param}: {value}\n"
-                    enhanced_description += "```\n"
+                    # Add example if available
+                    if (
+                        include_examples
+                        and hasattr(tool_instance, "usage_examples")
+                        and tool_instance.usage_examples
+                    ):
+                        example = tool_inst.usage_examples[0]
+                        enhanced_description += "Example:\n"
+                        enhanced_description += "```\n"
+                        if "parameters" in example:
+                            for param, value in example["parameters"].items():
+                                enhanced_description += f"  {param}: {value}\n"
+                        enhanced_description += "```\n"
 
-                enhanced_descriptions.append(enhanced_description)
+                    enhanced_descriptions.append(enhanced_description)
+                except Exception as e:
+                    logger.warning(f"Error formatting tool description for {name}: {e}")
+                    # Add a simplified entry for tools with errors
+                    enhanced_descriptions.append(
+                        f"Tool: {name}\nDescription: Error formatting tool information\n"
+                    )
 
             return "\n".join(enhanced_descriptions)
 

@@ -10,7 +10,7 @@ import json
 import os
 import uuid
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast, Coroutine
 
 from enterprise_ai.agent.architecture.conversation import (
     ConversationManager,
@@ -114,9 +114,8 @@ class BaseAgent:
         """
         # This is a basic implementation - specialized agents override this
         if isinstance(message, str):
-            input_message = Message.user_message(message)
-        else:
-            input_message = message
+            # Create a user message from the string
+            message = cast(MessageProtocol, Message.user_message(message))
 
         # Create simple response
         response = Message.assistant_message(
@@ -141,7 +140,7 @@ class BaseAgent:
 
     def process_conversation(
         self, messages: List[MessageProtocol], **kwargs: Any
-    ) -> MessageProtocol:
+    ) -> Union[MessageProtocol, Coroutine[Any, Any, MessageProtocol]]:
         """Process a conversation and generate a response.
 
         Args:
@@ -156,14 +155,14 @@ class BaseAgent:
             return self.process_message(messages[-1], **kwargs)
 
         # Empty conversation
-        return cast(
-            MessageProtocol,
-            Message.assistant_message(f"Hello, I am {self.name}. How can I assist you today?"),
+        response = Message.assistant_message(
+            f"Hello, I am {self.name}. How can I assist you today?"
         )
+        return cast(MessageProtocol, response)
 
     async def aprocess_conversation(
         self, messages: List[MessageProtocol], **kwargs: Any
-    ) -> MessageProtocol:
+    ) -> Union[MessageProtocol, Coroutine[Any, Any, MessageProtocol]]:
         """Process a conversation asynchronously.
 
         Args:
@@ -173,9 +172,11 @@ class BaseAgent:
         Returns:
             Response message
         """
+        # Since this is the base implementation, just call the sync version
+        # Subclasses like LLMAgent override this with a proper async implementation
         return self.process_conversation(messages, **kwargs)
 
-    def assign_task(self, task: Any) -> bool:
+    def assign_task(self, task: Any) -> Union[bool, Coroutine[Any, Any, bool]]:
         """Assign a task to the agent.
 
         Args:
@@ -328,18 +329,17 @@ class LLMAgent(BaseAgent):
 
         # Initialize tools manager if tools are enabled
         if use_tools:
-            self._tools = AgentToolsManager(self)
+            self._agent_tools_manager: Optional[AgentToolsManager] = AgentToolsManager(self)
 
-            # Store MCP config for later initialization rather than trying to initialize now
-            # This avoids the coroutine handling issue with run_async
-            self._mcp_config = {
+            # Store MCP config for later initialization
+            self._agent_mcp_config: Optional[Dict[str, Any]] = {
                 "enable": enable_mcp,
                 "categories": tool_categories,
                 "names": tool_names,
             }
         else:
-            self._tools = None
-            self._mcp_config = None
+            self._agent_tools_manager = None
+            self._agent_mcp_config = None
 
         # Create reasoning manager with specified framework
         self._reasoning = ReasoningManager(
@@ -351,16 +351,25 @@ class LLMAgent(BaseAgent):
     async def initialize_mcp(self) -> bool:
         """Initialize MCP when it's actually needed."""
         if (
-            self._tools
-            and hasattr(self, "_mcp_config")
-            and self._mcp_config
-            and self._mcp_config["enable"]
+            self._agent_tools_manager
+            and hasattr(self, "_agent_mcp_config")
+            and self._agent_mcp_config
+            and self._agent_mcp_config["enable"]
         ):
-            await self._tools.enable_mcp(
-                tool_categories=self._mcp_config["categories"], tool_names=self._mcp_config["names"]
+            # Cast tool categories and names to the correct types
+            tool_categories = self._agent_mcp_config.get("categories")
+            if not isinstance(tool_categories, list) and tool_categories is not None:
+                tool_categories = None
+
+            tool_names = self._agent_mcp_config.get("names")
+            if not isinstance(tool_names, list) and tool_names is not None:
+                tool_names = None
+
+            await self._agent_tools_manager.enable_mcp(
+                tool_categories=tool_categories, tool_names=tool_names
             )
             # Clear the config to avoid re-initialization
-            self._mcp_config = None
+            self._agent_mcp_config = None
             return True
         return False
 
@@ -377,18 +386,19 @@ class LLMAgent(BaseAgent):
             Response message
         """
         # Convert string to message if needed
+        input_message: Union[str, MessageProtocol]
         if isinstance(message, str):
-            input_message = Message.user_message(message)
+            input_message = cast(MessageProtocol, Message.user_message(message))
         else:
             input_message = message
 
         # Initialize MCP if needed before processing
         if (
-            hasattr(self, "_tools")
-            and self._tools
-            and hasattr(self, "_mcp_config")
-            and self._mcp_config
-            and self._mcp_config["enable"]
+            hasattr(self, "_agent_tools_manager")
+            and self._agent_tools_manager
+            and hasattr(self, "_agent_mcp_config")
+            and self._agent_mcp_config
+            and self._agent_mcp_config["enable"]
         ):
             await self.initialize_mcp()
 
@@ -433,11 +443,11 @@ class LLMAgent(BaseAgent):
         """
         # Initialize MCP if needed before processing
         if (
-            hasattr(self, "_tools")
-            and self._tools
-            and hasattr(self, "_mcp_config")
-            and self._mcp_config
-            and self._mcp_config["enable"]
+            hasattr(self, "_agent_tools_manager")
+            and self._agent_tools_manager
+            and hasattr(self, "_agent_mcp_config")
+            and self._agent_mcp_config
+            and self._agent_mcp_config["enable"]
         ):
             await self.initialize_mcp()
 
@@ -480,6 +490,7 @@ class LLMAgent(BaseAgent):
             self._lifecycle.current_task = task
 
         logger.info(f"Task assigned to agent {self.id}: {task}")
+        # Return a direct boolean result as needed for coroutine
         return True
 
     async def process_task(self) -> Any:
@@ -490,11 +501,11 @@ class LLMAgent(BaseAgent):
         """
         # Initialize MCP if needed before processing
         if (
-            hasattr(self, "_tools")
-            and self._tools
-            and hasattr(self, "_mcp_config")
-            and self._mcp_config
-            and self._mcp_config["enable"]
+            hasattr(self, "_agent_tools_manager")
+            and self._agent_tools_manager
+            and hasattr(self, "_agent_mcp_config")
+            and self._agent_mcp_config
+            and self._agent_mcp_config["enable"]
         ):
             await self.initialize_mcp()
 
@@ -540,10 +551,10 @@ class LLMAgent(BaseAgent):
         Returns:
             String describing available tools
         """
-        if not self._tools:
+        if not self._agent_tools_manager:
             return "No tools available."
 
-        return self._tools.get_formatted_tool_descriptions()
+        return self._agent_tools_manager.get_formatted_tool_descriptions()
 
     async def set_reasoning_framework(self, framework_name: str) -> bool:
         """Set the reasoning framework.
@@ -578,16 +589,20 @@ class LLMAgent(BaseAgent):
         Returns:
             Tool execution result
         """
-        if not self._tools:
+        if not self._agent_tools_manager:
             raise AgentError(
                 "Tools not enabled for this agent", error_code=AgentErrorCode.INVALID_CONFIGURATION
             )
 
         # Check if we need to initialize MCP
-        if hasattr(self, "_mcp_config") and self._mcp_config and self._mcp_config["enable"]:
+        if (
+            hasattr(self, "_agent_mcp_config")
+            and self._agent_mcp_config
+            and self._agent_mcp_config["enable"]
+        ):
             await self.initialize_mcp()
 
-        return await self._tools.execute_tool(tool_name, **kwargs)
+        return await self._agent_tools_manager.execute_tool(tool_name, **kwargs)
 
     # --- Conversation methods ---
 

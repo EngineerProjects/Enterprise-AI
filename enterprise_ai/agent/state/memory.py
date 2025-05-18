@@ -126,7 +126,7 @@ class DictMemory(AgentMemory):
             os.makedirs(os.path.dirname(self._persist_path), exist_ok=True)
 
             # Prepare data for serialization
-            serialized_data = {}
+            serialized_data: Dict[str, Dict[str, Any]] = {}
             for key, value in self._store.items():
                 try:
                     # Check if value has to_dict method
@@ -370,7 +370,7 @@ class NamespacedMemory(AgentMemory):
             return set(self._spaces.get(namespace, {}).keys())
 
         # Collect keys from all namespaces
-        all_keys = set()
+        all_keys: Set[str] = set()
         for space in self._spaces.values():
             all_keys.update(space.keys())
         return all_keys
@@ -397,7 +397,7 @@ class NamespacedMemory(AgentMemory):
             os.makedirs(os.path.dirname(self._persist_path), exist_ok=True)
 
             # Prepare data for serialization
-            serialized_data = {}
+            serialized_data: Dict[str, Dict[str, Dict[str, Any]]] = {}
             for namespace, space in self._spaces.items():
                 serialized_data[namespace] = {}
                 for key, value in space.items():
@@ -764,7 +764,8 @@ class ToolMemory(NamespacedMemory):
         Returns:
             Result data or None if not found
         """
-        return self.get(result_id, namespace="tool_results")
+        result = self.get(result_id, namespace="tool_results")
+        return result if result is not None else None
 
     def get_tool_results(
         self, tool_name: Optional[str] = None, limit: int = 10, success_only: bool = False
@@ -779,13 +780,11 @@ class ToolMemory(NamespacedMemory):
         Returns:
             List of result data
         """
-        results = []
-
         # Get all results
         all_results = self.get_namespace("tool_results")
 
         # Filter and sort results
-        filtered_results = []
+        filtered_results: List[Dict[str, Any]] = []
         for result_id, result_data in all_results.items():
             # Filter by tool name if specified
             if tool_name and result_data.get("tool_name") != tool_name:
@@ -870,7 +869,7 @@ class ToolMemory(NamespacedMemory):
         """
         if tool_name:
             # Get metrics for a specific tool
-            return self.get(
+            usage = self.get(
                 tool_name,
                 {
                     "total_uses": 0,
@@ -878,6 +877,15 @@ class ToolMemory(NamespacedMemory):
                     "failed_uses": 0,
                 },
                 namespace="tool_usage",
+            )
+            return (
+                dict(usage)
+                if usage is not None
+                else {
+                    "total_uses": 0,
+                    "successful_uses": 0,
+                    "failed_uses": 0,
+                }
             )
         else:
             # Get metrics for all tools
@@ -888,11 +896,13 @@ class ToolMemory(NamespacedMemory):
             successful_uses = sum(usage.get("successful_uses", 0) for usage in usages.values())
             failed_uses = sum(usage.get("failed_uses", 0) for usage in usages.values())
 
+            success_rate = (successful_uses / total_uses) if total_uses > 0 else 0.0
+
             return {
                 "total_uses": total_uses,
                 "successful_uses": successful_uses,
                 "failed_uses": failed_uses,
-                "success_rate": (successful_uses / total_uses) if total_uses > 0 else 0,
+                "success_rate": success_rate,
                 "tool_count": len(usages),
             }
 
@@ -908,8 +918,11 @@ class ToolMemory(NamespacedMemory):
         """
         history = self.get(tool_name, [], namespace="tool_history")
 
+        # Convert to proper type and ensure it's a list
+        history_list: List[Dict[str, Any]] = list(history) if history is not None else []
+
         # Return most recent entries first
-        return history[-limit:][::-1]
+        return history_list[-limit:][::-1]
 
     def store_tool_context(self, tool_name: str, context: Dict[str, Any]) -> None:
         """Store context information for a tool.
@@ -929,7 +942,8 @@ class ToolMemory(NamespacedMemory):
         Returns:
             Tool context or empty dict if not found
         """
-        return self.get(tool_name, {}, namespace="tool_context")
+        context = self.get(tool_name, {}, namespace="tool_context")
+        return dict(context) if context is not None else {}
 
     def clear_tool_data(self, tool_name: Optional[str] = None) -> None:
         """Clear data for a specific tool or all tools.
@@ -1184,7 +1198,8 @@ class VectorMemory(AgentMemory):
         mag2 = sum(b * b for b in vec2) ** 0.5
 
         # Calculate cosine similarity
-        return dot_product / (mag1 * mag2)
+        similarity: float = dot_product / (mag1 * mag2)
+        return similarity
 
     def save(self) -> bool:
         """Save memory to disk if persist_path is set.
@@ -1309,7 +1324,10 @@ class MCPIntegratedMemory(NamespacedMemory):
         """
         super().__init__(persist_path)
         self._session_id = session_id
-        self._mcp_client = None
+        # Import the type for annotation
+        from enterprise_ai.mcp.client import MCPClient
+
+        self._mcp_client: Optional[MCPClient] = None
 
         # Initialize MCP-specific namespaces
         self._ensure_namespace("mcp")
@@ -1325,8 +1343,9 @@ class MCPIntegratedMemory(NamespacedMemory):
             # Lazy import to avoid circular imports
             from enterprise_ai.mcp.client import MCPClient
 
-            self._mcp_client = MCPClient(self._session_id, create_if_not_exists=True)
-            logger.debug(f"Initialized MCP client for session {self._session_id}")
+            if self._session_id is not None:
+                self._mcp_client = MCPClient(self._session_id, create_if_not_exists=True)
+                logger.debug(f"Initialized MCP client for session {self._session_id}")
         except Exception as e:
             logger.error(f"Failed to initialize MCP client: {e}")
             self._mcp_client = None

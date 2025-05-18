@@ -78,10 +78,10 @@ def safe_serialize(obj: Any) -> Dict[str, Any]:
         Dictionary representation
     """
     if hasattr(obj, "to_dict") and callable(getattr(obj, "to_dict")):
-        return cast(Serializable, obj).to_dict()
+        return cast(Dict[str, Any], cast(Serializable, obj).to_dict())
     elif hasattr(obj, "__dict__"):
         # Filter out unserializable types and use string representations
-        result = {}
+        result: Dict[str, Any] = {}
         for key, value in obj.__dict__.items():
             if isinstance(value, (dict, list, str, int, float, bool, type(None))):
                 result[key] = value
@@ -90,7 +90,10 @@ def safe_serialize(obj: Any) -> Dict[str, Any]:
                 result[key] = f"{type(value).__name__}({str(value)})"
         return result
     elif isinstance(obj, (dict, list, str, int, float, bool, type(None))):
-        return obj if isinstance(obj, dict) else {"value": obj}
+        if isinstance(obj, dict):
+            return cast(Dict[str, Any], obj)
+        else:
+            return {"value": obj}
     else:
         return {"type": type(obj).__name__, "repr": repr(obj)}
 
@@ -142,10 +145,11 @@ def parse_tool_args(args_str: str) -> Dict[str, Any]:
     """
     # Try parsing as JSON first
     try:
-        return json.loads(args_str)
+        parsed_json: Dict[str, Any] = json.loads(args_str)
+        return parsed_json
     except json.JSONDecodeError:
         # Fall back to parsing key=value pairs
-        result = {}
+        result: Dict[str, Any] = {}
         parts = args_str.split(",")
 
         for part in parts:
@@ -157,20 +161,20 @@ def parse_tool_args(args_str: str) -> Dict[str, Any]:
 
                 # Handle different value types
                 if value.lower() == "true":
-                    result[key] = True
+                    result[key] = True  # Boolean true
                 elif value.lower() == "false":
-                    result[key] = False
+                    result[key] = False  # Boolean false
                 elif value.isdigit():
-                    result[key] = int(value)
+                    result[key] = int(value)  # Integer
                 elif value.replace(".", "", 1).isdigit():
-                    result[key] = float(value)
+                    result[key] = float(value)  # Float
                 else:
                     # Remove quotes if present
                     if (value.startswith('"') and value.endswith('"')) or (
                         value.startswith("'") and value.endswith("'")
                     ):
                         value = value[1:-1]
-                    result[key] = value
+                    result[key] = value  # String
 
         return result
 
@@ -211,7 +215,7 @@ def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
     return text[: max_length - len(suffix)] + suffix
 
 
-def timer(name: Optional[str] = None) -> Callable:
+def timer(name: Optional[str] = None) -> Callable[[Callable[..., T]], Callable[..., T]]:
     """Decorator to time function execution.
 
     Args:
@@ -221,8 +225,8 @@ def timer(name: Optional[str] = None) -> Callable:
         Decorator function
     """
 
-    def decorator(func: Callable) -> Callable:
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
+    def decorator(func: Callable[..., T]) -> Callable[..., T]:
+        def wrapper(*args: Any, **kwargs: Any) -> T:
             timer_name = name or func.__name__
             start_time = datetime.now()
             logger.debug(f"Starting {timer_name}")
@@ -242,26 +246,26 @@ def timer(name: Optional[str] = None) -> Callable:
 class TimerContext:
     """Context manager for timing code blocks."""
 
-    def __init__(self, name: str):
+    def __init__(self, name: str) -> None:
         """Initialize the timer context.
 
         Args:
             name: Name for this timer
         """
         self.name = name
-        self.start_time = None
-        self.end_time = None
+        self.start_time: Optional[datetime] = None
+        self.end_time: Optional[datetime] = None
 
-    def __enter__(self):
+    def __enter__(self) -> "TimerContext":
         """Start the timer."""
         self.start_time = datetime.now()
         logger.debug(f"Starting {self.name}")
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         """Stop the timer and log the duration."""
         self.end_time = datetime.now()
-        elapsed = (self.end_time - self.start_time).total_seconds() * 1000
+        elapsed = (self.end_time - self.start_time).total_seconds() * 1000 if self.start_time else 0
         logger.debug(f"Completed {self.name} in {elapsed:.2f}ms")
 
     @property

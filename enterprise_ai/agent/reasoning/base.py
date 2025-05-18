@@ -281,7 +281,7 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
         """
         if not hasattr(agent, "_tool_manager"):
             # Return error results if no tool manager
-            return [
+            error_results: List[Tuple[str, ToolResult]] = [
                 (
                     call["name"],
                     ToolFailure(
@@ -290,6 +290,7 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
                 )
                 for call in tool_calls
             ]
+            return error_results
 
         tool_manager = getattr(agent, "_tool_manager")
 
@@ -312,19 +313,23 @@ class ToolBasedReasoning(ReasoningFramework, abc.ABC):
 
         # Execute tools in parallel if possible
         if hasattr(tool_manager, "execute_tools_parallel"):
-            results = await tool_manager.execute_tools_parallel(executions)
+            results: List[Tuple[str, ToolResult]] = await tool_manager.execute_tools_parallel(
+                executions
+            )
             return results
 
         # Fallback: execute sequentially
-        results = []
+        seq_results: List[Tuple[str, ToolResult]] = []
         for execution in executions:
             tool_name = execution["tool_name"]
-            result = await self.handle_tool_execution(
+            # Convert method call result to proper Awaitable
+            coro: Any = self.handle_tool_execution(
                 agent, tool_name, execution["parameters"], **kwargs
             )
-            results.append((tool_name, result))
+            tool_result: ToolResult = await coro
+            seq_results.append((tool_name, tool_result))
 
-        return results
+        return seq_results
 
     @property
     def requires_tools(self) -> bool:

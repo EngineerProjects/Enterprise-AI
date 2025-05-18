@@ -287,7 +287,7 @@ class ReasoningManager:
             self._record_framework_stats(self.current_framework_name, False, execution_time)
 
             # Handle error
-            error = self._error_manager.handle_error(
+            self._error_manager.handle_error(
                 e,
                 error_code=AgentErrorCode.EXECUTION_FAILED,
                 context={"framework": self.current_framework_name},
@@ -304,9 +304,10 @@ class ReasoningManager:
 
                 try:
                     # Try processing with default framework
-                    return await self._process_with_framework(
+                    fallback_response = await self._process_with_framework(
                         self._get_framework(self.config.default_framework), messages, **kwargs
                     )
+                    return fallback_response
                 except Exception as fallback_error:
                     # If even the fallback fails, create a simple error message
                     logger.error(f"Fallback framework also failed: {fallback_error}")
@@ -351,12 +352,15 @@ class ReasoningManager:
 
             if asyncio.iscoroutinefunction(process_func):
                 # Async processing
-                return await process_func(self.agent, messages, **kwargs)
+                return cast(MessageProtocol, await process_func(self.agent, messages, **kwargs))
             else:
                 # Sync processing
                 loop = ensure_event_loop()
-                return await loop.run_in_executor(
-                    None, lambda: process_func(self.agent, messages, **kwargs)
+                return cast(
+                    MessageProtocol,
+                    await loop.run_in_executor(
+                        None, lambda: process_func(self.agent, messages, **kwargs)
+                    ),
                 )
         else:
             raise ValueError(f"Framework {framework} does not implement process_input")
@@ -409,7 +413,7 @@ class ReasoningManager:
             self._record_framework_stats(self.current_framework_name, False, execution_time)
 
             # Handle error
-            error = self._error_manager.handle_error(
+            self._error_manager.handle_error(
                 e,
                 error_code=AgentErrorCode.EXECUTION_FAILED,
                 context={"framework": self.current_framework_name},
@@ -509,7 +513,10 @@ class ReasoningManager:
         framework = self.get_current_framework()
 
         if hasattr(framework, "format_system_prompt"):
-            return framework.format_system_prompt(self.agent, base_prompt, **kwargs)
+            formatted_prompt: str = framework.format_system_prompt(
+                self.agent, base_prompt, **kwargs
+            )
+            return formatted_prompt
         return base_prompt
 
     def format_tool_instructions(self, tools: List[Dict[str, Any]], **kwargs: Any) -> str:
@@ -525,7 +532,10 @@ class ReasoningManager:
         framework = self.get_current_framework()
 
         if hasattr(framework, "format_tool_instructions"):
-            return framework.format_tool_instructions(self.agent, tools, **kwargs)
+            formatted_instructions: str = framework.format_tool_instructions(
+                self.agent, tools, **kwargs
+            )
+            return formatted_instructions
         return ""
 
     def get_framework_stats(self, framework_name: Optional[str] = None) -> Dict[str, Any]:

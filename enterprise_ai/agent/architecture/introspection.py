@@ -129,7 +129,7 @@ class IntrospectionManager:
             logger.info("Performance monitoring cancelled")
         except Exception as e:
             # Handle unexpected error
-            error = self._error_manager.handle_error(e, error_code=AgentErrorCode.EXECUTION_FAILED)
+            self._error_manager.handle_error(e, error_code=AgentErrorCode.EXECUTION_FAILED)
             logger.error(f"Error in performance monitoring: {e}")
 
     def _collect_performance_metrics(self) -> Dict[str, Any]:
@@ -259,7 +259,7 @@ class IntrospectionManager:
         component = getattr(self.agent, attr_name)
 
         # Get component information
-        info = {
+        info: Dict[str, Any] = {
             "type": type(component).__name__,
         }
 
@@ -392,9 +392,9 @@ class IntrospectionManager:
             # Look for error counts in metrics
             for key, value in metrics.items():
                 if "error" in key.lower() and isinstance(value, (int, float)):
-                    errors += value
+                    errors = errors + int(value)
                 if "total" in key.lower() and isinstance(value, (int, float)):
-                    total += value
+                    total = total + int(value)
 
             # Determine health based on error ratio
             if total > 0:
@@ -501,7 +501,7 @@ class IntrospectionManager:
             primary_component = most_mentioned[0]
 
         # Generate diagnostic information
-        diagnosis = {
+        diagnosis: Dict[str, Any] = {
             "issue_description": issue_description,
             "timestamp": datetime.now().isoformat(),
         }
@@ -518,32 +518,38 @@ class IntrospectionManager:
                 diagnosis["diagnosis"] = (
                     f"Issue appears to be related to the {primary_component} component, which is currently unhealthy."
                 )
-                diagnosis["suggested_actions"] = [
+                # Use list type for actions
+                actions: List[str] = [
                     f"Restart the {primary_component} component",
                     "Check logs for errors",
                     f"Check configuration for the {primary_component} component",
                 ]
+                diagnosis["suggested_actions"] = actions
             else:
                 diagnosis["diagnosis"] = (
                     f"Issue appears to be related to the {primary_component} component, but the component seems healthy."
                 )
-                diagnosis["suggested_actions"] = [
+                # Use list type for actions
+                actions_alt: List[str] = [
                     "Check input parameters",
                     "Verify expected behavior",
                     "Check logs for warnings",
                 ]
+                diagnosis["suggested_actions"] = actions_alt
         else:
             # No clear component match
             diagnosis["diagnosis"] = (
                 "Issue description does not clearly match any specific component."
             )
-            diagnosis["suggested_actions"] = [
+            # Use list type for actions
+            actions_default: List[str] = [
                 "Provide more detailed information about the issue",
                 "Check logs for errors",
                 "Check overall system health",
             ]
+            diagnosis["suggested_actions"] = actions_default
 
-        # Add system health
+        # Add system health - ensure it's properly typed
         diagnosis["system_health"] = health
 
         return diagnosis

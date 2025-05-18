@@ -396,7 +396,7 @@ class Timer:
             return 0
         end = self.end_time if self.end_time is not None else time.time()
         return end - self.start_time
-    
+
 # Async timer utility
 class AsyncTimer:
     """Async timer for measuring async operations."""
@@ -432,7 +432,7 @@ class AsyncTimer:
             return 0
         end = self.end_time if self.end_time is not None else time.time()
         return end - self.start_time
-    
+
 # Run async function in sync context
 def run_async(coro):
     """Run an async function in a synchronous context."""

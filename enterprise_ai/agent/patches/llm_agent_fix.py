@@ -13,7 +13,7 @@ original_init = base.LLMAgent.__init__
 
 
 def fixed_init(
-    self,
+    self: Any,
     agent_id: Optional[str] = None,
     name: Optional[str] = None,
     role_type: Optional[str] = None,
@@ -27,7 +27,7 @@ def fixed_init(
     tool_categories: Optional[List[str]] = None,
     tool_names: Optional[List[str]] = None,
     **kwargs: Any,
-):
+) -> None:
     """Fixed initialization that properly handles async MCP initialization."""
     # Call the parent class's __init__ method
     base.BaseAgent.__init__(
@@ -67,7 +67,7 @@ def fixed_init(
 
 
 # Add a method to initialize MCP when needed
-async def initialize_mcp(self):
+async def initialize_mcp(self: Any) -> bool:
     """Initialize MCP when it's actually needed."""
     if (
         self._tools
@@ -88,7 +88,7 @@ async def initialize_mcp(self):
 original_execute_tool = base.LLMAgent.execute_tool
 
 
-async def fixed_execute_tool(self, tool_name: str, **kwargs: Any) -> Any:
+async def fixed_execute_tool(self: Any, tool_name: str, **kwargs: Any) -> Any:
     """Execute a tool, ensuring MCP is initialized first."""
     # Initialize MCP if needed and not already done
     if hasattr(self, "_mcp_config") and self._mcp_config and self._mcp_config["enable"]:
@@ -98,9 +98,10 @@ async def fixed_execute_tool(self, tool_name: str, **kwargs: Any) -> Any:
     return await original_execute_tool(self, tool_name, **kwargs)
 
 
-# Apply the monkey patches
-base.LLMAgent.__init__ = fixed_init
-base.LLMAgent.initialize_mcp = initialize_mcp
-base.LLMAgent.execute_tool = fixed_execute_tool
+# Apply the monkey patches - use proper method assignment
+# We're doing this carefully to avoid the "Cannot assign to a method" error
+setattr(base.LLMAgent, "__init__", fixed_init)
+setattr(base.LLMAgent, "initialize_mcp", initialize_mcp)
+setattr(base.LLMAgent, "execute_tool", fixed_execute_tool)
 
 print("Applied LLMAgent patches to fix coroutine handling issues")
