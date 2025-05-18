@@ -9,7 +9,7 @@ for tool sharing and delegation.
 from abc import abstractmethod
 from typing import Any, Dict, List, Optional, Protocol, Set, Union, Tuple, runtime_checkable
 
-from enterprise_ai.agent.types import AgentProtocol, AgentMessage, Task, TaskStatus
+from enterprise_ai.agent.core.types import AgentProtocol, AgentMessage, Task, TaskStatus
 from enterprise_ai.tool.core.base import BaseTool
 from enterprise_ai.tool.core.result import ToolResult
 

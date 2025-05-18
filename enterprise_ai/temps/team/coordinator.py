@@ -12,8 +12,8 @@ import asyncio
 from typing import Any, Dict, List, Optional, Set, Tuple, Union, cast
 from collections import deque, defaultdict
 
-from enterprise_ai.agent.types import AgentProtocol, AgentMessage, Task, TaskStatus
-from enterprise_ai.agent.message import (
+from enterprise_ai.agent.core.types import AgentProtocol, AgentMessage, Task, TaskStatus
+from enterprise_ai.agent.messaging.message import (
     BaseAgentMessage,
     QueryMessage,
     TaskAssignmentMessage,

@@ -6,7 +6,7 @@ This module provides a fluent API for building workflows.
 
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-from enterprise_ai.agent.types import AgentProtocol
+from enterprise_ai.agent.core.types import AgentProtocol
 from enterprise_ai.flow.node import BaseNode, FunctionNode
 from enterprise_ai.flow.nodes.agent import AgentTaskNode
 from enterprise_ai.flow.nodes.team import TeamTaskNode

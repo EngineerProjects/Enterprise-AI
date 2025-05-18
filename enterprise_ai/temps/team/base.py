@@ -11,14 +11,14 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional, Set, Tuple, cast
 
-from enterprise_ai.agent.message import (
+from enterprise_ai.agent.messaging.message import (
     BaseAgentMessage,
     BroadcastMessage,
     ErrorMessage,
     NotificationMessage,
     create_message,
 )
-from enterprise_ai.agent.types import AgentProtocol, AgentMessage, Task, TaskStatus
+from enterprise_ai.agent.core.types import AgentProtocol, AgentMessage, Task, TaskStatus
 from enterprise_ai.logger import get_logger
 from enterprise_ai.team.types import (
     TeamProtocol,

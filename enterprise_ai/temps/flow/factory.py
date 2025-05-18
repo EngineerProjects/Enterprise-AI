@@ -6,7 +6,7 @@ This module provides factory functions for creating common workflow patterns.
 
 from typing import Any, Callable, Dict, List, Optional
 
-from enterprise_ai.agent.types import AgentProtocol
+from enterprise_ai.agent.core.types import AgentProtocol
 from enterprise_ai.flow.builder import WorkflowBuilder
 from enterprise_ai.flow.workflow import BaseWorkflow, SequentialWorkflow
 from enterprise_ai.flow.types import FlowTeamProtocol

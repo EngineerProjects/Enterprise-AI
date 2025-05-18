@@ -88,6 +88,43 @@ class Message:
         """Create a tool message."""
         return cls(role="tool", content=content, name=name, tool_call_id=tool_call_id, **kwargs)
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Message":
+        """Create a message from a dictionary.
+
+        Args:
+            data: Dictionary with message data
+
+        Returns:
+            New Message instance
+        """
+        # Extract required fields
+        role = data.get("role", "user")
+        content = data.get("content")
+        name = data.get("name")
+        tool_call_id = data.get("tool_call_id")
+
+        # Extract and convert timestamp if present
+        timestamp = None
+        if "timestamp" in data and data["timestamp"]:
+            try:
+                timestamp = datetime.fromisoformat(data["timestamp"])
+            except (ValueError, TypeError):
+                timestamp = datetime.now()
+
+        # Extract metadata
+        metadata = data.get("metadata", {})
+
+        # Create and return message
+        return cls(
+            role=role,
+            content=content,
+            name=name,
+            tool_call_id=tool_call_id,
+            metadata=metadata,
+            timestamp=timestamp,
+        )
+
     def __str__(self) -> str:
         """String representation for easier debugging."""
         role_display = f"[{self.role.upper()}]"
