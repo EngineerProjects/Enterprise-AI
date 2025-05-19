@@ -17,34 +17,33 @@ The new team module architecture follows these key principles:
 
 ```
 /enterprise_ai/team/
+├── __init__.py                # Module initialization and exports
 ├── core/                      # Core team functionality
+│   ├── __init__.py            # Core module initialization
 │   ├── base.py                # BaseTeam implementation
 │   ├── factory.py             # Team creation factory
 │   ├── types.py               # Core type definitions
-│   └── registry.py            # Team registry
-├── architecture/              # Architectural components
-│   ├── coordinator.py         # Team coordination manager
-│   ├── membership.py          # Team membership manager
-│   ├── messaging.py           # Team messaging manager
-│   ├── task_manager.py        # Task distribution manager
-│   └── lifecycle.py           # Team lifecycle manager
-├── tools/                     # Tool-related functionality
-│   ├── registry.py            # Team tool registry
-│   ├── sharing.py             # Tool sharing policies
-│   ├── routing.py             # Tool routing strategies
-│   └── execution.py           # Team tool execution
-├── collaboration/             # Collaboration strategies
-│   ├── hierarchical.py        # Hierarchical collaboration
-│   ├── peer.py                # Peer-to-peer collaboration
-│   └── coordinator.py         # Centralized coordinator 
+│   └── registry.py            # Team registry (Phase 2)
+├── architecture/              # Team architecture components
+│   ├── __init__.py            # Architecture module initialization
+│   ├── coordinator.py         # Team coordinator (Phase 4)
+│   ├── lifecycle.py           # Lifecycle manager (Phase 3)
+│   ├── membership.py          # Membership manager (Phase 2)
+│   ├── messaging.py           # Messaging manager (Phase 3)
+│   └── task_manager.py        # Task manager (Phase 4)
+├── collaboration/             # Team collaboration patterns
+│   ├── __init__.py            # Collaboration module initialization
+│   ├── hierarchical.py        # Hierarchical team pattern (Phase 5)
+│   └── peer.py                # Peer team pattern (Phase 5)
 ├── roles/                     # Team role definitions
-│   ├── base.py                # BaseTeamRole
-│   ├── manager.py             # Manager role
-│   └── specialist.py          # Specialist role
-└── examples/                  # Example team implementations
-    ├── hierarchical.py        # Hierarchical team example
-    ├── collaborative.py       # Collaborative team example
-    └── hybrid.py              # Hybrid team example
+│   ├── __init__.py            # Roles module initialization
+│   ├── base.py                # BaseTeamRole (Phase 2)
+│   ├── manager.py             # Manager role (Phase 5)
+│   └── specialist.py          # Specialist role (Phase 5)
+└── tools/                     # Team tool integration
+    ├── __init__.py            # Tools module initialization
+    ├── registry.py            # Team tool registry (Phase 6)
+    └── sharing.py             # Tool sharing policies (Phase 6)
 ```
 
 ## Key Components
