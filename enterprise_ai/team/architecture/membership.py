@@ -25,19 +25,30 @@ class MembershipManager:
     - Enforcing membership rules and constraints
     """
     
-    def __init__(self, team: "TeamProtocol"):
+    def __init__(self, team: "TeamProtocol", max_members: Optional[int] = None):
         """Initialize the membership manager.
         
         Args:
             team: Team that this manager belongs to
+            max_members: Optional maximum number of team members
         """
         self._team = team
+        self._max_members = max_members
         self._members: Dict[str, AgentProtocol] = {}
         self._member_roles: Dict[str, TeamMemberRole] = {}
         self._manager_id: Optional[str] = None
         self._relationships: Dict[str, Dict[str, str]] = {}  # Hierarchical relationships
         
         logger.info(f"Initialized membership manager for team {team.id}")
+    
+    @property
+    def max_members(self) -> Optional[int]:
+        """Get the maximum number of team members.
+        
+        Returns:
+            Maximum number of members, or None if no limit
+        """
+        return self._max_members
     
     @property
     def count(self) -> int:
@@ -71,6 +82,11 @@ class MembershipManager:
         """
         if agent.id in self._members:
             logger.warning(f"Agent {agent.id} is already a member of team {self._team.id}")
+            return False
+        
+        # Check member limit if set
+        if self._max_members is not None and len(self._members) >= self._max_members:
+            logger.warning(f"Cannot add agent {agent.id}: team {self._team.id} has reached maximum members ({self._max_members})")
             return False
         
         # Add to members dictionary

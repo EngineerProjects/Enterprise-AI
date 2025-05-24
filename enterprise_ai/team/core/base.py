@@ -42,6 +42,7 @@ class BaseTeam(TeamProtocol):
         self,
         team_id: Optional[str] = None,
         name: Optional[str] = None,
+        max_members: Optional[int] = None,
         **kwargs: Any,
     ):
         """Initialize the team.
@@ -49,14 +50,16 @@ class BaseTeam(TeamProtocol):
         Args:
             team_id: Optional unique identifier
             name: Optional human-readable name
+            max_members: Optional maximum number of team members
             **kwargs: Additional team-specific parameters
         """
         # Basic team properties
         self._id = team_id or generate_id("team-")
         self._name = name or f"Team-{self._id[-4:]}"
+        self._max_members = max_members
         
         # Initialize manager components
-        self._membership = MembershipManager(self)
+        self._membership = MembershipManager(self, max_members=max_members)
         self._messaging = MessagingManager(self)
         self._tasks = TaskManager(self)
         self._lifecycle = LifecycleManager(self)
@@ -101,6 +104,11 @@ class BaseTeam(TeamProtocol):
     def name(self) -> str:
         """Get the team's human-readable name."""
         return self._name
+    
+    @property
+    def max_members(self) -> Optional[int]:
+        """Get the team's maximum number of members."""
+        return self._max_members
     
     def add_member(self, agent: AgentProtocol, role: Optional[Any] = None) -> bool:
         """Add an agent to the team.
@@ -331,6 +339,7 @@ class BaseTeam(TeamProtocol):
             "id": self.id,
             "name": self.name,
             "member_count": self._membership.count,
+            "max_members": self._max_members,
             "members": {},
             "tasks": {},
             "lifecycle": {},
