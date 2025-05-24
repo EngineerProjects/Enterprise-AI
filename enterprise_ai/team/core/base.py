@@ -461,26 +461,8 @@ class BaseTeam(TeamProtocol):
         Returns:
             True if initialization succeeded, False otherwise
         """
+        # Delegate to lifecycle manager
         success = await self._lifecycle.initialize(kwargs)
-        
-        # Optionally discover team tools if requested
-        if success and kwargs.get("discover_tools", False):
-            await self._tool_registry.discover_and_register_all_team_tools(
-                access_level=ToolAccessLevel.TEAM_EXECUTE
-            )
-            
-        # Start state synchronization if auto mode
-        if success and hasattr(self, "_state_sync"):
-            from enterprise_ai.team.architecture.state_sync import SyncMode
-            if hasattr(self._state_sync, "_sync_mode"):
-                if self._state_sync._sync_mode == SyncMode.PERIODIC:
-                    self._state_sync.start_periodic_sync()
-                elif self._state_sync._sync_mode == SyncMode.AUTOMATIC:
-                    # Perform initial sync
-                    try:
-                        await self._state_sync.sync_all_agents()
-                    except Exception as e:
-                        logger.error(f"Error during initial state sync: {e}")
         
         return success
     
@@ -490,13 +472,7 @@ class BaseTeam(TeamProtocol):
         Returns:
             True if termination succeeded, False otherwise
         """
-        # Stop state synchronization if running
-        if hasattr(self, "_state_sync") and hasattr(self._state_sync, "stop_periodic_sync"):
-            try:
-                self._state_sync.stop_periodic_sync()
-            except Exception as e:
-                logger.error(f"Error stopping state sync: {e}")
-        
+        # Delegate to lifecycle manager
         return await self._lifecycle.terminate()
         
     # Task management methods

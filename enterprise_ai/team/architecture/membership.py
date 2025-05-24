@@ -80,6 +80,14 @@ class MembershipManager:
         Returns:
             True if agent was added successfully, False otherwise
         """
+        # Check if team is in a state where members can be added
+        if hasattr(self._team, "_lifecycle"):
+            from enterprise_ai.team.architecture.lifecycle import TeamState
+            lifecycle_state = self._team._lifecycle.state
+            if lifecycle_state in (TeamState.TERMINATED, TeamState.TERMINATING):
+                logger.warning(f"Cannot add agent {agent.id}: team {self._team.id} is {lifecycle_state.value}")
+                return False
+        
         if agent.id in self._members:
             logger.warning(f"Agent {agent.id} is already a member of team {self._team.id}")
             return False

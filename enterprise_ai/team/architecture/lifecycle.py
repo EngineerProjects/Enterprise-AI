@@ -56,6 +56,14 @@ class LifecycleManager:
         self._initialization_time: Optional[datetime] = None
         self._termination_time: Optional[datetime] = None
         self._error_history: List[Dict[str, Any]] = []
+        self._event_handlers: Dict[str, List[callable]] = {
+            "initialized": [],
+            "terminated": [], 
+            "paused": [],
+            "resumed": [],
+            "state_changed": [],
+            "error": []
+        }
         
         logger.info(f"Initialized lifecycle manager for team {team.id}")
     
@@ -84,6 +92,9 @@ class LifecycleManager:
             self._initialization_time = datetime.now()
         elif state == TeamState.TERMINATED and not self._termination_time:
             self._termination_time = datetime.now()
+            
+        # Trigger state_changed event
+        self._trigger_event("state_changed", self._team.id, old_state.value, state.value)
     
     async def initialize(self, config: Optional[Dict[str, Any]] = None) -> bool:
         """Initialize the team.
@@ -94,38 +105,43 @@ class LifecycleManager:
         Returns:
             True if initialization succeeded, False otherwise
         """
-        # Update state
+        # Check current state
         if self._state != TeamState.UNINITIALIZED:
             logger.warning(
                 f"Cannot initialize team {self._team.id} in state {self._state.value}"
             )
             return False
         
+        # Update state to initializing
         self.set_state(TeamState.INITIALIZING)
         
-        # Update configuration
-        if config:
-            self._config.update(config)
-        
-        # Set up state directory if specified
-        if "state_dir" in self._config:
-            self._state_dir = self._config["state_dir"]
-            os.makedirs(self._state_dir, exist_ok=True)
-        
         try:
-            # Perform team-specific initialization
-            result = await self._team.initialize(**self._config)
+            # Update configuration
+            if config:
+                self._config.update(config)
             
-            if result:
+            # Set up state directory if specified
+            if "state_dir" in self._config:
+                self._state_dir = self._config["state_dir"]
+                os.makedirs(self._state_dir, exist_ok=True)
+            
+            # Perform team-specific initialization directly here
+            # instead of calling back into the team to avoid circular dependency
+            success = await self._initialize_team_components()
+            
+            if success:
                 # Update state to active
                 self.set_state(TeamState.ACTIVE)
                 logger.info(f"Successfully initialized team {self._team.id}")
+                # Trigger initialized event
+                self._trigger_event("initialized", self._team.id)
             else:
                 # Update state to failed
                 self.set_state(TeamState.FAILED)
                 logger.error(f"Failed to initialize team {self._team.id}")
             
-            return result
+            return success
+            
         except Exception as e:
             # Record error
             self._record_error("initialization_error", str(e))
@@ -136,13 +152,63 @@ class LifecycleManager:
             
             return False
     
+    async def _initialize_team_components(self) -> bool:
+        """Initialize team components internally.
+        
+        This method handles the actual initialization logic without
+        calling back into the team to avoid circular dependencies.
+        
+        Returns:
+            True if initialization succeeded, False otherwise
+        """
+        try:
+            # Initialize tool discovery if requested
+            if self._config.get("discover_tools", False):
+                if hasattr(self._team, "_tool_registry"):
+                    from enterprise_ai.team.tools.registry import ToolAccessLevel
+                    await self._team._tool_registry.discover_and_register_all_team_tools(
+                        access_level=ToolAccessLevel.TEAM_EXECUTE
+                    )
+                    logger.info(f"Discovered and registered tools for team {self._team.id}")
+            
+            # Start state synchronization if configured
+            if hasattr(self._team, "_state_sync"):
+                from enterprise_ai.team.architecture.state_sync import SyncMode
+                
+                state_sync = self._team._state_sync
+                if hasattr(state_sync, "_sync_mode"):
+                    if state_sync._sync_mode == SyncMode.PERIODIC:
+                        if hasattr(state_sync, "start_periodic_sync"):
+                            state_sync.start_periodic_sync()
+                            logger.info(f"Started periodic sync for team {self._team.id}")
+                    elif state_sync._sync_mode == SyncMode.AUTOMATIC:
+                        # Perform initial sync
+                        try:
+                            if hasattr(state_sync, "sync_all_agents"):
+                                await state_sync.sync_all_agents()
+                                logger.info(f"Performed initial sync for team {self._team.id}")
+                        except Exception as e:
+                            logger.error(f"Error during initial state sync: {e}")
+            
+            # Additional initialization steps can be added here
+            # For example:
+            # - Initialize communication channels
+            # - Set up monitoring
+            # - Load saved state if available
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error during team component initialization: {e}")
+            return False
+    
     async def terminate(self) -> bool:
         """Terminate the team.
         
         Returns:
             True if termination succeeded, False otherwise
         """
-        # Update state
+        # Check current state
         if self._state == TeamState.TERMINATED:
             logger.warning(f"Team {self._team.id} is already terminated")
             return True
@@ -151,22 +217,26 @@ class LifecycleManager:
             logger.warning(f"Team {self._team.id} is already terminating")
             return False
         
+        # Update state to terminating
         self.set_state(TeamState.TERMINATING)
         
         try:
             # Perform team-specific termination
-            result = await self._team.terminate()
+            success = await self._terminate_team_components()
             
-            if result:
+            if success:
                 # Update state to terminated
                 self.set_state(TeamState.TERMINATED)
                 logger.info(f"Successfully terminated team {self._team.id}")
+                # Trigger terminated event
+                self._trigger_event("terminated", self._team.id)
             else:
                 # Update state to failed
                 self.set_state(TeamState.FAILED)
                 logger.error(f"Failed to terminate team {self._team.id}")
             
-            return result
+            return success
+            
         except Exception as e:
             # Record error
             self._record_error("termination_error", str(e))
@@ -175,6 +245,38 @@ class LifecycleManager:
             self.set_state(TeamState.FAILED)
             logger.error(f"Error terminating team {self._team.id}: {e}")
             
+            return False
+    
+    async def _terminate_team_components(self) -> bool:
+        """Terminate team components internally.
+        
+        This method handles the actual termination logic.
+        
+        Returns:
+            True if termination succeeded, False otherwise
+        """
+        try:
+            # Stop state synchronization if running
+            if hasattr(self._team, "_state_sync"):
+                state_sync = self._team._state_sync
+                if hasattr(state_sync, "stop_periodic_sync"):
+                    try:
+                        state_sync.stop_periodic_sync()
+                        logger.info(f"Stopped state sync for team {self._team.id}")
+                    except Exception as e:
+                        logger.error(f"Error stopping state sync: {e}")
+            
+            # Additional cleanup steps can be added here
+            # For example:
+            # - Clean up active tasks
+            # - Close communication channels
+            # - Save final state
+            # - Notify team members
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error during team component termination: {e}")
             return False
     
     def pause(self) -> bool:
@@ -194,6 +296,9 @@ class LifecycleManager:
         self.set_state(TeamState.PAUSED)
         logger.info(f"Paused team {self._team.id}")
         
+        # Trigger paused event
+        self._trigger_event("paused", self._team.id)
+        
         return True
     
     def resume(self) -> bool:
@@ -212,6 +317,9 @@ class LifecycleManager:
         # Update state
         self.set_state(TeamState.ACTIVE)
         logger.info(f"Resumed team {self._team.id}")
+        
+        # Trigger resumed event
+        self._trigger_event("resumed", self._team.id)
         
         return True
     
@@ -375,3 +483,65 @@ class LifecycleManager:
             "message": error_message,
             "timestamp": datetime.now().isoformat(),
         })
+        
+        # Trigger error event
+        self._trigger_event("error", self._team.id, error_type, error_message)
+    
+    def register_event_handler(self, event_type: str, handler: callable) -> bool:
+        """Register an event handler for a specific event type.
+        
+        Args:
+            event_type: Type of event to handle
+            handler: Callback function to execute when event occurs
+            
+        Returns:
+            True if registration succeeded, False otherwise
+        """
+        if event_type not in self._event_handlers:
+            logger.warning(f"Unknown event type: {event_type}")
+            return False
+        
+        self._event_handlers[event_type].append(handler)
+        logger.info(f"Registered handler for {event_type} events in team {self._team.id}")
+        return True
+    
+    def unregister_event_handler(self, event_type: str, handler: callable) -> bool:
+        """Unregister an event handler.
+        
+        Args:
+            event_type: Type of event
+            handler: Handler function to remove
+            
+        Returns:
+            True if unregistration succeeded, False otherwise
+        """
+        if event_type not in self._event_handlers:
+            logger.warning(f"Unknown event type: {event_type}")
+            return False
+        
+        if handler in self._event_handlers[event_type]:
+            self._event_handlers[event_type].remove(handler)
+            logger.info(f"Unregistered handler for {event_type} events in team {self._team.id}")
+            return True
+        else:
+            logger.warning(f"Handler not found for {event_type} events")
+            return False
+    
+    def _trigger_event(self, event_type: str, *args, **kwargs) -> None:
+        """Trigger an event and execute all registered handlers.
+        
+        Args:
+            event_type: Type of event to trigger
+            *args: Positional arguments to pass to handlers
+            **kwargs: Keyword arguments to pass to handlers
+        """
+        if event_type not in self._event_handlers:
+            logger.warning(f"Cannot trigger unknown event type: {event_type}")
+            return
+        
+        for handler in self._event_handlers[event_type]:
+            try:
+                handler(*args, **kwargs)
+            except Exception as e:
+                logger.error(f"Error in {event_type} event handler: {e}")
+                # Don't let handler errors propagate and disrupt normal operation
