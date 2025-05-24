@@ -98,7 +98,8 @@ def create_team(
                 **kwargs
             )
     else:
-        raise ValueError(f"Unknown team type: {team_type}")
+        logger.warning(f"Unknown team type: {team_type}, defaulting to 'base'")
+        team = BaseTeam(team_id=team_id, name=name, **kwargs)
     
     # Add manager if provided (for hierarchical teams)
     if manager_agent:
@@ -160,6 +161,18 @@ class TeamBuilder:
             Updated builder instance
         """
         self._name = name
+        return self
+        
+    def with_type(self, team_type: str) -> "TeamBuilder":
+        """Set team type.
+        
+        Args:
+            team_type: Team type to use (e.g., "base", "hierarchical", "peer")
+            
+        Returns:
+            Updated builder instance
+        """
+        self._team_type = team_type
         return self
     
     def with_manager(self, manager: AgentProtocol) -> "TeamBuilder":

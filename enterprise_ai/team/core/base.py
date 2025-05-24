@@ -6,7 +6,7 @@ to specialized manager components for different responsibilities.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from enterprise_ai.agent.architecture.utils import generate_id
 from enterprise_ai.agent.core.types import AgentProtocol, MessageProtocol, Task
@@ -52,8 +52,8 @@ class BaseTeam(TeamProtocol):
             **kwargs: Additional team-specific parameters
         """
         # Basic team properties
-        self.id = team_id or generate_id("team-")
-        self.name = name or f"Team-{self.id[-4:]}"
+        self._id = team_id or generate_id("team-")
+        self._name = name or f"Team-{self._id[-4:]}"
         
         # Initialize manager components
         self._membership = MembershipManager(self)
@@ -75,11 +75,32 @@ class BaseTeam(TeamProtocol):
         
         # Initialize state synchronization component
         from enterprise_ai.team.architecture.state_sync import StateSyncManager, SyncMode
-        sync_mode = kwargs.get("sync_mode", SyncMode.AUTOMATIC)
+        
+        # Handle sync_mode as string or enum
+        sync_mode_param = kwargs.get("sync_mode", SyncMode.AUTOMATIC)
+        if isinstance(sync_mode_param, str):
+            try:
+                sync_mode = SyncMode[sync_mode_param.upper()]
+            except KeyError:
+                logger.warning(f"Invalid sync mode: {sync_mode_param}, defaulting to AUTOMATIC")
+                sync_mode = SyncMode.AUTOMATIC
+        else:
+            sync_mode = sync_mode_param
+            
         sync_interval = kwargs.get("sync_interval", 60)
         self._state_sync = StateSyncManager(self, sync_mode, sync_interval)
         
-        logger.info(f"Initialized team {self.id} ({self.name})")
+        logger.info(f"Initialized team {self._id} ({self._name})")
+    
+    @property
+    def id(self) -> str:
+        """Get the team's unique identifier."""
+        return self._id
+    
+    @property
+    def name(self) -> str:
+        """Get the team's human-readable name."""
+        return self._name
     
     def add_member(self, agent: AgentProtocol, role: Optional[Any] = None) -> bool:
         """Add an agent to the team.

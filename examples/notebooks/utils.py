@@ -54,11 +54,31 @@ class Colors:
     RESET = "\033[0m"
 
 # Print functions
-def print_title(title):
-    """Print a formatted title."""
-    print("\n" + "=" * 60)
-    print(f"{Colors.BLUE}{title}{Colors.RESET}")
-    print("=" * 60 + "\n")
+def print_title(title, style="single"):
+    """Print a formatted title with optional styling.
+    
+    Args:
+        title: The title text to print
+        style: Style to use ('single', 'double', 'hash')
+    """
+    print("\n")
+    
+    if style == "double":
+        print("=" * 60)
+        print("=" * 60)
+        print(f"{Colors.BLUE}{title}{Colors.RESET}")
+        print("=" * 60)
+        print("=" * 60)
+    elif style == "hash":
+        print("# " + "#" * 58)
+        print(f"{Colors.BLUE}# {title}{Colors.RESET}")
+        print("# " + "#" * 58)
+    else:  # Default "single" style
+        print("=" * 60)
+        print(f"{Colors.BLUE}{title}{Colors.RESET}")
+        print("=" * 60)
+    
+    print("\n")
 
 def print_section(title):
     """Print a section title."""
