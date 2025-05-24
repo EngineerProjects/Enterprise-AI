@@ -247,6 +247,27 @@ class TeamTask:
         logger.info(f"Set deadline of task {self.id} to {deadline}")
         return True
     
+    @property
+    def name(self) -> str:
+        """Get the task name.
+        
+        Returns the name from metadata if available, otherwise uses description,
+        or falls back to task ID if neither is available.
+        
+        Returns:
+            Task name
+        """
+        # First try to get name from metadata
+        if self.metadata and "name" in self.metadata:
+            return self.metadata["name"]
+        
+        # Fall back to description if available
+        if self.description:
+            return self.description
+        
+        # Final fallback to ID
+        return f"Task-{self.id}"
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert the task to a dictionary.
         
@@ -597,7 +618,18 @@ class TaskManager:
         Returns:
             List of subtask objects
         """
+        # Get from parent-child index
         subtask_ids = self._parent_child_index.get(task_id, [])
+        
+        # Also check for subtasks directly referenced in parent task
+        parent_task = self.get_task(task_id)
+        if parent_task and parent_task.subtasks:
+            # Merge with any subtasks directly referenced
+            for subtask_id in parent_task.subtasks:
+                if subtask_id not in subtask_ids:
+                    subtask_ids.append(subtask_id)
+                    
+        # Convert IDs to task objects
         return [self._tasks[sid] for sid in subtask_ids if sid in self._tasks]
     
     def assign_task(self, task_id: str, agent_id: str) -> bool:
@@ -741,6 +773,18 @@ class TaskManager:
                 subtask = self.create_task(subtask)
             
             created_subtasks.append(subtask)
+            
+            # Make sure the parent-child relationship is properly established
+            # Update parent-child index
+            if task_id not in self._parent_child_index:
+                self._parent_child_index[task_id] = []
+            if subtask.id not in self._parent_child_index[task_id]:
+                self._parent_child_index[task_id].append(subtask.id)
+            
+            # Update parent task's subtasks list
+            if subtask.id not in parent_task.subtasks:
+                parent_task.add_subtask(subtask.id)
+                
             logger.info(f"Created subtask {subtask.id} for parent task {task_id}")
         
         return created_subtasks
@@ -1047,8 +1091,8 @@ class TaskManager:
             
             # Add children
             children = self.get_subtasks(task_id)
-            if children:
-                tree["children"] = [build_tree(child.id) for child in children]
+            # Always add children key for consistent structure
+            tree["children"] = [build_tree(child.id) for child in children] if children else []
             
             return tree
         
