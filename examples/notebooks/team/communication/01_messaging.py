@@ -214,16 +214,16 @@ async def test_prompt_template_integration(results: TestResults) -> None:
         # In a real implementation, you would test with actual LLM agents that use templates
         # For now, we'll just verify that prompt templates are accessible
         
-        from enterprise_ai.prompt.templates import get_template
+        from enterprise_ai.prompt import get_prompt
         
         # Try to load a team collaboration template
-        template = get_template("team/collaboration.prompt")
+        template = get_prompt("team.collaboration")
         
         # Assertions
         assert template is not None, "Team collaboration template should be loadable"
-        assert len(template) > 0, "Template should not be empty"
+        assert len(template.template_str) > 0, "Template should not be empty"
         
-        print_info(f"Successfully loaded team collaboration template ({len(template)} chars)")
+        print_info(f"Successfully loaded team collaboration template ({len(template.template_str)} chars)")
         results.add_pass("Team prompt template loading works")
         
         # In a more complete test, you would create agents with these templates
