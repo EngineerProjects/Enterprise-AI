@@ -127,10 +127,68 @@ class PlanningTool(BaseTool):
             config: Tool configuration settings
             **kwargs: Additional keyword arguments
         """
+        # Use hardcoded default values instead of relying on self attributes
+        # that aren't initialized yet
         super().__init__(
-            name=name or self.name,
-            description=description or self.description,
-            parameters=parameters or self.parameters,
+            name=name or "planning",
+            description=description or """
+    A planning tool that allows the creation and management of structured task plans.
+
+    * Purpose: Create, update, and track progress on multi-step plans
+    * Usage: Break down complex tasks, track step completion, document workflows
+    * Features: Step status tracking, plan management, progress monitoring
+    * Returns: Plan details, step status, and progress metrics
+
+    Plans can be created with multiple steps, and each step can be marked with statuses
+    like "not_started", "in_progress", "completed", or "blocked". Multiple plans can
+    be maintained simultaneously, with one designated as the active plan.
+    """,
+            parameters=parameters or {
+                "type": "object",
+                "properties": {
+                    "command": {
+                        "description": "The command to execute. Available commands: create, update, list, get, set_active, mark_step, delete.",
+                        "enum": [
+                            "create",
+                            "update",
+                            "list",
+                            "get",
+                            "set_active",
+                            "mark_step",
+                            "delete",
+                        ],
+                        "type": "string",
+                    },
+                    "plan_id": {
+                        "description": "Unique identifier for the plan. Required for create, update, set_active, and delete commands. Optional for get and mark_step (uses active plan if not specified).",
+                        "type": "string",
+                    },
+                    "title": {
+                        "description": "Title for the plan. Required for create command, optional for update command.",
+                        "type": "string",
+                    },
+                    "steps": {
+                        "description": "List of plan steps. Required for create command, optional for update command.",
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "step_index": {
+                        "description": "Index of the step to update (0-based). Required for mark_step command.",
+                        "type": "integer",
+                    },
+                    "step_status": {
+                        "description": "Status to set for a step. Used with mark_step command.",
+                        "enum": ["not_started", "in_progress", "completed", "blocked"],
+                        "type": "string",
+                    },
+                    "step_notes": {
+                        "description": "Additional notes for a step. Optional for mark_step command.",
+                        "type": "string",
+                    },
+                },
+                "required": ["command"],
+                "additionalProperties": False,
+            },
         )
 
         # Store tool configuration

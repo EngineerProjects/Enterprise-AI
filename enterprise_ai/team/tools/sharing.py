@@ -691,6 +691,19 @@ class ToolSharingManager:
         result = self._registry.add_allowed_agent(request.tool_name, request.requester_id)
         
         if result:
+            # Notify agent of updated tool access through the team if possible
+            requester_agent = self._team.get_member(request.requester_id)
+            if requester_agent and hasattr(requester_agent, "_agent_tools_manager"):
+                # Force a refresh of the agent's tool cache if it has a tools manager
+                logger.info(f"Refreshing tool cache for agent {request.requester_id}")
+                
+                # This is just a placeholder - implement the actual refresh mechanism
+                # based on how your agent tool manager works
+                if hasattr(requester_agent._agent_tools_manager, "refresh_tools"):
+                    await requester_agent._agent_tools_manager.refresh_tools()
+                elif hasattr(requester_agent, "refresh_tools"):
+                    await requester_agent.refresh_tools()
+            
             # If temporary, set up expiration
             if request.temporary and request.expiration:
                 await self._setup_temporary_share(
