@@ -1001,6 +1001,19 @@ class ReActReasoning(ToolBasedReasoning):
         # Get tools description
         tools_description = kwargs.get("tools_description", "")
 
+        # Also check if the agent has tool descriptions as a parameter
+        if not tools_description and hasattr(agent, "_params") and "tool_descriptions" in agent._params:
+            # Convert tool descriptions dict to a formatted string
+            tool_descs = agent._params.get("tool_descriptions", {})
+            if tool_descs:
+                desc_lines = []
+                for tool_name, desc in tool_descs.items():
+                    desc_lines.append(f"Tool: {tool_name}")
+                    desc_lines.append(f"Description: {desc}")
+                    desc_lines.append("")  # Empty line between tools
+                tools_description = "\n".join(desc_lines)
+                
+        # If still no description, try to get from tool manager
         if not tools_description and hasattr(agent, "_tool_manager"):
             # Get tools description from agent's tool manager
             tool_manager = getattr(agent, "_tool_manager")

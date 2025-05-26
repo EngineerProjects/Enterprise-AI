@@ -264,7 +264,15 @@ class AgentToolsManager:
         Returns:
             Dictionary mapping tool names to descriptions
         """
-        descriptions = {name: tool.description for name, tool in self._tools.items()}
+        descriptions = {}
+
+        # Local tools
+        for name, tool in self._tools.items():
+            # Get description with proper fallback
+            description = "No description available"
+            if hasattr(tool, "description") and tool.description:
+                description = tool.description.strip()
+            descriptions[name] = description
 
         # Add MCP tool descriptions if initialized
         if self._mcp_client and self._mcp_initialized:
@@ -273,7 +281,8 @@ class AgentToolsManager:
                 for tool in mcp_tools:
                     if "function" in tool and "name" in tool["function"]:
                         name = tool["function"]["name"]
-                        descriptions[name] = tool["function"]["description"]
+                        desc = tool["function"].get("description", "")
+                        descriptions[name] = desc if desc else "No description available"
             except Exception as e:
                 logger.warning(f"Failed to get MCP tool descriptions: {e}")
 
