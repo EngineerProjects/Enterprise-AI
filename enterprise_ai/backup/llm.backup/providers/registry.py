@@ -11,7 +11,7 @@ from typing import Any, Callable, Dict, List, Optional, Type, cast
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.logger import get_logger
 
-logger = get_logger("llm.refactored.registry")
+logger = get_logger("llm.registry")
 
 
 class ProviderRegistry:

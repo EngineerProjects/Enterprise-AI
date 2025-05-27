@@ -1,13 +1,12 @@
 """
-Base LLM provider implementation with enhanced tool support.
+Base LLM provider implementation.
 
-This module defines the base class for all LLM providers with
-improved handling of tool calls across different LLM providers.
+This module defines the base class for all LLM providers.
 """
 
 import abc
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional, Set
 
 from enterprise_ai.constants import (
     DEFAULT_TEMPERATURE,
@@ -18,17 +17,15 @@ from enterprise_ai.constants import (
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message, ModelInfo
 from enterprise_ai.types import MessageProtocol
-from enterprise_ai.llm.adapters import ToolAdapter, ToolFormat
 
-logger = get_logger("llm.refactored.base")
+logger = get_logger("llm.base")
 
 
 class LLMProvider(abc.ABC):
     """
-    Base class for LLM providers with enhanced tool calling support.
+    Base class for LLM providers.
 
-    This class defines the interface that all LLM providers must implement,
-    with additional functionality for handling tool calls in a consistent way.
+    This class defines the interface that all LLM providers must implement.
     """
 
     def __init__(self, model_name: str, **kwargs: Any):
@@ -50,20 +47,6 @@ class LLMProvider(abc.ABC):
 
         # Initialize model info
         self._model_info = None
-
-        # Initialize tool adapter
-        self._tool_adapter = self._create_tool_adapter()
-
-    def _create_tool_adapter(self) -> ToolAdapter:
-        """
-        Create the appropriate tool adapter for this provider.
-
-        Returns:
-            ToolAdapter instance
-        """
-        # Default implementation creates a basic adapter
-        # Override in subclasses to create provider-specific adapters
-        return ToolAdapter()
 
     def get_model_name(self) -> str:
         """Get the model name."""
@@ -148,45 +131,3 @@ class LLMProvider(abc.ABC):
             "error_count": self._error_count,
             "success_rate": self._success_count / max(1, self._request_count),
         }
-
-    def format_tools_for_provider(
-        self, tools: List[Dict[str, Any]], **kwargs: Any
-    ) -> Tuple[Any, Dict[str, Any]]:
-        """
-        Format tools for this specific provider.
-
-        This method converts tools from the standard format to
-        the provider-specific format required by the API.
-
-        Args:
-            tools: List of tools in standard format
-            **kwargs: Additional formatting options
-
-        Returns:
-            Tuple of (formatted_tools, updated_kwargs)
-        """
-        return self._tool_adapter.format_for_provider(tools, **kwargs)
-
-    def extract_tool_calls(self, response: MessageProtocol) -> List[Dict[str, Any]]:
-        """
-        Extract tool calls from an LLM response.
-
-        This method handles the provider-specific format of tool calls
-        and converts them to a standard format.
-
-        Args:
-            response: LLM response message
-
-        Returns:
-            List of standardized tool calls
-        """
-        return self._tool_adapter.extract_tool_calls(response)
-
-    def update_tool_adapter(self, adapter: ToolAdapter) -> None:
-        """
-        Update the tool adapter for this provider.
-
-        Args:
-            adapter: New tool adapter to use
-        """
-        self._tool_adapter = adapter

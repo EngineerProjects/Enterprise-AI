@@ -1,8 +1,7 @@
 """
-Refactored Ollama provider implementation.
+Ollama provider implementation.
 
-This module provides an enhanced LLM provider for the Ollama API
-with improved tool calling support and restored async/streaming functionality.
+This module provides an LLM provider for the Ollama API.
 """
 
 import json
@@ -25,22 +24,20 @@ from enterprise_ai.constants import (
 from enterprise_ai.exceptions import APIError, ModelNotFoundError
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.llm.providers.registry import register_provider
-from enterprise_ai.llm.adapters import OllamaToolAdapter
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message, ModelInfo
 from enterprise_ai.types import MessageProtocol
 
-logger = get_logger("llm.refactored.providers.ollama")
+logger = get_logger("llm.providers.ollama")
 
 
 @register_provider("ollama")
 class OllamaProvider(LLMProvider):
     """
-    Enhanced Ollama LLM provider with improved tool support.
+    Ollama LLM provider.
 
     This provider interfaces with the Ollama API for local LLM inference,
-    with robust handling of tool calls in various formats and complete
-    async/streaming support.
+    automatically detecting model capabilities.
     """
 
     def __init__(
@@ -109,20 +106,14 @@ class OllamaProvider(LLMProvider):
 
         logger.info(f"Initialized Ollama provider with model {model}, timeout {self._timeout}s")
 
+        # Cache for model info - Let base class handle this
+        # DO NOT redefine with type annotation here as it conflicts with parent class
+
         # Create HTTP clients with configured timeout
         self._client: Optional[httpx.Client] = httpx.Client(timeout=self._timeout)
         self._async_client: Optional[httpx.AsyncClient] = (
             None  # Lazy initialization for async client
         )
-
-    def _create_tool_adapter(self) -> OllamaToolAdapter:
-        """
-        Create an Ollama-specific tool adapter.
-
-        Returns:
-            OllamaToolAdapter instance
-        """
-        return OllamaToolAdapter()
 
     def __del__(self) -> None:
         """Clean up resources when the provider is deleted."""
@@ -215,17 +206,8 @@ class OllamaProvider(LLMProvider):
             )
             request_timeout = vision_timeout
 
-        # Handle tools using adapter
-        if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
-
-        # Always use the chat endpoint if tools are specified
+        # Determine whether to use the chat or generate endpoint
+        # If tools are specified, always use the chat endpoint
         use_chat_endpoint = "tools" in kwargs
 
         if use_chat_endpoint:
@@ -423,17 +405,9 @@ class OllamaProvider(LLMProvider):
             if tool_calls:
                 metadata["tool_calls"] = tool_calls
 
-            # Create assistant message
-            assistant_message = Message(role="assistant", content=content, metadata=metadata)
-            
-            # Use tool adapter to check for tool calls in content
-            # This handles cases where tool calls aren't in the API response metadata
-            content_tool_calls = self._tool_adapter.extract_tool_calls(assistant_message)
-            if content_tool_calls and not tool_calls:
-                metadata["tool_calls"] = content_tool_calls
-                assistant_message = Message(role="assistant", content=content, metadata=metadata)
-
-            return cast(MessageProtocol, assistant_message)
+            return cast(
+                MessageProtocol, Message(role="assistant", content=content, metadata=metadata)
+            )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -446,10 +420,6 @@ class OllamaProvider(LLMProvider):
             self.track_request(False)
             logger.error(f"Request to Ollama API (chat) failed: {e}")
             raise APIError(message=f"Failed to connect to Ollama API: {e}")
-
-    # =====================================================
-    # STREAMING METHODS (RESTORED FROM OLD VERSION)
-    # =====================================================
 
     def complete_stream(
         self, messages: List[MessageProtocol], **kwargs: Any
@@ -479,16 +449,6 @@ class OllamaProvider(LLMProvider):
             vision_timeout = max(request_timeout, 120.0)
             logger.debug(f"Using extended timeout ({vision_timeout}s) for vision model streaming")
             request_timeout = vision_timeout
-
-        # Handle tools using adapter
-        if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
 
         # Determine whether to use the chat or generate endpoint
         # If tools are specified, always use the chat endpoint
@@ -742,16 +702,10 @@ class OllamaProvider(LLMProvider):
                     metadata["tool_calls"] = tool_calls
 
                 # Final message with complete content
-                final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-                
-                # Use tool adapter to check for tool calls in content if not already found
-                if not tool_calls:
-                    content_tool_calls = self._tool_adapter.extract_tool_calls(final_message)
-                    if content_tool_calls:
-                        metadata["tool_calls"] = content_tool_calls
-                        final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-
-                yield cast(MessageProtocol, final_message)
+                yield cast(
+                    MessageProtocol,
+                    Message(role="assistant", content=content_buffer, metadata=metadata),
+                )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -766,10 +720,6 @@ class OllamaProvider(LLMProvider):
             self.track_request(False)
             logger.error(f"Streaming request to Ollama API (chat) failed: {e}")
             raise APIError(message=f"Failed to connect to Ollama API (chat): {e}")
-
-    # =====================================================
-    # ASYNC METHODS (RESTORED FROM OLD VERSION)
-    # =====================================================
 
     async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
         """
@@ -815,16 +765,6 @@ class OllamaProvider(LLMProvider):
         # Initialize async client if needed
         if self._async_client is None:
             self._async_client = httpx.AsyncClient(timeout=request_timeout)
-
-        # Handle tools using adapter
-        if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
 
         # Determine whether to use the chat or generate endpoint
         # If tools are specified, always use the chat endpoint
@@ -1029,17 +969,9 @@ class OllamaProvider(LLMProvider):
             if tool_calls:
                 metadata["tool_calls"] = tool_calls
 
-            # Create assistant message
-            assistant_message = Message(role="assistant", content=content, metadata=metadata)
-            
-            # Use tool adapter to check for tool calls in content
-            # This handles cases where tool calls aren't in the API response metadata
-            content_tool_calls = self._tool_adapter.extract_tool_calls(assistant_message)
-            if content_tool_calls and not tool_calls:
-                metadata["tool_calls"] = content_tool_calls
-                assistant_message = Message(role="assistant", content=content, metadata=metadata)
-
-            return cast(MessageProtocol, assistant_message)
+            return cast(
+                MessageProtocol, Message(role="assistant", content=content, metadata=metadata)
+            )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -1089,16 +1021,6 @@ class OllamaProvider(LLMProvider):
         # Initialize async client if needed
         if self._async_client is None:
             self._async_client = httpx.AsyncClient(timeout=request_timeout)
-
-        # Handle tools using adapter
-        if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
 
         # Determine whether to use the chat or generate endpoint
         # If tools are specified, always use the chat endpoint
@@ -1358,16 +1280,10 @@ class OllamaProvider(LLMProvider):
                     metadata["tool_calls"] = tool_calls
 
                 # Final message with complete content
-                final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-                
-                # Use tool adapter to check for tool calls in content if not already found
-                if not tool_calls:
-                    content_tool_calls = self._tool_adapter.extract_tool_calls(final_message)
-                    if content_tool_calls:
-                        metadata["tool_calls"] = content_tool_calls
-                        final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-
-                yield cast(MessageProtocol, final_message)
+                yield cast(
+                    MessageProtocol,
+                    Message(role="assistant", content=content_buffer, metadata=metadata),
+                )
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
@@ -1382,32 +1298,6 @@ class OllamaProvider(LLMProvider):
             self.track_request(False)
             logger.error(f"Streaming request to Ollama API (chat) failed: {e}")
             raise APIError(message=f"Failed to connect to Ollama API (chat): {e}")
-
-    def _format_message(self, message: MessageProtocol) -> Dict[str, Any]:
-        """
-        Format a message for Ollama API.
-
-        Args:
-            message: Message to format
-
-        Returns:
-            Formatted message dictionary
-        """
-        result = {"role": message.role}
-
-        if message.content is not None:
-            result["content"] = message.content
-
-        if message.name is not None:
-            result["name"] = message.name
-
-        # Handle images in metadata
-        if hasattr(message, "metadata") and message.metadata:
-            if "images" in message.metadata and message.metadata["images"]:
-                # Add images to the message
-                result["images"] = message.metadata["images"]
-
-        return result
 
     def get_model_info(self) -> ModelInfo:
         """
@@ -1434,8 +1324,7 @@ class OllamaProvider(LLMProvider):
             logger.info(
                 f"Using explicitly defined capabilities for {self.model_name}: {self._explicit_capabilities}"
             )
-            # Store the model info (FIXED: was missing in new version)
-            self._model_info = model_info
+            # Store the model info
             return model_info
 
         try:
@@ -1463,8 +1352,6 @@ class OllamaProvider(LLMProvider):
                     context_window=4096,  # Default conservative estimate
                     description=f"Ollama model: {self.model_name}",
                 )
-                # Store the model info (FIXED: was missing in new version)
-                self._model_info = model_info
                 return model_info
 
             model_data = response.json()
@@ -1555,8 +1442,6 @@ class OllamaProvider(LLMProvider):
             )
 
             logger.debug(f"Detected capabilities for {self.model_name}: {features}")
-            # Store the model info (FIXED: was missing in new version)
-            self._model_info = model_info
             return model_info
 
         except Exception as e:
@@ -1570,6 +1455,30 @@ class OllamaProvider(LLMProvider):
                 context_window=4096,  # Default conservative estimate
                 description=f"Ollama model: {self.model_name}",
             )
-            # Store the model info (FIXED: was missing in new version)
-            self._model_info = model_info
             return model_info
+
+    def _format_message(self, message: MessageProtocol) -> Dict[str, Any]:
+        """
+        Format a message for Ollama API.
+
+        Args:
+            message: Message to format
+
+        Returns:
+            Formatted message dictionary
+        """
+        result = {"role": message.role}
+
+        if message.content is not None:
+            result["content"] = message.content
+
+        if message.name is not None:
+            result["name"] = message.name
+
+        # Handle images in metadata
+        if hasattr(message, "metadata") and message.metadata:
+            if "images" in message.metadata and message.metadata["images"]:
+                # Add images to the message
+                result["images"] = message.metadata["images"]
+
+        return result

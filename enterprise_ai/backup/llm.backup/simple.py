@@ -8,12 +8,12 @@ with LLM providers without dealing with provider-specific details.
 from typing import Any, Dict, List, Optional, Union
 
 from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.llm.factory import get_default_provider
+from enterprise_ai.llm.providers.factory import get_default_provider
 from enterprise_ai.types import MessageProtocol
 
 
 class LLM:
-    """Simple LLM class for tools with enhanced tool support."""
+    """Simple LLM class for tools."""
 
     def __init__(
         self,
@@ -46,7 +46,7 @@ class LLM:
         """
         if self._provider is None:
             if self.provider_name:
-                from enterprise_ai.llm.factory import create_provider
+                from enterprise_ai.llm.providers.factory import create_provider
 
                 self._provider = create_provider(
                     self.provider_name, model_name=self.model_name, **self.kwargs
@@ -84,36 +84,6 @@ class LLM:
 
         # Fallback to synchronous completion
         return self.complete(messages, **kwargs)
-
-    def format_tools(self, tools: List[Dict[str, Any]], **kwargs: Any) -> List[Dict[str, Any]]:
-        """
-        Format tools for the current provider.
-
-        Args:
-            tools: List of tools in standard format
-            **kwargs: Additional formatting options
-
-        Returns:
-            Formatted tools for this provider
-        """
-        if hasattr(self.provider, "format_tools_for_provider"):
-            formatted_tools, _ = self.provider.format_tools_for_provider(tools, **kwargs)
-            return formatted_tools
-        return tools
-
-    def extract_tool_calls(self, response: Any) -> List[Dict[str, Any]]:
-        """
-        Extract tool calls from a response.
-
-        Args:
-            response: LLM response
-
-        Returns:
-            List of tool calls
-        """
-        if hasattr(self.provider, "extract_tool_calls"):
-            return self.provider.extract_tool_calls(response)
-        return []
 
     def __getattr__(self, name: str) -> Any:
         """
