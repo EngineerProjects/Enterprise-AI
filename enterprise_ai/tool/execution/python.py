@@ -95,10 +95,12 @@ class PythonExecute(BaseTool):
             config: Tool configuration settings
             **kwargs: Additional keyword arguments
         """
+        model_fields = self.__class__.model_fields
         super().__init__(
-            name=name or self.name,
-            description=description or self.description,
-            parameters=parameters or self.parameters,
+            name=name or model_fields["name"].default,
+            description=description or model_fields["description"].default,
+            parameters=parameters or model_fields["parameters"].default,
+            **kwargs,
         )
 
         # Store tool configuration

@@ -540,7 +540,7 @@ class OllamaToolAdapter(ToolAdapter):
 
     def _extract_from_content(self, content: str) -> List[Dict[str, Any]]:
         """
-        Extract tool calls from message content.
+        Extract tool calls from message content with enhanced pattern matching.
 
         Args:
             content: Message content
@@ -553,98 +553,119 @@ class OllamaToolAdapter(ToolAdapter):
         import time
 
         tool_calls = []
-
-        # Look for ReAct format: Action: tool_name(param1=value1, param2=value2)
-        action_matches = re.findall(r"Action:\s*(\w+)\s*\(([^)]*)\)", content)
-        for tool_name, param_str in action_matches:
-            # Parse parameters
-            params = {}
-            param_pairs = re.findall(r"(\w+)=([^,]+)(?:,|$)", param_str)
-            for key, value in param_pairs:
-                # Try to convert to appropriate types
-                if value.lower() == "true":
-                    params[key] = True
-                elif value.lower() == "false":
-                    params[key] = False
-                elif value.isdigit():
-                    params[key] = int(value)
-                elif value.replace(".", "", 1).isdigit():
-                    params[key] = float(value)
-                else:
-                    # Remove quotes if present
-                    if (value.startswith('"') and value.endswith('"')) or (
-                        value.startswith("'") and value.endswith("'")
-                    ):
-                        value = value[1:-1]
-                    params[key] = value
-
-            tool_calls.append(
-                {
-                    "name": tool_name,
-                    "parameters": params,
-                    "type": "react_action",
-                    "id": f"gen-{time.time()}",
-                }
-            )
-
-        # Look for tool request format
-        tool_requests = re.findall(r"<tool_request>(.*?)</tool_request>", content, re.DOTALL)
-        for request_text in tool_requests:
+        
+        # Pattern 1: XML Tool Request Format (PRIORITY - user's preferred format)
+        # Matches: <tool_request>{"name": "tool_name", "parameters": {...}}</tool_request>
+        xml_tool_requests = re.findall(r"<tool_request>\s*({[\s\S]*?})\s*</tool_request>", content, re.DOTALL)
+        for request_text in xml_tool_requests:
             try:
                 request_data = json.loads(request_text)
-                tool_name = request_data.get("tool", "")
+                tool_name = request_data.get("name", "")
                 params = request_data.get("parameters", {})
-
-                tool_calls.append(
-                    {
+                
+                if tool_name:
+                    tool_calls.append({
                         "name": tool_name,
                         "parameters": params,
-                        "type": "text_tool",
+                        "type": "xml_tool_request",
                         "id": request_data.get("id", f"gen-{time.time()}"),
-                    }
-                )
+                    })
             except json.JSONDecodeError:
-                # Try to extract with regex if JSON parsing fails
-                name_match = re.search(r'"tool":\s*"([^"]+)"', request_text)
-                params_match = re.search(r'"parameters":\s*({.*})', request_text)
-
+                # Try to extract manually if JSON parsing fails
+                name_match = re.search(r'"name":\s*"([^"]+)"', request_text)
+                params_match = re.search(r'"parameters":\s*({.*})', request_text, re.DOTALL)
+                
                 if name_match:
                     tool_name = name_match.group(1)
                     params = {}
-
+                    
                     if params_match:
                         try:
                             params = json.loads(params_match.group(1))
                         except json.JSONDecodeError:
-                            # Extract key-value pairs with regex
+                            # Extract key-value pairs manually
                             param_matches = re.findall(
-                                r'"([^"]+)":\s*("[^"]*"|[\d.]+|\{.*?\}|\[.*?\]|true|false)',
+                                r'"([^"]+)":\s*("[^"]*"|[\d.]+|true|false|null|\{.*?\}|\[.*?\])',
                                 params_match.group(1),
                             )
                             for param_name, param_value in param_matches:
-                                # Convert to appropriate type
                                 if param_value.startswith('"') and param_value.endswith('"'):
                                     params[param_name] = param_value[1:-1]
-                                elif param_value.lower() in ["true", "false"]:
-                                    params[param_name] = param_value.lower() == "true"
-                                elif param_value.replace(".", "", 1).isdigit():
+                                elif param_value.lower() == "true":
+                                    params[param_name] = True
+                                elif param_value.lower() == "false":
+                                    params[param_name] = False
+                                elif param_value.lower() == "null":
+                                    params[param_name] = None
+                                elif param_value.replace(".", "", 1).replace("-", "", 1).isdigit():
                                     if "." in param_value:
                                         params[param_name] = float(param_value)
                                     else:
                                         params[param_name] = int(param_value)
                                 else:
                                     params[param_name] = param_value
+                    
+                    tool_calls.append({
+                        "name": tool_name,
+                        "parameters": params,
+                        "type": "xml_tool_request",
+                        "id": f"gen-{time.time()}",
+                    })
 
-                    tool_calls.append(
-                        {
-                            "name": tool_name,
-                            "parameters": params,
-                            "type": "text_tool",
-                            "id": f"gen-{time.time()}",
-                        }
-                    )
+        # Pattern 2: ReAct Action format  
+        # Matches: Action: tool_name(param1=value1, param2=value2)
+        action_pattern = r"Action:\s*(\w+)\s*\((.*?)\)"
+        action_matches = re.findall(action_pattern, content, re.DOTALL)
+        
+        for tool_name, param_str in action_matches:
+            # Skip if already captured by XML pattern
+            if any(tc["name"] == tool_name for tc in tool_calls):
+                continue
+                
+            params = {}
+            # Enhanced parameter parsing
+            param_pattern = r'(\w+)\s*=\s*("(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^,\)]+)'
+            param_pairs = re.findall(param_pattern, param_str)
+            
+            for key, value in param_pairs:
+                value = value.strip()
+                
+                # Handle quoted strings
+                if (value.startswith('"') and value.endswith('"')) or \
+                (value.startswith("'") and value.endswith("'")):
+                    params[key] = value[1:-1].replace('\\"', '"').replace("\\'", "'")
+                # Handle booleans
+                elif value.lower() == "true":
+                    params[key] = True
+                elif value.lower() == "false":
+                    params[key] = False
+                # Handle None/null
+                elif value.lower() in ["none", "null"]:
+                    params[key] = None
+                # Handle numbers
+                elif value.replace(".", "", 1).replace("-", "", 1).isdigit():
+                    if "." in value:
+                        params[key] = float(value)
+                    else:
+                        params[key] = int(value)
+                # Handle JSON objects/arrays
+                elif value.startswith(("{", "[")):
+                    try:
+                        params[key] = json.loads(value)
+                    except json.JSONDecodeError:
+                        params[key] = value
+                else:
+                    params[key] = value
 
-        # Look for JSON code blocks
+            if tool_name and params:
+                tool_calls.append({
+                    "name": tool_name,
+                    "parameters": params,
+                    "type": "react_action",
+                    "id": f"gen-{time.time()}",
+                })
+
+        # Pattern 3: JSON code blocks 
         json_matches = re.findall(r"```(?:json)?\s*({[\s\S]*?})```", content, re.DOTALL)
         for json_str in json_matches:
             try:
@@ -658,19 +679,48 @@ class OllamaToolAdapter(ToolAdapter):
                         call["name"] == tool_name and call["parameters"] == params
                         for call in tool_calls
                     ):
-                        tool_calls.append(
-                            {
-                                "name": tool_name,
-                                "parameters": params,
-                                "type": "json_tool",
-                                "id": json_data.get("id", f"gen-{time.time()}"),
-                            }
-                        )
+                        tool_calls.append({
+                            "name": tool_name,
+                            "parameters": params,
+                            "type": "json_tool",
+                            "id": json_data.get("id", f"gen-{time.time()}"),
+                        })
             except json.JSONDecodeError:
                 pass
 
-        return tool_calls
+        # Pattern 4: Legacy <tool_request> with "tool" field instead of "name"
+        legacy_tool_requests = re.findall(r"<tool_request>(.*?)</tool_request>", content, re.DOTALL)
+        for request_text in legacy_tool_requests:
+            # Skip if already processed as JSON above
+            if any(tc["type"] == "xml_tool_request" for tc in tool_calls):
+                continue
+                
+            try:
+                request_data = json.loads(request_text)
+                tool_name = request_data.get("tool", "")
+                params = request_data.get("parameters", {})
 
+                if tool_name:
+                    tool_calls.append({
+                        "name": tool_name,
+                        "parameters": params,
+                        "type": "legacy_tool_request",
+                        "id": request_data.get("id", f"gen-{time.time()}"),
+                    })
+            except json.JSONDecodeError:
+                pass
+
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_tool_calls = []
+        for tc in tool_calls:
+            # Create a hashable representation
+            tc_hash = (tc["name"], json.dumps(tc["parameters"], sort_keys=True))
+            if tc_hash not in seen:
+                seen.add(tc_hash)
+                unique_tool_calls.append(tc)
+
+        return unique_tool_calls
 
 # Factory function to create appropriate adapter
 def create_adapter_for_provider(provider_name: str) -> ToolAdapter:

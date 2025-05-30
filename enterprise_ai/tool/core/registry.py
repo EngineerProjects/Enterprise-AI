@@ -102,15 +102,32 @@ class ToolRegistry:
         # Run pre-register hooks
         self._run_hooks("pre_register", tool_cls, category, capabilities, version)
 
-        # Get tool info
+        # Get tool info with better fallback handling
         name = getattr(tool_cls, "name", tool_cls.__name__)
-        description = getattr(tool_cls, "description", "")
         
-        # Log warning if description is missing or empty
+        # Get description from class definition with multiple fallbacks
+        description = ""
+        if hasattr(tool_cls, "description"):
+            desc_attr = getattr(tool_cls, "description")
+            if desc_attr and isinstance(desc_attr, str):
+                description = desc_attr.strip()
+        
+        # If still no description, try docstring
+        if not description and tool_cls.__doc__:
+            # Use first line of docstring as description
+            doc_lines = tool_cls.__doc__.strip().split('\n')
+            if doc_lines:
+                description = doc_lines[0].strip()
+        
+        # Final fallback
         if not description:
             logger.warning(f"Tool '{name}' has no description. Tools without descriptions may not be usable by agents.")
-            description = f"Tool: {name} (no description available)"  # Provide a fallback description
+            description = f"Tool: {name} (no description available)"
 
+        # Store the description back on the class for consistency
+        if not hasattr(tool_cls, "description") or not getattr(tool_cls, "description"):
+            tool_cls.description = description
+            
         # Get version from the class if not provided
         if version is None:
             version = getattr(tool_cls, "version", "1.0.0")

@@ -88,9 +88,9 @@ class Terminate(BaseTool):
             **kwargs: Additional keyword arguments
         """
         super().__init__(
-            name=name or self.name,
-            description=description or self.description,
-            parameters=parameters or self.parameters,
+            name=name if name is not None else self.name,
+            description=description if description is not None else self.description,
+            parameters=parameters if parameters is not None else self.parameters,
         )
 
         # Store tool configuration

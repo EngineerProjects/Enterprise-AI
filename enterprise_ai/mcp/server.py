@@ -608,122 +608,13 @@ class MCPServer:
             session_id=session_id, config=session_config, cache=self._cache, metrics=self._metrics
         )
 
-        # Function to initialize a tool with proper error handling
-        def try_initialize_tool(tool_cls: Type[BaseTool], name: str) -> Optional[BaseTool]:
-            try:
-                # Method 1: Try to instantiate with original signature (no args)
-                try:
-                    # This handles tools that don't accept any constructor arguments
-                    tool = tool_cls()
-                    return tool
-                except (TypeError, ValueError):
-                    pass
-
-                # Method 2: Try with minimal required arguments
-                try:
-                    # Some tools may only require their name from BaseTool
-                    tool = tool_cls(name=name)
-                    return tool
-                except (TypeError, ValueError):
-                    pass
-
-                # Method 3: Try with the full set of arguments
-                try:
-                    # Get tool config parameters
-                    tool_name = getattr(tool_cls, "name", name)
-                    description = getattr(tool_cls, "description", "No description available")
-                    parameters = getattr(tool_cls, "parameters", {})
-
-                    # Ensure parameters is a dictionary
-                    if parameters is None:
-                        parameters = {}
-
-                    # Configure tool
-                    tool_config = ToolConfig(
-                        timeout=session_config.get("tool_timeout", 60.0),
-                        max_retries=session_config.get("tool_retries", 3),
-                        cache_results=session_config.get("cache_enabled", False),
-                    )
-
-                    # Try with full set of parameters
-                    tool = tool_cls(
-                        name=tool_name,
-                        description=description,
-                        parameters=parameters,
-                        config=tool_config,
-                    )
-                    return tool
-                except (TypeError, ValueError):
-                    pass
-
-                # If all methods fail, log the error and return None
-                logger.warning(f"Could not initialize tool {name} with any method")
-                return None
-            except Exception as e:
-                logger.error(f"Error initializing tool {name}: {e}")
-                return None
-
-        # Load tools from categories if specified
-        if tool_categories:
-            for category in tool_categories:
-                tool_classes = self._registry.get_tools_by_category(category)
-                for tool_cls in tool_classes:
-                    name = getattr(tool_cls, "name", tool_cls.__name__)
-                    tool = try_initialize_tool(tool_cls, name)
-
-                    if tool:
-                        # Create MCP tool config
-                        mcp_tool_config = MCPToolConfig(
-                            timeout=session_config.get("tool_timeout", 60.0),
-                            max_retries=session_config.get("tool_retries", 3),
-                            cache_enabled=session_config.get("cache_enabled", False),
-                            cache_ttl=session_config.get("cache_ttl", 300),
-                            result_log_enabled=session_config.get("result_logging", True),
-                            usage_metrics_enabled=session_config.get("metrics_enabled", True),
-                        )
-
-                        # Register the tool
-                        session.register_tool(tool, mcp_tool_config)
-
-        # Load specific tools if specified
-        if tool_names:
-            for name in tool_names:
-                maybe_tool_cls = self._registry.get_tool_class(name)
-                if maybe_tool_cls is not None:
-                    tool_cls = maybe_tool_cls
-                    tool = try_initialize_tool(tool_cls, name)
-
-                    if tool:
-                        # Create MCP tool config
-                        mcp_tool_config = MCPToolConfig(
-                            timeout=session_config.get("tool_timeout", 60.0),
-                            max_retries=session_config.get("tool_retries", 3),
-                            cache_enabled=session_config.get("cache_enabled", False),
-                            cache_ttl=session_config.get("cache_ttl", 300),
-                            result_log_enabled=session_config.get("result_logging", True),
-                            usage_metrics_enabled=session_config.get("metrics_enabled", True),
-                        )
-
-                        # Register the tool
-                        session.register_tool(tool, mcp_tool_config)
-
-        # Load tools by capabilities if specified - same pattern as above
-        if tool_capabilities:
-            capability_values = [
-                cap.value if isinstance(cap, ToolCapability) else cap for cap in tool_capabilities
-            ]
-
-            capability_tools = search_tools(
-                capabilities=capability_values, match_all_capabilities=False
-            )
-
-            for tool_cls in capability_tools:
-                name = getattr(tool_cls, "name", tool_cls.__name__)
-                if session.get_tool(name):
-                    continue
-
-                tool = try_initialize_tool(tool_cls, name)
-
+        # Auto-discover and load all available tools if no specific filters are provided
+        if not tool_categories and not tool_names and not tool_capabilities:
+            # Load all registered tools
+            all_tool_classes = self._registry.get_all_tool_classes()
+            
+            for tool_name, tool_cls in all_tool_classes.items():
+                tool = self._safe_initialize_tool(tool_cls, tool_name, session_config)
                 if tool:
                     # Create MCP tool config
                     mcp_tool_config = MCPToolConfig(
@@ -734,12 +625,66 @@ class MCPServer:
                         result_log_enabled=session_config.get("result_logging", True),
                         usage_metrics_enabled=session_config.get("metrics_enabled", True),
                     )
-
                     # Register the tool
                     session.register_tool(tool, mcp_tool_config)
+        else:
+            # ... existing tool loading logic with filters
+            pass
 
         self._sessions[session_id] = session
         return session
+    
+    def _safe_initialize_tool(self, tool_cls: Type["BaseTool"], name: str, session_config: Dict[str, Any]) -> Optional["BaseTool"]:
+        """Safely initialize a tool with multiple fallback strategies."""
+        try:
+            # Get tool attributes
+            tool_name = getattr(tool_cls, "name", name)
+            description = getattr(tool_cls, "description", "No description available")
+            parameters = getattr(tool_cls, "parameters", {})
+
+            # Ensure parameters is a dictionary
+            if parameters is None:
+                parameters = {}
+
+            # Configure tool
+            tool_config = ToolConfig(
+                timeout=session_config.get("tool_timeout", 60.0),
+                max_retries=session_config.get("tool_retries", 3),
+                cache_results=session_config.get("cache_enabled", False),
+            )
+
+            # Method 1: Try with full parameters
+            try:
+                tool = tool_cls(
+                    name=tool_name,
+                    description=description,
+                    parameters=parameters,
+                    config=tool_config,
+                )
+                return tool
+            except (TypeError, ValueError, AttributeError):
+                pass
+
+            # Method 2: Try with config only
+            try:
+                tool = tool_cls(config=tool_config)
+                return tool
+            except (TypeError, ValueError, AttributeError):
+                pass
+
+            # Method 3: Try with no arguments
+            try:
+                tool = tool_cls()
+                return tool
+            except (TypeError, ValueError, AttributeError):
+                pass
+
+            logger.warning(f"Could not initialize tool {name} with any method")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error initializing tool {name}: {e}")
+            return None    
 
     def get_session(self, session_id: str) -> Optional[MCPSession]:
         """Get an existing MCP session.

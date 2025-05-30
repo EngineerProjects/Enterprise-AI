@@ -33,6 +33,18 @@ from enterprise_ai.tool import planning
 from enterprise_ai.tool import research
 from enterprise_ai.tool import utility
 
+# Define the public API of the package
+from enterprise_ai.tool.execution.python import PythonExecute
+from enterprise_ai.tool.execution.bash import Bash
+from enterprise_ai.tool.file.editor import FileEditor
+from enterprise_ai.tool.research.web_search import WebSearch
+from enterprise_ai.tool.research.deep_research import DeepResearch
+from enterprise_ai.tool.browser.browser import BrowserUseTool
+from enterprise_ai.tool.content.chat_completion import CreateChatCompletion
+from enterprise_ai.tool.planning.planning import PlanningTool
+from enterprise_ai.tool.utility.terminate import Terminate
+
+
 __all__ = [
     # Core components
     "BaseTool",
@@ -52,4 +64,14 @@ __all__ = [
     "planning",
     "research",
     "utility",
+    # Specific tools
+    'PythonExecute',
+    'Bash', 
+    'FileEditor',
+    'WebSearch',
+    'DeepResearch',
+    'BrowserUseTool',
+    'CreateChatCompletion',
+    'PlanningTool',
+    'Terminate'
 ]
