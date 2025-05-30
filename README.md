@@ -9,8 +9,6 @@
   <i>Empowering enterprises to delegate complex tasks to autonomous AI teams</i>
 </p>
 
-# 🤖 Enterprise-AI: Advanced Multi-Agent Collaboration Framework
-
 <p align="center">
   <b>Building the Future of Autonomous AI Workforces</b><br>
   <i>Enterprise-grade multi-agent systems that collaborate like human organizations</i>
