@@ -33,7 +33,7 @@ def print_error(text):
 def setup_image_directory():
     """Create necessary directories for notebook images."""
     # Get notebook directory
-    notebook_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+    notebook_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)))
     images_dir = os.path.join(notebook_dir, 'images')
 
     # Create directories

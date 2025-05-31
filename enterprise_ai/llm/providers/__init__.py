@@ -1,49 +1,39 @@
 """
-Provider implementations for Enterprise AI.
+LLM providers for Enterprise AI.
 
-This module manages available LLM providers and provides functions
-for accessing and registering them.
+This module contains the provider implementations and registry.
 """
 
-from typing import Any, Dict, List, Optional, Type
+from enterprise_ai.llm.providers.registry import get_registry, register_provider
 
-from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.llm.providers.registry import ProviderRegistry, get_registry
-from enterprise_ai.llm.providers.factory import (
-    create_provider,
-    get_default_provider,
-    list_available_providers,
-)
-from enterprise_ai.logger import get_logger
+# Import provider classes to trigger registration
+# This will automatically register them with the registry
+available_providers = []
 
-logger = get_logger("llm.providers")
-
-# Automatically import available providers
-# Each provider will register itself via the registry decorator
+# Always import Ollama provider
 try:
-    from enterprise_ai.llm.providers.ollama import OllamaProvider  # noqa
-except ImportError:
-    logger.debug("Ollama provider not available")
+    from enterprise_ai.llm.providers.ollama import OllamaProvider
+    available_providers.append("OllamaProvider")
+except ImportError as e:
+    import warnings
+    warnings.warn(f"Ollama provider not available: {e}")
 
-# Add other provider imports as they become available
+# Conditionally import OpenAI provider
+try:
+    from enterprise_ai.llm.providers.openai import OpenAIProvider
+    available_providers.append("OpenAIProvider")
+except ImportError as e:
+    import warnings
+    warnings.warn(f"OpenAI provider not available: {e}")
+
+# Add other providers as they become available
 # try:
-#     from enterprise_ai.llm.providers.openai_provider import OpenAIProvider  # noqa
+#     from enterprise_ai.llm.providers.anthropic import AnthropicProvider
+#     available_providers.append("AnthropicProvider")
 # except ImportError:
-#     logger.debug("OpenAI provider not available")
-#
-# try:
-#     from enterprise_ai.llm.providers.anthropic_provider import AnthropicProvider  # noqa
-# except ImportError:
-#     logger.debug("Anthropic provider not available")
+#     pass
 
 __all__ = [
-    # Registry and factory classes
-    "ProviderRegistry",
     "get_registry",
-    # Provider management functions
-    "create_provider",
-    "get_default_provider",
-    "list_available_providers",
-    # Provider classes
-    "OllamaProvider",
-]
+    "register_provider",
+] + available_providers

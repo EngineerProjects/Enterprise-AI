@@ -2,7 +2,7 @@
 Factory functions for Enterprise AI LLM providers.
 
 This module provides factory functions for creating LLM provider instances
-with appropriate configurations and adapters.
+with appropriate configurations.
 """
 
 from typing import Any, Dict, List, Optional, Type, Union, cast
@@ -11,17 +11,16 @@ from enterprise_ai.config import get_config
 from enterprise_ai.exceptions import ProviderNotSupportedError
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.llm.providers.registry import get_registry
-from enterprise_ai.llm.adapters import create_adapter_for_provider
 from enterprise_ai.logger import get_logger
 
-logger = get_logger("llm.refactored.factory")
+logger = get_logger("llm.factory")
 
 
 def create_provider(
     provider_name: str, model_name: Optional[str] = None, **kwargs: Any
 ) -> LLMProvider:
     """
-    Create a provider instance with appropriate configuration and adapter.
+    Create a provider instance with appropriate configuration.
 
     Args:
         provider_name: Name of the provider to create
@@ -64,11 +63,6 @@ def create_provider(
             logger.debug(f"Creating Ollama provider with model: {provider_model}")
 
         provider = provider_cls(**merged_config)
-        
-        # Create and set the appropriate tool adapter
-        adapter = create_adapter_for_provider(provider_name)
-        provider.update_tool_adapter(adapter)
-        
         logger.debug(f"Created provider: {provider_name} with model: {provider.model_name}")
         return provider
     except Exception as e:

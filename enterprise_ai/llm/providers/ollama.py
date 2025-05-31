@@ -1,14 +1,14 @@
 """
-Refactored Ollama provider implementation.
+Ollama provider implementation.
 
-This module provides an enhanced LLM provider for the Ollama API
-with improved tool calling support and restored async/streaming functionality.
+Simple, clean tool calling without manual parsing or complex adapters.
 """
 
 import json
 import os
 import asyncio
-from typing import Any, Dict, List, Optional, Set, Iterator, AsyncIterator, Union, cast
+import threading
+from typing import Any, Dict, List, Optional, Set, Union, cast, AsyncGenerator, Generator
 
 import httpx
 
@@ -25,22 +25,20 @@ from enterprise_ai.constants import (
 from enterprise_ai.exceptions import APIError, ModelNotFoundError
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.llm.providers.registry import register_provider
-from enterprise_ai.llm.adapters import OllamaToolAdapter
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message, ModelInfo
+from enterprise_ai.schema.tool import TOOL_CHOICE_VALUES, TOOL_CHOICE_TYPE, ToolChoice
 from enterprise_ai.types import MessageProtocol
 
-logger = get_logger("llm.refactored.providers.ollama")
+logger = get_logger("llm.providers.ollama")
 
 
 @register_provider("ollama")
 class OllamaProvider(LLMProvider):
     """
-    Enhanced Ollama LLM provider with improved tool support.
-
-    This provider interfaces with the Ollama API for local LLM inference,
-    with robust handling of tool calls in various formats and complete
-    async/streaming support.
+    Ollama LLM provider with proper async/sync handling.
+    
+    Simplified tool calling and improved resource management.
     """
 
     def __init__(
@@ -51,51 +49,28 @@ class OllamaProvider(LLMProvider):
         max_tokens: Optional[int] = None,
         top_p: Optional[float] = None,
         timeout: Optional[float] = None,
-        capabilities: Optional[Set[str]] = None,
         **kwargs: Any,
     ):
-        """
-        Initialize the Ollama provider.
-
-        Args:
-            model_name: Name of the model to use
-            base_url: Ollama base URL (with or without /api)
-            temperature: Sampling temperature
-            max_tokens: Maximum tokens to generate
-            top_p: Nucleus sampling parameter
-            timeout: HTTP request timeout in seconds
-            capabilities: Optional set of explicitly defined model capabilities
-            **kwargs: Additional parameters
-        """
+        """Initialize the Ollama provider."""
         # Get config values or use defaults
         model = model_name or get_config("llm.ollama.model", DEFAULT_OLLAMA_MODEL)
         url = base_url or get_config("llm.ollama.base_url", OLLAMA_API_BASE)
 
-        # Normalize the base URL to ensure consistent format
-        # We work with base_url without trailing /api
+        # Normalize URL
         if url.endswith("/api"):
             url = url[:-4]
         if url.endswith("/"):
             url = url[:-1]
 
-        # Set a reasonable timeout, prioritizing the environment variable if available
+        # Set timeout
         env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
         if env_timeout:
             try:
                 self._timeout = float(env_timeout)
-                logger.info(f"Using timeout from environment variable: {self._timeout}s")
             except ValueError:
-                # Fall back to config or default if environment variable isn't a valid float
-                default_timeout = get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
-                self._timeout = timeout or default_timeout
-                logger.warning(f"Invalid timeout in environment variable, using: {self._timeout}s")
+                self._timeout = timeout or get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
         else:
-            # Use the provided timeout or config/default
-            default_timeout = get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
-            self._timeout = timeout or default_timeout
-
-        # Store explicit capabilities if provided
-        self._explicit_capabilities = capabilities
+            self._timeout = timeout or get_config("llm.ollama.timeout", DEFAULT_TIMEOUT)
 
         # Initialize base class
         super().__init__(
@@ -107,897 +82,291 @@ class OllamaProvider(LLMProvider):
             **kwargs,
         )
 
-        logger.info(f"Initialized Ollama provider with model {model}, timeout {self._timeout}s")
+        # Initialize clients
+        self._client: Optional[httpx.Client] = None
+        self._async_client: Optional[httpx.AsyncClient] = None
+        self._client_lock = threading.Lock()
+        self._async_client_lock = asyncio.Lock()
+        self._closed = False
 
-        # Create HTTP clients with configured timeout
-        self._client: Optional[httpx.Client] = httpx.Client(timeout=self._timeout)
-        self._async_client: Optional[httpx.AsyncClient] = (
-            None  # Lazy initialization for async client
-        )
+        logger.info(f"Initialized Ollama provider with model {model}")
 
-    def _create_tool_adapter(self) -> OllamaToolAdapter:
-        """
-        Create an Ollama-specific tool adapter.
+    def _get_client(self) -> httpx.Client:
+        """Get or create sync client safely."""
+        if self._closed:
+            raise RuntimeError("Provider has been closed")
+            
+        if self._client is None:
+            with self._client_lock:
+                if self._client is None:
+                    self._client = httpx.Client(timeout=self._timeout)
+        return self._client
 
-        Returns:
-            OllamaToolAdapter instance
-        """
-        return OllamaToolAdapter()
-
-    def __del__(self) -> None:
-        """Clean up resources when the provider is deleted."""
-        if hasattr(self, "_client") and self._client:
-            self._client.close()
-        if hasattr(self, "_async_client") and self._async_client:
-            # We can't await close() in __del__, just let it be garbage collected
-            # This avoids the coroutine warning
-            pass
-
-    def close(self) -> None:
-        """Explicitly close clients to free resources."""
-        if hasattr(self, "_client") and self._client:
-            self._client.close()
-            self._client = None
-
-        if hasattr(self, "_async_client") and self._async_client:
-            try:
-                # Try to run in existing event loop
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # Schedule the closing
-                    loop.create_task(self._async_client.aclose())
-                else:
-                    # Create a temporary loop for closing
-                    asyncio.run(self._async_client.aclose())
-            except Exception as e:
-                logger.warning(f"Failed to close async client gracefully: {e}")
-            self._async_client = None
+    async def _get_async_client(self) -> httpx.AsyncClient:
+        """Get or create async client safely."""
+        if self._closed:
+            raise RuntimeError("Provider has been closed")
+            
+        if self._async_client is None:
+            async with self._async_client_lock:
+                if self._async_client is None:
+                    self._async_client = httpx.AsyncClient(timeout=self._timeout)
+        return self._async_client
 
     def _get_api_url(self, endpoint: str) -> str:
-        """
-        Get the full API URL for a given endpoint.
-
-        Args:
-            endpoint: API endpoint (e.g., 'chat', 'show')
-
-        Returns:
-            Full API URL
-        """
-        # Ensure endpoint doesn't start with a slash
+        """Get the full API URL for a given endpoint."""
         if endpoint.startswith("/"):
             endpoint = endpoint[1:]
-
         return f"{self.config['base_url']}/api/{endpoint}"
 
+    @staticmethod
+    def format_messages(messages: List[Union[dict, MessageProtocol]]) -> List[dict]:
+        """
+        Format messages for Ollama API.
+        
+        Args:
+            messages: List of messages
+            
+        Returns:
+            List of formatted messages in Ollama format
+        """
+        formatted_messages = []
+
+        for message in messages:
+            # Convert Message objects to dictionaries
+            if hasattr(message, 'to_dict'):
+                message_dict = message.to_dict()
+            elif isinstance(message, dict):
+                message_dict = message
+            else:
+                raise TypeError(f"Unsupported message type: {type(message)}")
+
+            # Basic message structure
+            formatted_msg = {"role": message_dict["role"]}
+            
+            # Add content if present
+            if "content" in message_dict and message_dict["content"] is not None:
+                formatted_msg["content"] = message_dict["content"]
+
+            # Add tool-specific fields
+            if "tool_call_id" in message_dict and message_dict["tool_call_id"]:
+                formatted_msg["tool_call_id"] = message_dict["tool_call_id"]
+                
+            if "name" in message_dict and message_dict["name"]:
+                formatted_msg["name"] = message_dict["name"]
+
+            # Add tool calls from metadata if present
+            metadata = message_dict.get("metadata", {})
+            if metadata and "tool_calls" in metadata:
+                formatted_msg["tool_calls"] = metadata["tool_calls"]
+
+            # Handle images in metadata
+            if metadata and "images" in metadata and metadata["images"]:
+                formatted_msg["images"] = metadata["images"]
+
+            formatted_messages.append(formatted_msg)
+
+        return formatted_messages
+
     def complete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """
-        Generate a completion using Ollama API.
-
-        Args:
-            messages: List of messages
-            **kwargs: Additional parameters for the completion
-
-        Returns:
-            Generated message
-
-        Raises:
-            APIError: If there's an issue with the API request
-            ModelNotFoundError: If the model is not found
-        """
-        # Get request timeout - allow override via kwargs or use the instance default
-        request_timeout = kwargs.pop("timeout", self._timeout)
-
-        # Also check for environment override at the point of request
-        env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
-        if env_timeout:
-            try:
-                env_timeout_value = float(env_timeout)
-                # Use the maximum of the environment timeout and the requested timeout
-                request_timeout = max(request_timeout, env_timeout_value)
-                logger.info(f"Using combined timeout for request: {request_timeout}s")
-            except ValueError:
-                # If environment variable isn't a valid float, just use the request_timeout
-                pass
-
-        # Check if this is a vision model or if any message contains images
-        has_images = False
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                has_images = True
-                break
-
-        # If this is a vision model or images are included, increase timeout if needed
-        if "vision" in self.model_name.lower() or has_images:
-            # For vision tasks, use a longer timeout (at least 120 seconds)
-            vision_timeout = max(request_timeout, 120.0)
-            logger.debug(
-                f"Using extended timeout ({vision_timeout}s) for vision model or image input"
-            )
-            request_timeout = vision_timeout
-
-        # Handle tools using adapter
-        if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
-
-        # Always use the chat endpoint if tools are specified
-        use_chat_endpoint = "tools" in kwargs
-
-        if use_chat_endpoint:
-            return cast(MessageProtocol, self._complete_chat(messages, request_timeout, **kwargs))
-        else:
-            return cast(
-                MessageProtocol, self._complete_generate(messages, request_timeout, **kwargs)
-            )
-
-    def _complete_generate(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> MessageProtocol:
-        """
-        Generate a completion using the /api/generate endpoint.
-
-        Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
-
-        Returns:
-            Generated message
-        """
-        # Convert messages to prompt
-        prompt = ""
-        for msg in messages:
-            if msg.role == "system":
-                prompt += f"System: {msg.content}\n\n"
-            elif msg.role == "user":
-                prompt += f"User: {msg.content}\n\n"
-            elif msg.role == "assistant":
-                prompt += f"Assistant: {msg.content}\n\n"
-            elif msg.role == "tool":
-                prompt += f"Tool ({msg.name}): {msg.content}\n\n"
-
-        if prompt.endswith("\n\n"):
-            prompt = prompt[:-2]
-
-        # Prepare request payload
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "temperature": kwargs.get(
-                "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-            ),
-            "num_predict": kwargs.get(
-                "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-            ),
-            "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
-        }
-
-        # Add any extra parameters
-        for key, value in kwargs.items():
-            if key not in payload and key not in ("stream", "timeout", "tools"):
-                payload[key] = value
-
-        # If images are included, add them to the payload
-        images = []
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                images.extend(msg.metadata["images"])
-
-        if images:
-            payload["images"] = images
-
-        # Make the API request
-        logger.debug(
-            f"Sending request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
-        )
+        """Generate a completion using Ollama API (synchronous)."""
+        if self._closed:
+            raise RuntimeError("Provider has been closed")
+            
         try:
-            # Ensure client is initialized
-            if self._client is None:
-                self._client = httpx.Client(timeout=self._timeout)
-
-            response = self._client.post(
-                self._get_api_url("generate"), json=payload, timeout=request_timeout
-            )
-
-            # Handle HTTP errors
-            if response.status_code != 200:
-                self.track_request(False)
-                if response.status_code == 404:
-                    raise ModelNotFoundError(self.model_name)
-                raise APIError(response.status_code, f"Ollama API error: {response.text}")
-
-            # Parse the response
-            result = response.json()
-            self.track_request(True)
-
-            # Create and return the assistant message
-            content = result.get("response", "")
-            return cast(
-                MessageProtocol,
-                Message(
-                    role="assistant",
-                    content=content,
-                    metadata={
-                        "provider": "ollama",
-                        "model": self.model_name,
-                        "response_metadata": {
-                            key: value
-                            for key, value in result.items()
-                            if key not in ("response", "model")
-                        },
-                    },
-                ),
-            )
-
-        except httpx.ReadTimeout as e:
-            self.track_request(False)
-            logger.error(f"Request to Ollama API timed out after {request_timeout}s: {e}")
-            raise APIError(
-                message=f"Request to Ollama API timed out after {request_timeout}s. Your model may require more processing time. Try increasing the timeout value."
-            )
-
-        except httpx.RequestError as e:
-            self.track_request(False)
-            logger.error(f"Request to Ollama API failed: {e}")
-            raise APIError(message=f"Failed to connect to Ollama API: {e}")
-
-    def _complete_chat(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> MessageProtocol:
-        """
-        Generate a completion using the /api/chat endpoint.
-
-        Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
-
-        Returns:
-            Generated message
-        """
-        # Prepare request payload
-        payload = {
-            "model": self.model_name,
-            "messages": [self._format_message(msg) for msg in messages],
-            "stream": False,
-            "options": {
-                "temperature": kwargs.get(
-                    "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-                ),
-                "num_predict": kwargs.get(
-                    "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-                ),
-                "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
-            },
-        }
-
-        # Add tools if present
-        if "tools" in kwargs and kwargs["tools"]:
-            payload["tools"] = kwargs["tools"]
-
-        # Make the API request
-        logger.debug(
-            f"Sending request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
-        )
-        try:
-            # Ensure client is initialized
-            if self._client is None:
-                self._client = httpx.Client(timeout=self._timeout)
-
-            response = self._client.post(
-                self._get_api_url("chat"), json=payload, timeout=request_timeout
-            )
-
-            # Handle HTTP errors
-            if response.status_code != 200:
-                self.track_request(False)
-                if response.status_code == 404:
-                    raise ModelNotFoundError(self.model_name)
-                raise APIError(response.status_code, f"Ollama API error: {response.text}")
-
-            # Parse the response
-            result = response.json()
-            self.track_request(True)
-
-            # Extract message content and tool calls
-            message = result.get("message", {})
-            content = message.get("content", "")
-            tool_calls = message.get("tool_calls", [])
-
-            # Create metadata
-            metadata = {
-                "provider": "ollama",
+            # Use sync client for sync completion
+            formatted_messages = self.format_messages(messages)
+            prompt = self._messages_to_prompt(formatted_messages)
+            
+            payload = {
                 "model": self.model_name,
-                "response_metadata": {
-                    key: value for key, value in result.items() if key not in ("message", "model")
-                },
+                "prompt": prompt,
+                "stream": False,
+                "temperature": kwargs.get("temperature", self.config.get("temperature")),
+                "num_predict": kwargs.get("max_tokens", self.config.get("max_tokens")),
+                "top_p": kwargs.get("top_p", self.config.get("top_p")),
             }
 
-            # Add tool calls to metadata if present
-            if tool_calls:
-                metadata["tool_calls"] = tool_calls
+            # Add images if present
+            images = self._extract_images_from_messages(formatted_messages)
+            if images:
+                payload["images"] = images
 
-            # Create assistant message
-            assistant_message = Message(role="assistant", content=content, metadata=metadata)
-            
-            # Use tool adapter to check for tool calls in content
-            # This handles cases where tool calls aren't in the API response metadata
-            content_tool_calls = self._tool_adapter.extract_tool_calls(assistant_message)
-            if content_tool_calls and not tool_calls:
-                metadata["tool_calls"] = content_tool_calls
-                assistant_message = Message(role="assistant", content=content, metadata=metadata)
-
-            return cast(MessageProtocol, assistant_message)
-
-        except httpx.ReadTimeout as e:
-            self.track_request(False)
-            logger.error(f"Request to Ollama API (chat) timed out after {request_timeout}s: {e}")
-            raise APIError(
-                message=f"Request to Ollama API timed out after {request_timeout}s. Your model may require more processing time. Try increasing the timeout value."
+            # Use sync client
+            client = self._get_client()
+            response = client.post(
+                self._get_api_url("generate"),
+                json=payload,
+                timeout=kwargs.get("timeout", self._timeout)
             )
 
-        except httpx.RequestError as e:
-            self.track_request(False)
-            logger.error(f"Request to Ollama API (chat) failed: {e}")
-            raise APIError(message=f"Failed to connect to Ollama API: {e}")
+            if response.status_code != 200:
+                self.track_request(False)
+                if response.status_code == 404:
+                    raise ModelNotFoundError(self.model_name)
+                raise APIError(response.status_code, f"Ollama API error: {response.text}")
 
-    # =====================================================
-    # STREAMING METHODS (RESTORED FROM OLD VERSION)
-    # =====================================================
+            result = response.json()
+            self.track_request(True)
 
-    def complete_stream(
-        self, messages: List[MessageProtocol], **kwargs: Any
-    ) -> Iterator[MessageProtocol]:
-        """
-        Generate a streaming completion for the given messages.
-
-        Args:
-            messages: List of messages to generate a completion for
-            **kwargs: Additional parameters for the completion
-
-        Returns:
-            Iterator of partial completion messages
-        """
-        # Get request timeout - allow override via kwargs or use the instance default
-        request_timeout = kwargs.pop("timeout", self._timeout)
-
-        # Check for vision model or images
-        has_images = False
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                has_images = True
-                break
-
-        # For vision models or images, use a longer timeout
-        if "vision" in self.model_name.lower() or has_images:
-            vision_timeout = max(request_timeout, 120.0)
-            logger.debug(f"Using extended timeout ({vision_timeout}s) for vision model streaming")
-            request_timeout = vision_timeout
-
-        # Handle tools using adapter
-        if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
-
-        # Determine whether to use the chat or generate endpoint
-        # If tools are specified, always use the chat endpoint
-        use_chat_endpoint = "tools" in kwargs
-
-        if use_chat_endpoint:
-            yield from self._complete_chat_stream(messages, request_timeout, **kwargs)
-        else:
-            yield from self._complete_generate_stream(messages, request_timeout, **kwargs)
-
-    def _complete_generate_stream(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> Iterator[MessageProtocol]:
-        """
-        Generate a streaming completion using the /api/generate endpoint.
-
-        Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
-
-        Returns:
-            Iterator of partial completion messages
-        """
-        # Convert messages to prompt
-        prompt = ""
-        for msg in messages:
-            if msg.role == "system":
-                prompt += f"System: {msg.content}\n\n"
-            elif msg.role == "user":
-                prompt += f"User: {msg.content}\n\n"
-            elif msg.role == "assistant":
-                prompt += f"Assistant: {msg.content}\n\n"
-            elif msg.role == "tool":
-                prompt += f"Tool ({msg.name}): {msg.content}\n\n"
-
-        if prompt.endswith("\n\n"):
-            prompt = prompt[:-2]
-
-        # Prepare request payload
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": True,
-            "temperature": kwargs.get(
-                "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-            ),
-            "num_predict": kwargs.get(
-                "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-            ),
-            "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
-        }
-
-        # Add any extra parameters
-        for key, value in kwargs.items():
-            if key not in payload and key not in ("stream", "timeout", "tools"):
-                payload[key] = value
-
-        # If images are included, add them to the payload
-        images = []
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                images.extend(msg.metadata["images"])
-
-        if images:
-            payload["images"] = images
-
-        # Make the API request
-        logger.debug(
-            f"Sending streaming request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
-        )
-        try:
-            # Ensure client is initialized
-            if self._client is None:
-                self._client = httpx.Client(timeout=self._timeout)
-
-            with self._client.stream(
-                "POST", self._get_api_url("generate"), json=payload, timeout=request_timeout
-            ) as response:
-                # Handle HTTP errors
-                if response.status_code != 200:
-                    self.track_request(False)
-                    if response.status_code == 404:
-                        raise ModelNotFoundError(self.model_name)
-                    raise APIError(response.status_code, f"Ollama API error: {response.text}")
-
-                # Track the request as successful
-                self.track_request(True)
-
-                # Process the streaming response
-                content_buffer = ""
-
-                for chunk in response.iter_lines():
-                    if not chunk:
-                        continue
-
-                    try:
-                        chunk_data = json.loads(chunk)
-                        # Extract the content from the chunk
-                        chunk_content = chunk_data.get("response", "")
-                        content_buffer += chunk_content
-
-                        # Create a partial message for this chunk
-                        yield cast(
-                            MessageProtocol,
-                            Message(
-                                role="assistant",
-                                content=content_buffer,
-                                metadata={
-                                    "provider": "ollama",
-                                    "model": self.model_name,
-                                    "is_partial": True,
-                                },
-                            ),
-                        )
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse streaming chunk: {e}")
-                        continue
-
-                # Final message with complete content
-                yield cast(
-                    MessageProtocol,
-                    Message(
-                        role="assistant",
-                        content=content_buffer,
-                        metadata={
-                            "provider": "ollama",
-                            "model": self.model_name,
-                            "is_partial": False,
-                        },
-                    ),
-                )
-
-        except httpx.ReadTimeout as e:
-            self.track_request(False)
-            logger.error(f"Streaming request to Ollama API timed out after {request_timeout}s: {e}")
-            raise APIError(
-                message=f"Streaming request to Ollama API timed out after {request_timeout}s. Try increasing the timeout value."
-            )
-
-        except httpx.RequestError as e:
-            self.track_request(False)
-            logger.error(f"Streaming request to Ollama API failed: {e}")
-            raise APIError(message=f"Failed to connect to Ollama API: {e}")
-
-    def _complete_chat_stream(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> Iterator[MessageProtocol]:
-        """
-        Generate a streaming completion using the /api/chat endpoint.
-
-        Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
-
-        Returns:
-            Iterator of partial completion messages
-        """
-        # Prepare request payload
-        payload = {
-            "model": self.model_name,
-            "messages": [self._format_message(msg) for msg in messages],
-            "stream": True,
-            "options": {
-                "temperature": kwargs.get(
-                    "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-                ),
-                "num_predict": kwargs.get(
-                    "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-                ),
-                "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
-            },
-        }
-
-        # Add tools if present
-        if "tools" in kwargs and kwargs["tools"]:
-            payload["tools"] = kwargs["tools"]
-
-        # Make the API request
-        logger.debug(
-            f"Sending streaming request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
-        )
-        try:
-            # Ensure client is initialized
-            if self._client is None:
-                self._client = httpx.Client(timeout=self._timeout)
-
-            with self._client.stream(
-                "POST", self._get_api_url("chat"), json=payload, timeout=request_timeout
-            ) as response:
-                # Handle HTTP errors
-                if response.status_code != 200:
-                    self.track_request(False)
-                    if response.status_code == 404:
-                        raise ModelNotFoundError(self.model_name)
-                    raise APIError(response.status_code, f"Ollama API error: {response.text}")
-
-                # Track the request as successful
-                self.track_request(True)
-
-                # Process the streaming response
-                content_buffer = ""
-                tool_calls = []
-
-                for chunk in response.iter_lines():
-                    if not chunk:
-                        continue
-
-                    try:
-                        chunk_data = json.loads(chunk)
-                        message = chunk_data.get("message", {})
-
-                        # Extract the content from the chunk
-                        chunk_content = message.get("content", "")
-                        content_buffer += chunk_content
-
-                        # Check for tool calls in the current chunk
-                        if "tool_calls" in message and message["tool_calls"]:
-                            tool_calls = message["tool_calls"]
-
-                        # Create metadata for this chunk
-                        metadata = {
-                            "provider": "ollama",
-                            "model": self.model_name,
-                            "is_partial": True,
-                        }
-
-                        # Add tool calls to metadata if present
-                        if tool_calls:
-                            metadata["tool_calls"] = tool_calls
-
-                        # Create a partial message for this chunk
-                        yield cast(
-                            MessageProtocol,
-                            Message(role="assistant", content=content_buffer, metadata=metadata),
-                        )
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse streaming chunk: {e}")
-                        continue
-
-                # Create metadata for final message
-                metadata = {
+            content = result.get("response", "")
+            return cast(MessageProtocol, Message(
+                role="assistant",
+                content=content,
+                metadata={
                     "provider": "ollama",
                     "model": self.model_name,
-                    "is_partial": False,
-                }
-
-                # Add tool calls to metadata if present
-                if tool_calls:
-                    metadata["tool_calls"] = tool_calls
-
-                # Final message with complete content
-                final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-                
-                # Use tool adapter to check for tool calls in content if not already found
-                if not tool_calls:
-                    content_tool_calls = self._tool_adapter.extract_tool_calls(final_message)
-                    if content_tool_calls:
-                        metadata["tool_calls"] = content_tool_calls
-                        final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-
-                yield cast(MessageProtocol, final_message)
+                    "response_metadata": {k: v for k, v in result.items() if k not in ("response", "model")},
+                },
+            ))
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
-            logger.error(
-                f"Streaming request to Ollama API (chat) timed out after {request_timeout}s: {e}"
-            )
-            raise APIError(
-                message=f"Streaming request to Ollama API (chat) timed out after {request_timeout}s. Try increasing the timeout value."
-            )
-
+            logger.error(f"Request timed out: {e}")
+            raise APIError(message=f"Request timed out after {kwargs.get('timeout', self._timeout)}s")
         except httpx.RequestError as e:
             self.track_request(False)
-            logger.error(f"Streaming request to Ollama API (chat) failed: {e}")
-            raise APIError(message=f"Failed to connect to Ollama API (chat): {e}")
-
-    # =====================================================
-    # ASYNC METHODS (RESTORED FROM OLD VERSION)
-    # =====================================================
+            logger.error(f"Request failed: {e}")
+            raise APIError(message=f"Failed to connect to Ollama API: {e}")
+        except Exception as e:
+            self.track_request(False)
+            logger.error(f"Completion failed: {e}")
+            raise
 
     async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """
-        Generate a completion asynchronously.
-
-        Args:
-            messages: List of messages to generate a completion for
-            **kwargs: Additional parameters for the completion
-
-        Returns:
-            Completion message
-        """
-        # Get request timeout - allow override via kwargs or use the instance default
-        request_timeout = kwargs.pop("timeout", self._timeout)
-
-        # Also check for environment override at the point of request
-        env_timeout = os.environ.get("ENTERPRISE_AI_OLLAMA_TIMEOUT")
-        if env_timeout:
-            try:
-                env_timeout_value = float(env_timeout)
-                # Use the maximum of the environment timeout and the requested timeout
-                request_timeout = max(request_timeout, env_timeout_value)
-                logger.info(f"Using combined timeout for async request: {request_timeout}s")
-            except ValueError:
-                # If environment variable isn't a valid float, just use the request_timeout
-                pass
-
-        # Check for vision model or images
-        has_images = False
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                has_images = True
-                break
-
-        # For vision models or images, use a longer timeout
-        if "vision" in self.model_name.lower() or has_images:
-            vision_timeout = max(request_timeout, 120.0)
-            logger.debug(
-                f"Using extended timeout ({vision_timeout}s) for async vision model request"
-            )
-            request_timeout = vision_timeout
-
-        # Initialize async client if needed
-        if self._async_client is None:
-            self._async_client = httpx.AsyncClient(timeout=request_timeout)
-
-        # Handle tools using adapter
+        """Generate a completion asynchronously."""
+        if self._closed:
+            raise RuntimeError("Provider has been closed")
+            
+        # Check if tools are specified
         if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
-
-        # Determine whether to use the chat or generate endpoint
-        # If tools are specified, always use the chat endpoint
-        use_chat_endpoint = "tools" in kwargs
-
-        if use_chat_endpoint:
-            return cast(
-                MessageProtocol, await self._acomplete_chat(messages, request_timeout, **kwargs)
-            )
-        else:
-            return cast(
-                MessageProtocol, await self._acomplete_generate(messages, request_timeout, **kwargs)
-            )
-
-    async def _acomplete_generate(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> MessageProtocol:
-        """
-        Generate a completion asynchronously using the /api/generate endpoint.
-
-        Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
-
-        Returns:
-            Generated message
-        """
-        # Convert messages to prompt
-        prompt = ""
-        for msg in messages:
-            if msg.role == "system":
-                prompt += f"System: {msg.content}\n\n"
-            elif msg.role == "user":
-                prompt += f"User: {msg.content}\n\n"
-            elif msg.role == "assistant":
-                prompt += f"Assistant: {msg.content}\n\n"
-            elif msg.role == "tool":
-                prompt += f"Tool ({msg.name}): {msg.content}\n\n"
-
-        if prompt.endswith("\n\n"):
-            prompt = prompt[:-2]
-
-        # Prepare request payload
+            # Use ask_tool for tool-enabled requests
+            return await self.ask_tool(messages, **kwargs)
+        
+        # Regular completion without tools
+        formatted_messages = self.format_messages(messages)
+        prompt = self._messages_to_prompt(formatted_messages)
+        
         payload = {
             "model": self.model_name,
             "prompt": prompt,
             "stream": False,
-            "temperature": kwargs.get(
-                "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-            ),
-            "num_predict": kwargs.get(
-                "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-            ),
-            "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
+            "temperature": kwargs.get("temperature", self.config.get("temperature")),
+            "num_predict": kwargs.get("max_tokens", self.config.get("max_tokens")),
+            "top_p": kwargs.get("top_p", self.config.get("top_p")),
         }
 
-        # Add any extra parameters
-        for key, value in kwargs.items():
-            if key not in payload and key not in ("stream", "timeout", "tools"):
-                payload[key] = value
-
-        # If images are included, add them to the payload
-        images = []
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                images.extend(msg.metadata["images"])
-
+        # Add images if present
+        images = self._extract_images_from_messages(formatted_messages)
         if images:
             payload["images"] = images
 
-        # Make the API request
-        logger.debug(
-            f"Sending async request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
-        )
-        try:
-            # Ensure async client is initialized
-            if self._async_client is None:
-                self._async_client = httpx.AsyncClient(timeout=request_timeout)
+        # Get async client
+        client = await self._get_async_client()
 
-            response = await self._async_client.post(
-                self._get_api_url("generate"), json=payload, timeout=request_timeout
+        try:
+            response = await client.post(
+                self._get_api_url("generate"),
+                json=payload,
+                timeout=kwargs.get("timeout", self._timeout)
             )
 
-            # Handle HTTP errors
             if response.status_code != 200:
                 self.track_request(False)
                 if response.status_code == 404:
                     raise ModelNotFoundError(self.model_name)
                 raise APIError(response.status_code, f"Ollama API error: {response.text}")
 
-            # Parse the response
             result = response.json()
             self.track_request(True)
 
-            # Create and return the assistant message
             content = result.get("response", "")
-            return cast(
-                MessageProtocol,
-                Message(
-                    role="assistant",
-                    content=content,
-                    metadata={
-                        "provider": "ollama",
-                        "model": self.model_name,
-                        "response_metadata": {
-                            key: value
-                            for key, value in result.items()
-                            if key not in ("response", "model")
-                        },
-                    },
-                ),
-            )
+            return cast(MessageProtocol, Message(
+                role="assistant",
+                content=content,
+                metadata={
+                    "provider": "ollama",
+                    "model": self.model_name,
+                    "response_metadata": {k: v for k, v in result.items() if k not in ("response", "model")},
+                },
+            ))
 
         except httpx.ReadTimeout as e:
             self.track_request(False)
-            logger.error(
-                f"Async request to Ollama API (generate) timed out after {request_timeout}s: {e}"
-            )
-            raise APIError(
-                message=f"Async request to Ollama API timed out after {request_timeout}s. Try increasing the timeout value."
-            )
-
+            logger.error(f"Request timed out: {e}")
+            raise APIError(message=f"Request timed out after {kwargs.get('timeout', self._timeout)}s")
         except httpx.RequestError as e:
             self.track_request(False)
-            logger.error(f"Async request to Ollama API (generate) failed: {e}")
+            logger.error(f"Request failed: {e}")
             raise APIError(message=f"Failed to connect to Ollama API: {e}")
 
-    async def _acomplete_chat(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> MessageProtocol:
+    async def ask_tool(
+        self,
+        messages: List[MessageProtocol],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: TOOL_CHOICE_TYPE = ToolChoice.AUTO,
+        timeout: int = 300,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Optional[MessageProtocol]:
         """
-        Generate a completion asynchronously using the /api/chat endpoint.
+        Ask Ollama LLM using functions/tools.
 
         Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
+            messages: List of conversation messages
+            tools: List of tools/functions available to the model
+            tool_choice: Tool choice strategy
+            timeout: Request timeout in seconds
+            temperature: Sampling temperature
+            max_tokens: Maximum tokens to generate
+            **kwargs: Additional completion arguments
 
         Returns:
-            Generated message
+            Assistant message with tool_calls in metadata, or None if failed
         """
-        # Prepare request payload
-        payload = {
-            "model": self.model_name,
-            "messages": [self._format_message(msg) for msg in messages],
-            "stream": False,
-            "options": {
-                "temperature": kwargs.get(
-                    "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-                ),
-                "num_predict": kwargs.get(
-                    "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-                ),
-                "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
-            },
-        }
-
-        # Add tools if present
-        if "tools" in kwargs and kwargs["tools"]:
-            payload["tools"] = kwargs["tools"]
-
-        # Make the API request
-        logger.debug(
-            f"Sending async request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
-        )
+        if self._closed:
+            raise RuntimeError("Provider has been closed")
+            
         try:
-            # Ensure async client is initialized
-            if self._async_client is None:
-                self._async_client = httpx.AsyncClient(timeout=request_timeout)
+            # Validate tool_choice
+            if tool_choice not in TOOL_CHOICE_VALUES and not isinstance(tool_choice, dict):
+                raise ValueError(f"Invalid tool_choice: {tool_choice}")
 
-            response = await self._async_client.post(
-                self._get_api_url("chat"), json=payload, timeout=request_timeout
+            # Validate tools if provided
+            if tools:
+                for tool in tools:
+                    if not isinstance(tool, dict) or "type" not in tool:
+                        raise ValueError("Each tool must be a dict with 'type' field")
+
+            # Format messages for Ollama
+            formatted_messages = self.format_messages(messages)
+
+            # Prepare request payload
+            payload = {
+                "model": self.model_name,
+                "messages": formatted_messages,
+                "stream": False,
+                "options": {
+                    "temperature": temperature or self.config.get("temperature"),
+                    "num_predict": max_tokens or self.config.get("max_tokens"),
+                    "top_p": self.config.get("top_p"),
+                },
+            }
+
+            # Add tools if provided
+            if tools:
+                payload["tools"] = tools
+                payload["tool_choice"] = tool_choice
+
+            # Get async client
+            client = await self._get_async_client()
+
+            # Make API request to chat endpoint (for tool support)
+            response = await client.post(
+                self._get_api_url("chat"),
+                json=payload,
+                timeout=timeout
             )
 
             # Handle HTTP errors
@@ -1007,463 +376,191 @@ class OllamaProvider(LLMProvider):
                     raise ModelNotFoundError(self.model_name)
                 raise APIError(response.status_code, f"Ollama API error: {response.text}")
 
-            # Parse the response
+            # Parse response
             result = response.json()
             self.track_request(True)
 
-            # Extract message content and tool calls
-            message = result.get("message", {})
-            content = message.get("content", "")
-            tool_calls = message.get("tool_calls", [])
+            # Extract message from response
+            message_data = result.get("message", {})
+            content = message_data.get("content", "")
+            tool_calls = message_data.get("tool_calls", [])
 
             # Create metadata
             metadata = {
                 "provider": "ollama",
                 "model": self.model_name,
-                "response_metadata": {
-                    key: value for key, value in result.items() if key not in ("message", "model")
-                },
+                "response_metadata": {k: v for k, v in result.items() if k not in ("message", "model")},
             }
 
             # Add tool calls to metadata if present
             if tool_calls:
                 metadata["tool_calls"] = tool_calls
 
-            # Create assistant message
-            assistant_message = Message(role="assistant", content=content, metadata=metadata)
+            # Return assistant message
+            return cast(MessageProtocol, Message(
+                role="assistant",
+                content=content,
+                metadata=metadata
+            ))
+
+        except Exception as e:
+            self.track_request(False)
+            logger.error(f"Error in ask_tool: {e}")
+            raise
+
+    def complete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> Generator[Any, None, None]:
+        """Generate a streaming completion (synchronous)."""
+        if self._closed:
+            raise RuntimeError("Provider has been closed")
             
-            # Use tool adapter to check for tool calls in content
-            # This handles cases where tool calls aren't in the API response metadata
-            content_tool_calls = self._tool_adapter.extract_tool_calls(assistant_message)
-            if content_tool_calls and not tool_calls:
-                metadata["tool_calls"] = content_tool_calls
-                assistant_message = Message(role="assistant", content=content, metadata=metadata)
+        # For streaming, we need to run the async version in a new thread with a new event loop
+        def _run_async_stream():
+            """Run async streaming in a separate thread."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            try:
+                # Collect all chunks from async generator
+                chunks = []
+                async def collect_chunks():
+                    async for chunk in self.acomplete_stream(messages, **kwargs):
+                        chunks.append(chunk)
+                
+                loop.run_until_complete(collect_chunks())
+                return chunks
+            finally:
+                # Clean up the loop
+                try:
+                    loop.close()
+                except Exception:
+                    pass
 
-            return cast(MessageProtocol, assistant_message)
+        # Run in thread and yield results
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(_run_async_stream)
+            chunks = future.result()
+            for chunk in chunks:
+                yield chunk
 
-        except httpx.ReadTimeout as e:
-            self.track_request(False)
-            logger.error(
-                f"Async request to Ollama API (chat) timed out after {request_timeout}s: {e}"
-            )
-            raise APIError(
-                message=f"Async request to Ollama API (chat) timed out after {request_timeout}s. Try increasing the timeout value."
-            )
-
-        except httpx.RequestError as e:
-            self.track_request(False)
-            logger.error(f"Async request to Ollama API (chat) failed: {e}")
-            raise APIError(message=f"Failed to connect to Ollama API (chat): {e}")
-
-    async def acomplete_stream(
-        self, messages: List[MessageProtocol], **kwargs: Any
-    ) -> AsyncIterator[MessageProtocol]:
-        """
-        Generate a streaming completion asynchronously.
-
-        Args:
-            messages: List of messages to generate a completion for
-            **kwargs: Additional parameters for the completion
-
-        Returns:
-            Async iterator of partial completion messages
-        """
-        # Get request timeout - allow override via kwargs or use the instance default
-        request_timeout = kwargs.pop("timeout", self._timeout)
-
-        # Check for vision model or images
-        has_images = False
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                has_images = True
-                break
-
-        # For vision models or images, use a longer timeout
-        if "vision" in self.model_name.lower() or has_images:
-            vision_timeout = max(request_timeout, 120.0)
-            logger.debug(
-                f"Using extended timeout ({vision_timeout}s) for async streaming vision model request"
-            )
-            request_timeout = vision_timeout
-
-        # Initialize async client if needed
-        if self._async_client is None:
-            self._async_client = httpx.AsyncClient(timeout=request_timeout)
-
-        # Handle tools using adapter
-        if "tools" in kwargs and kwargs["tools"]:
-            # Format tools for Ollama using adapter
-            tools_to_format = kwargs.pop("tools")  # Remove tools from kwargs to avoid duplication
-            formatted_tools, updated_kwargs = self.format_tools_for_provider(
-                tools_to_format, **kwargs
-            )
-            # Update kwargs with formatted tools
-            kwargs = updated_kwargs
-
-        # Determine whether to use the chat or generate endpoint
-        # If tools are specified, always use the chat endpoint
-        use_chat_endpoint = "tools" in kwargs
-
-        if use_chat_endpoint:
-            async for message in self._acomplete_chat_stream(messages, request_timeout, **kwargs):
-                yield cast(MessageProtocol, message)
-        else:
-            async for message in self._acomplete_generate_stream(
-                messages, request_timeout, **kwargs
-            ):
-                yield cast(MessageProtocol, message)
-
-    async def _acomplete_generate_stream(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> AsyncIterator[MessageProtocol]:
-        """
-        Generate a streaming completion asynchronously using the /api/generate endpoint.
-
-        Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
-
-        Returns:
-            Async iterator of partial completion messages
-        """
-        # Convert messages to prompt
-        prompt = ""
-        for msg in messages:
-            if msg.role == "system":
-                prompt += f"System: {msg.content}\n\n"
-            elif msg.role == "user":
-                prompt += f"User: {msg.content}\n\n"
-            elif msg.role == "assistant":
-                prompt += f"Assistant: {msg.content}\n\n"
-            elif msg.role == "tool":
-                prompt += f"Tool ({msg.name}): {msg.content}\n\n"
-
-        if prompt.endswith("\n\n"):
-            prompt = prompt[:-2]
-
-        # Prepare request payload
+    async def acomplete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> AsyncGenerator[Any, None]:
+        """Generate an async streaming completion."""
+        if self._closed:
+            raise RuntimeError("Provider has been closed")
+            
+        formatted_messages = self.format_messages(messages)
+        prompt = self._messages_to_prompt(formatted_messages)
+        
         payload = {
             "model": self.model_name,
             "prompt": prompt,
             "stream": True,
-            "temperature": kwargs.get(
-                "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-            ),
-            "num_predict": kwargs.get(
-                "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-            ),
-            "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
+            "temperature": kwargs.get("temperature", self.config.get("temperature")),
+            "num_predict": kwargs.get("max_tokens", self.config.get("max_tokens")),
+            "top_p": kwargs.get("top_p", self.config.get("top_p")),
         }
 
-        # Add any extra parameters
-        for key, value in kwargs.items():
-            if key not in payload and key not in ("stream", "timeout", "tools"):
-                payload[key] = value
-
-        # If images are included, add them to the payload
-        images = []
-        for msg in messages:
-            if hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata:
-                images.extend(msg.metadata["images"])
-
+        # Add images if present
+        images = self._extract_images_from_messages(formatted_messages)
         if images:
             payload["images"] = images
 
-        # Make the API request
-        logger.debug(
-            f"Sending async streaming request to Ollama API (generate): {self.model_name} with timeout {request_timeout}s"
-        )
-        try:
-            # Ensure async client is initialized
-            if self._async_client is None:
-                self._async_client = httpx.AsyncClient(timeout=request_timeout)
+        # Get async client
+        client = await self._get_async_client()
 
-            async with self._async_client.stream(
-                "POST", self._get_api_url("generate"), json=payload, timeout=request_timeout
+        try:
+            async with client.stream(
+                "POST",
+                self._get_api_url("generate"),
+                json=payload,
+                timeout=kwargs.get("timeout", self._timeout)
             ) as response:
-                # Handle HTTP errors
                 if response.status_code != 200:
                     self.track_request(False)
                     if response.status_code == 404:
                         raise ModelNotFoundError(self.model_name)
-                    raise APIError(response.status_code, f"Ollama API error: {response.text}")
-
-                # Track the request as successful
-                self.track_request(True)
-
-                # Process the streaming response
-                content_buffer = ""
+                    raise APIError(response.status_code, f"Ollama API error: {await response.aread()}")
 
                 async for line in response.aiter_lines():
-                    if not line:
-                        continue
+                    if line.strip():
+                        try:
+                            chunk_data = json.loads(line)
+                            content = chunk_data.get("response", "")
+                            if content:
+                                # Create a message-like chunk
+                                chunk = Message(
+                                    role="assistant",
+                                    content=content,
+                                    metadata={
+                                        "provider": "ollama",
+                                        "model": self.model_name,
+                                        "chunk": True,
+                                        "done": chunk_data.get("done", False)
+                                    }
+                                )
+                                yield chunk
+                            
+                            if chunk_data.get("done", False):
+                                self.track_request(True)
+                                break
+                        except json.JSONDecodeError:
+                            continue
 
-                    try:
-                        chunk_data = json.loads(line)
-                        # Extract the content from the chunk
-                        chunk_content = chunk_data.get("response", "")
-                        content_buffer += chunk_content
-
-                        # Create a partial message for this chunk
-                        yield cast(
-                            MessageProtocol,
-                            Message(
-                                role="assistant",
-                                content=content_buffer,
-                                metadata={
-                                    "provider": "ollama",
-                                    "model": self.model_name,
-                                    "is_partial": True,
-                                },
-                            ),
-                        )
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse streaming chunk: {e}")
-                        continue
-
-                # Final message with complete content
-                yield cast(
-                    MessageProtocol,
-                    Message(
-                        role="assistant",
-                        content=content_buffer,
-                        metadata={
-                            "provider": "ollama",
-                            "model": self.model_name,
-                            "is_partial": False,
-                        },
-                    ),
-                )
-
-        except httpx.ReadTimeout as e:
+        except Exception as e:
             self.track_request(False)
-            logger.error(
-                f"Async streaming request to Ollama API (generate) timed out after {request_timeout}s: {e}"
-            )
-            raise APIError(
-                message=f"Async streaming request to Ollama API timed out after {request_timeout}s. Try increasing the timeout value."
-            )
+            logger.error(f"Streaming failed: {e}")
+            raise
 
-        except httpx.RequestError as e:
-            self.track_request(False)
-            logger.error(f"Streaming request to Ollama API (generate) failed: {e}")
-            raise APIError(message=f"Failed to connect to Ollama API: {e}")
+    def _messages_to_prompt(self, messages: List[dict]) -> str:
+        """Convert messages to a single prompt string."""
+        prompt = ""
+        for msg in messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            
+            if role == "system":
+                prompt += f"System: {content}\n\n"
+            elif role == "user":
+                prompt += f"User: {content}\n\n"
+            elif role == "assistant":
+                prompt += f"Assistant: {content}\n\n"
+            elif role == "tool":
+                name = msg.get("name", "unknown")
+                prompt += f"Tool ({name}): {content}\n\n"
 
-    async def _acomplete_chat_stream(
-        self, messages: List[MessageProtocol], request_timeout: float, **kwargs: Any
-    ) -> AsyncIterator[MessageProtocol]:
-        """
-        Generate a streaming completion asynchronously using the /api/chat endpoint.
+        return prompt.rstrip()
 
-        Args:
-            messages: List of messages
-            request_timeout: Request timeout in seconds
-            **kwargs: Additional parameters
-
-        Returns:
-            Async iterator of partial completion messages
-        """
-        # Prepare request payload
-        payload = {
-            "model": self.model_name,
-            "messages": [self._format_message(msg) for msg in messages],
-            "stream": True,
-            "options": {
-                "temperature": kwargs.get(
-                    "temperature", self.config.get("temperature", DEFAULT_TEMPERATURE)
-                ),
-                "num_predict": kwargs.get(
-                    "max_tokens", self.config.get("max_tokens", DEFAULT_MAX_TOKENS)
-                ),
-                "top_p": kwargs.get("top_p", self.config.get("top_p", DEFAULT_TOP_P)),
-            },
-        }
-
-        # Add tools if present
-        if "tools" in kwargs and kwargs["tools"]:
-            payload["tools"] = kwargs["tools"]
-
-        # Make the API request
-        logger.debug(
-            f"Sending async streaming request to Ollama API (chat): {self.model_name} with timeout {request_timeout}s"
-        )
-        try:
-            # Ensure async client is initialized
-            if self._async_client is None:
-                self._async_client = httpx.AsyncClient(timeout=request_timeout)
-
-            async with self._async_client.stream(
-                "POST", self._get_api_url("chat"), json=payload, timeout=request_timeout
-            ) as response:
-                # Handle HTTP errors
-                if response.status_code != 200:
-                    self.track_request(False)
-                    if response.status_code == 404:
-                        raise ModelNotFoundError(self.model_name)
-                    raise APIError(response.status_code, f"Ollama API error: {response.text}")
-
-                # Track the request as successful
-                self.track_request(True)
-
-                # Process the streaming response
-                content_buffer = ""
-                tool_calls = []
-
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-
-                    try:
-                        chunk_data = json.loads(line)
-                        message = chunk_data.get("message", {})
-
-                        # Extract the content from the chunk
-                        chunk_content = message.get("content", "")
-                        content_buffer += chunk_content
-
-                        # Check for tool calls in the current chunk
-                        if "tool_calls" in message and message["tool_calls"]:
-                            tool_calls = message["tool_calls"]
-
-                        # Create metadata for this chunk
-                        metadata = {
-                            "provider": "ollama",
-                            "model": self.model_name,
-                            "is_partial": True,
-                        }
-
-                        # Add tool calls to metadata if present
-                        if tool_calls:
-                            metadata["tool_calls"] = tool_calls
-
-                        # Create a partial message for this chunk
-                        yield cast(
-                            MessageProtocol,
-                            Message(role="assistant", content=content_buffer, metadata=metadata),
-                        )
-                    except json.JSONDecodeError as e:
-                        logger.warning(f"Failed to parse streaming chunk: {e}")
-                        continue
-
-                # Create metadata for final message
-                metadata = {
-                    "provider": "ollama",
-                    "model": self.model_name,
-                    "is_partial": False,
-                }
-
-                # Add tool calls to metadata if present
-                if tool_calls:
-                    metadata["tool_calls"] = tool_calls
-
-                # Final message with complete content
-                final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-                
-                # Use tool adapter to check for tool calls in content if not already found
-                if not tool_calls:
-                    content_tool_calls = self._tool_adapter.extract_tool_calls(final_message)
-                    if content_tool_calls:
-                        metadata["tool_calls"] = content_tool_calls
-                        final_message = Message(role="assistant", content=content_buffer, metadata=metadata)
-
-                yield cast(MessageProtocol, final_message)
-
-        except httpx.ReadTimeout as e:
-            self.track_request(False)
-            logger.error(
-                f"Async streaming request to Ollama API (chat) timed out after {request_timeout}s: {e}"
-            )
-            raise APIError(
-                message=f"Async streaming request to Ollama API (chat) timed out after {request_timeout}s. Try increasing the timeout value."
-            )
-
-        except httpx.RequestError as e:
-            self.track_request(False)
-            logger.error(f"Streaming request to Ollama API (chat) failed: {e}")
-            raise APIError(message=f"Failed to connect to Ollama API (chat): {e}")
-
-    def _format_message(self, message: MessageProtocol) -> Dict[str, Any]:
-        """
-        Format a message for Ollama API.
-
-        Args:
-            message: Message to format
-
-        Returns:
-            Formatted message dictionary
-        """
-        result = {"role": message.role}
-
-        if message.content is not None:
-            result["content"] = message.content
-
-        if message.name is not None:
-            result["name"] = message.name
-
-        # Handle images in metadata
-        if hasattr(message, "metadata") and message.metadata:
-            if "images" in message.metadata and message.metadata["images"]:
-                # Add images to the message
-                result["images"] = message.metadata["images"]
-
-        return result
+    def _extract_images_from_messages(self, messages: List[dict]) -> List[str]:
+        """Extract images from messages."""
+        images = []
+        for msg in messages:
+            if "images" in msg and msg["images"]:
+                images.extend(msg["images"])
+        return images
 
     def get_model_info(self) -> ModelInfo:
-        """
-        Get information about the current model.
-
-        Returns:
-            ModelInfo object with detected capabilities
-        """
-        # Use cached info if available
+        """Get information about the current model."""
         if self._model_info is not None:
             return self._model_info
 
-        # Use explicit capabilities if provided during initialization
-        if self._explicit_capabilities is not None:
-            # Create and cache ModelInfo with explicit capabilities
-            model_info = ModelInfo(
-                id=self.model_name,
-                provider="ollama",
-                max_tokens=DEFAULT_MAX_TOKENS,
-                features=self._explicit_capabilities,
-                context_window=4096,  # Default conservative estimate
-                description=f"Ollama model: {self.model_name} (explicitly configured capabilities)",
-            )
-            logger.info(
-                f"Using explicitly defined capabilities for {self.model_name}: {self._explicit_capabilities}"
-            )
-            # Store the model info (FIXED: was missing in new version)
-            self._model_info = model_info
-            return model_info
-
         try:
-            # Ensure client is initialized
-            if self._client is None:
-                self._client = httpx.Client(timeout=self._timeout)
-
-            # Get model details
-            response = self._client.post(
+            client = self._get_client()
+            response = client.post(
                 self._get_api_url("show"),
                 json={"name": self.model_name},
-                timeout=30.0,  # Use a separate timeout for metadata requests
+                timeout=30.0,
             )
 
             if response.status_code != 200:
-                logger.warning(
-                    f"Failed to get model info for {self.model_name}: {response.status_code}"
-                )
-                # Return basic model info with defaults
+                logger.warning(f"Failed to get model info for {self.model_name}")
                 model_info = ModelInfo(
                     id=self.model_name,
                     provider="ollama",
                     max_tokens=DEFAULT_MAX_TOKENS,
                     features=set(),
-                    context_window=4096,  # Default conservative estimate
+                    context_window=4096,
                     description=f"Ollama model: {self.model_name}",
                 )
-                # Store the model info (FIXED: was missing in new version)
                 self._model_info = model_info
                 return model_info
 
@@ -1472,104 +569,98 @@ class OllamaProvider(LLMProvider):
             # Detect model features
             features = set()
 
-            # Detect vision capability
-            vision_capable = False
-            if "vision" in self.model_name.lower():
-                vision_capable = True
-            elif "projector_info" in model_data:
-                vision_capable = True
-            elif "capabilities" in model_data and isinstance(model_data["capabilities"], list):
-                if "vision" in model_data["capabilities"]:
-                    vision_capable = True
-            elif "details" in model_data and "families" in model_data["details"]:
-                families = model_data["details"]["families"]
-                if isinstance(families, list) and any("clip" in str(f).lower() for f in families):
-                    vision_capable = True
-
-            if vision_capable:
+            # Check for vision capability
+            if "vision" in self.model_name.lower() or "projector_info" in model_data:
                 features.add(ModelFeature.VISION)
                 features.add(ModelFeature.MULTI_MODAL)
 
-            # Detect tool/function calling capability
-            tools_capable = False
-            if "capabilities" in model_data and isinstance(model_data["capabilities"], list):
-                if any(
-                    cap in ("tools", "tool_use", "function_calling")
-                    for cap in model_data["capabilities"]
-                ):
-                    tools_capable = True
+            # Check for tool calling capability
             if "template" in model_data:
                 template = model_data["template"]
-                # Check for common tool/function calling template patterns
-                tool_patterns = [
-                    "tools",
-                    "tool_call",
-                    "ToolCalls",
-                    "function",
-                    '"name": "',  # JSON pattern for function calling
-                    "parameters",
-                    "available_tools",
-                    "tool_response",
-                ]
+                tool_patterns = ["tools", "tool_call", "function", "parameters"]
                 if any(pattern in template for pattern in tool_patterns):
-                    tools_capable = True
-
-            if tools_capable:
-                features.add(ModelFeature.FUNCTION_CALLING)
+                    features.add(ModelFeature.FUNCTION_CALLING)
 
             # All Ollama models support streaming
             features.add(ModelFeature.STREAMING)
 
-            # Add code capability for code-focused models
-            if any(
-                code_model in self.model_name.lower()
-                for code_model in ["coder", "code", "starcoder", "wizard-coder", "phind-codellama"]
-            ):
+            # Code capability for code models
+            if any(code_model in self.model_name.lower() for code_model in ["coder", "code", "starcoder"]):
                 features.add(ModelFeature.CODE)
 
-            # Extract context length based on model family
-            context_window = 4096  # Default conservative estimate
+            # Extract context window
+            context_window = 4096
             if "model_info" in model_data and "details" in model_data:
-                # Try to extract from model_info
                 for key, value in model_data.get("model_info", {}).items():
                     if "context_length" in key.lower() and isinstance(value, (int, float)):
                         context_window = int(value)
                         break
 
-            # Get parameter size
+            # Parameter size
             parameter_size = "Unknown"
             if "details" in model_data and "parameter_size" in model_data["details"]:
                 parameter_size = model_data["details"]["parameter_size"]
 
-            # Create description
             description = f"Ollama model: {self.model_name} ({parameter_size})"
 
-            # Create and cache model info
             model_info = ModelInfo(
                 id=self.model_name,
                 provider="ollama",
-                max_tokens=min(DEFAULT_MAX_TOKENS, context_window // 2),  # Conservative estimate
+                max_tokens=min(DEFAULT_MAX_TOKENS, context_window // 2),
                 features=features,
                 context_window=context_window,
                 description=description,
             )
 
-            logger.debug(f"Detected capabilities for {self.model_name}: {features}")
-            # Store the model info (FIXED: was missing in new version)
             self._model_info = model_info
             return model_info
 
         except Exception as e:
             logger.error(f"Error getting model info: {e}")
-            # Return basic model info with defaults
             model_info = ModelInfo(
                 id=self.model_name,
                 provider="ollama",
                 max_tokens=DEFAULT_MAX_TOKENS,
-                features={ModelFeature.STREAMING},  # Assume at least streaming is supported
-                context_window=4096,  # Default conservative estimate
+                features={ModelFeature.STREAMING},
+                context_window=4096,
                 description=f"Ollama model: {self.model_name}",
             )
-            # Store the model info (FIXED: was missing in new version)
             self._model_info = model_info
             return model_info
+
+    def close(self) -> None:
+        """Close and cleanup provider resources."""
+        if self._closed:
+            return
+            
+        self._closed = True
+        
+        # Close sync client
+        if self._client:
+            try:
+                self._client.close()
+            except Exception as e:
+                logger.warning(f"Error closing sync client: {e}")
+            finally:
+                self._client = None
+
+    async def aclose(self) -> None:
+        """Async close and cleanup provider resources."""
+        if self._closed:
+            return
+            
+        self._closed = True
+        
+        # Close async client
+        if self._async_client:
+            try:
+                await self._async_client.aclose()
+            except Exception as e:
+                logger.warning(f"Error closing async client: {e}")
+            finally:
+                self._async_client = None
+
+    def __del__(self) -> None:
+        """Cleanup on deletion."""
+        if not self._closed:
+            self.close()

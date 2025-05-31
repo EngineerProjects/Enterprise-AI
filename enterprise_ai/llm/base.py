@@ -1,13 +1,16 @@
 """
-Base LLM provider implementation with enhanced tool support.
+Base LLM provider implementation with improved resource management.
 
-This module defines the base class for all LLM providers with
-improved handling of tool calls across different LLM providers.
+This module defines the base class for all LLM providers and provides a common interface
+for interacting with language models. It includes methods for generating completions,
+streaming completions, and tool calling, along with metrics tracking and model information retrieval.
 """
 
 import abc
 import time
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+import asyncio
+import weakref
+from typing import Any, Dict, List, Optional, Set, Union, AsyncGenerator
 
 from enterprise_ai.constants import (
     DEFAULT_TEMPERATURE,
@@ -17,18 +20,20 @@ from enterprise_ai.constants import (
 )
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message, ModelInfo
+from enterprise_ai.schema.tool import TOOL_CHOICE_TYPE, ToolChoice
 from enterprise_ai.types import MessageProtocol
-from enterprise_ai.llm.adapters import ToolAdapter, ToolFormat
 
-logger = get_logger("llm.refactored.base")
+logger = get_logger("llm.base")
+
+# Global registry for cleanup
+_active_providers = weakref.WeakSet()
 
 
 class LLMProvider(abc.ABC):
     """
-    Base class for LLM providers with enhanced tool calling support.
+    Base class for LLM providers with improved resource management.
 
-    This class defines the interface that all LLM providers must implement,
-    with additional functionality for handling tool calls in a consistent way.
+    This class defines the interface that all LLM providers must implement.
     """
 
     def __init__(self, model_name: str, **kwargs: Any):
@@ -50,20 +55,12 @@ class LLMProvider(abc.ABC):
 
         # Initialize model info
         self._model_info = None
-
-        # Initialize tool adapter
-        self._tool_adapter = self._create_tool_adapter()
-
-    def _create_tool_adapter(self) -> ToolAdapter:
-        """
-        Create the appropriate tool adapter for this provider.
-
-        Returns:
-            ToolAdapter instance
-        """
-        # Default implementation creates a basic adapter
-        # Override in subclasses to create provider-specific adapters
-        return ToolAdapter()
+        
+        # Track if provider is closed
+        self._closed = False
+        
+        # Add to global registry for cleanup
+        _active_providers.add(self)
 
     def get_model_name(self) -> str:
         """Get the model name."""
@@ -84,6 +81,76 @@ class LLMProvider(abc.ABC):
         pass
 
     @abc.abstractmethod
+    async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
+        """
+        Generate a completion asynchronously for the given messages.
+
+        Args:
+            messages: List of messages
+            **kwargs: Additional parameters for the completion
+
+        Returns:
+            Generated message
+        """
+        pass
+
+    def complete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> Any:
+        """
+        Generate a streaming completion for the given messages.
+
+        Args:
+            messages: List of messages
+            **kwargs: Additional parameters for the completion
+
+        Returns:
+            Generator yielding completion chunks
+        """
+        # Default implementation: providers should override if they support streaming
+        raise NotImplementedError("Streaming not supported by this provider")
+
+    async def acomplete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> AsyncGenerator[Any, None]:
+        """
+        Generate an async streaming completion for the given messages.
+
+        Args:
+            messages: List of messages
+            **kwargs: Additional parameters for the completion
+
+        Returns:
+            Async generator yielding completion chunks
+        """
+        # Default implementation: providers should override if they support streaming
+        raise NotImplementedError("Async streaming not supported by this provider")
+
+    @abc.abstractmethod
+    async def ask_tool(
+        self,
+        messages: List[MessageProtocol],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        tool_choice: TOOL_CHOICE_TYPE = ToolChoice.AUTO,
+        timeout: int = 300,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Optional[Any]:
+        """
+        Ask LLM using functions/tools and return the response.
+
+        Args:
+            messages: List of conversation messages
+            tools: List of tools/functions available to the model
+            tool_choice: Tool choice strategy
+            timeout: Request timeout in seconds
+            temperature: Sampling temperature for the response
+            max_tokens: Maximum tokens to generate
+            **kwargs: Additional completion arguments
+
+        Returns:
+            Provider-specific response object, or None if failed
+        """
+        pass
+
+    @abc.abstractmethod
     def get_model_info(self) -> ModelInfo:
         """
         Get information about the model.
@@ -91,11 +158,7 @@ class LLMProvider(abc.ABC):
         Returns:
             ModelInfo object with capabilities and limitations
         """
-        if self._model_info is not None:
-            return self._model_info
-
-        # This should be implemented by subclasses to detect model capabilities
-        raise NotImplementedError("Subclasses must implement get_model_info()")
+        pass
 
     def get_model_features(self) -> Set[str]:
         """
@@ -147,46 +210,81 @@ class LLMProvider(abc.ABC):
             "success_count": self._success_count,
             "error_count": self._error_count,
             "success_rate": self._success_count / max(1, self._request_count),
+            "closed": self._closed,
         }
 
-    def format_tools_for_provider(
-        self, tools: List[Dict[str, Any]], **kwargs: Any
-    ) -> Tuple[Any, Dict[str, Any]]:
+    def is_closed(self) -> bool:
+        """Check if the provider has been closed."""
+        return self._closed
+
+    def close(self) -> None:
         """
-        Format tools for this specific provider.
-
-        This method converts tools from the standard format to
-        the provider-specific format required by the API.
-
-        Args:
-            tools: List of tools in standard format
-            **kwargs: Additional formatting options
-
-        Returns:
-            Tuple of (formatted_tools, updated_kwargs)
+        Close and cleanup provider resources.
+        Providers should override this if they need cleanup.
         """
-        return self._tool_adapter.format_for_provider(tools, **kwargs)
+        if not self._closed:
+            self._closed = True
+            logger.debug(f"Closed {self.__class__.__name__} provider")
 
-    def extract_tool_calls(self, response: MessageProtocol) -> List[Dict[str, Any]]:
+    async def aclose(self) -> None:
         """
-        Extract tool calls from an LLM response.
-
-        This method handles the provider-specific format of tool calls
-        and converts them to a standard format.
-
-        Args:
-            response: LLM response message
-
-        Returns:
-            List of standardized tool calls
+        Async close and cleanup provider resources.
+        Providers should override this if they need async cleanup.
         """
-        return self._tool_adapter.extract_tool_calls(response)
+        if not self._closed:
+            self._closed = True
+            logger.debug(f"Async closed {self.__class__.__name__} provider")
 
-    def update_tool_adapter(self, adapter: ToolAdapter) -> None:
-        """
-        Update the tool adapter for this provider.
+    def __enter__(self):
+        """Context manager entry."""
+        return self
 
-        Args:
-            adapter: New tool adapter to use
-        """
-        self._tool_adapter = adapter
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit."""
+        self.close()
+
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit."""
+        await self.aclose()
+
+
+def cleanup_all_providers() -> None:
+    """
+    Clean up all active providers.
+    
+    This function is useful for testing or when shutting down the application.
+    """
+    active_count = 0
+    for provider in list(_active_providers):
+        if not provider.is_closed():
+            try:
+                provider.close()
+                active_count += 1
+            except Exception as e:
+                logger.warning(f"Error closing provider {provider}: {e}")
+    
+    if active_count > 0:
+        logger.info(f"Cleaned up {active_count} active providers")
+
+
+async def acleanup_all_providers() -> None:
+    """
+    Async clean up all active providers.
+    
+    This function is useful for testing or when shutting down the application.
+    """
+    active_count = 0
+    for provider in list(_active_providers):
+        if not provider.is_closed():
+            try:
+                await provider.aclose()
+                active_count += 1
+            except Exception as e:
+                logger.warning(f"Error async closing provider {provider}: {e}")
+    
+    if active_count > 0:
+        logger.info(f"Async cleaned up {active_count} active providers")

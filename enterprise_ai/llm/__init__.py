@@ -1,20 +1,31 @@
 """
 LLM functionality for Enterprise AI.
-
-This module provides a high-level API for interacting with language models.
 """
 
 from typing import List, Optional, Union, cast
 
 from enterprise_ai.config import get_config
-from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.llm.simple import LLM  # Import the LLM class
-from enterprise_ai.llm.providers.factory import (
+from enterprise_ai.llm.base import LLMProvider, cleanup_all_providers, acleanup_all_providers
+from enterprise_ai.llm.simple import LLM
+from enterprise_ai.llm.factory import (
     create_provider,
     get_default_provider,
-)  # Use correct imports
+    list_available_providers,
+)
 from enterprise_ai.schema import Message, CompletionOptions
 from enterprise_ai.types import MessageProtocol
+
+from enterprise_ai.schema.tool import ToolCall, Function, ToolChoice
+from enterprise_ai.schema.llm import LLMResponse
+
+# Import production utilities
+from enterprise_ai.llm.utils import (
+    managed_provider,
+    amanaged_provider,
+    format_conversation,
+    emergency_cleanup,
+    aemergency_cleanup,
+)
 
 
 def complete(
@@ -22,17 +33,7 @@ def complete(
     options: Optional[CompletionOptions] = None,
     provider: Optional[LLMProvider] = None,
 ) -> MessageProtocol:
-    """
-    Generate a completion for the given messages.
-
-    Args:
-        messages: List of messages or strings (strings are converted to user messages)
-        options: Completion options
-        provider: LLM provider to use (uses default if None)
-
-    Returns:
-        Generated assistant message
-    """
+    """Generate a completion for the given messages."""
     # Convert strings to user messages
     processed_messages: List[MessageProtocol] = []
     for msg in messages:
@@ -43,7 +44,6 @@ def complete(
 
     # Use specified provider or default
     llm_provider = provider or get_default_provider()
-
     # Get completion with options
     kwargs = {}
     if options:
@@ -57,11 +57,31 @@ def complete(
     return llm_provider.complete(processed_messages, **kwargs)
 
 
-# Export API
 __all__ = [
+    # Core functionality
     "complete",
-    "create_provider",  # Changed from get_provider
+    "create_provider",
     "get_default_provider",
+    "list_available_providers",
     "LLMProvider",
-    "LLM",  # Export LLM class
+    "LLM",
+    
+    # Tool support
+    "ToolCall",
+    "Function",
+    "ToolChoice", 
+    "LLMResponse",
+    
+    # Resource management
+    "cleanup_all_providers",
+    "acleanup_all_providers",
+    "emergency_cleanup",
+    "aemergency_cleanup",
+    
+    # Production utilities
+    "managed_provider",
+    "amanaged_provider",
+    "format_conversation",
+    "emergency_cleanup",
+    "aemergency_cleanup",
 ]

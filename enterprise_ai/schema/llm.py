@@ -7,6 +7,8 @@ This module defines data models related to LLM configuration and responses.
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Set
 
+from enterprise_ai.schema.tool import ToolCall
+
 
 @dataclass
 class CompletionOptions:
@@ -76,3 +78,31 @@ class ModelInfo:
             "context_window": self.context_window,
             "description": self.description,
         }
+
+class LLMResponse:
+    """Represents an LLM response with potential tool calls."""
+    
+    def __init__(
+        self,
+        content: Optional[str] = None,
+        tool_calls: Optional[List[ToolCall]] = None,
+        finish_reason: Optional[str] = None,
+        usage_metadata: Optional[Dict[str, Any]] = None
+    ):
+        self.content = content
+        self.tool_calls = tool_calls or []
+        self.finish_reason = finish_reason
+        self.usage_metadata = usage_metadata or {}
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary format."""
+        result = {
+            "content": self.content,
+            "finish_reason": self.finish_reason,
+            "usage_metadata": self.usage_metadata
+        }
+        
+        if self.tool_calls:
+            result["tool_calls"] = [tc.to_dict() for tc in self.tool_calls]
+            
+        return result

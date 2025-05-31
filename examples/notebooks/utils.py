@@ -91,9 +91,9 @@ def print_user(msg, images=None):
     if images and images > 0:
         print(f"{Colors.GREEN}      [+{images} image{'s' if images > 1 else ''}]{Colors.RESET}")
 
-def print_assistant(msg):
-    """Print assistant message."""
-    print(f"{Colors.PURPLE}Assistant:{Colors.RESET} {msg}")
+def print_assistant(msg, **kwargs):
+    """Print assistant message with optional keyword arguments."""
+    print(f"{Colors.PURPLE}Assistant:{Colors.RESET} {msg}", **kwargs)
 
 def print_system(msg):
     """Print system message."""
