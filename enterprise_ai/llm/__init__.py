@@ -18,16 +18,6 @@ from enterprise_ai.types import MessageProtocol
 from enterprise_ai.schema.tool import ToolCall, Function, ToolChoice
 from enterprise_ai.schema.llm import LLMResponse
 
-# Import production utilities
-from enterprise_ai.llm.utils import (
-    managed_provider,
-    amanaged_provider,
-    format_conversation,
-    emergency_cleanup,
-    aemergency_cleanup,
-)
-
-
 def complete(
     messages: List[Union[Message, str]],
     options: Optional[CompletionOptions] = None,
@@ -71,12 +61,6 @@ __all__ = [
     "Function",
     "ToolChoice", 
     "LLMResponse",
-    
-    # Resource management
-    "cleanup_all_providers",
-    "acleanup_all_providers",
-    "emergency_cleanup",
-    "aemergency_cleanup",
     
     # Production utilities
     "managed_provider",
