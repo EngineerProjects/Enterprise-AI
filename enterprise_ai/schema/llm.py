@@ -362,6 +362,7 @@ class ModelCapabilities:
     supports_vision: bool = False
     supports_async: bool = False
     supports_batch: bool = False
+    supports_thinking: bool = False  # NEW: Direct thinking support flag
     max_context_window: Optional[int] = None
     max_output_tokens: Optional[int] = None
     supported_formats: List[str] = field(default_factory=list)
@@ -381,6 +382,19 @@ class ModelCapabilities:
             features.add("async")
         if self.supports_batch:
             features.add("batch")
+        if self.supports_thinking:
+            features.add("thinking")
+        
+        # ENHANCED: Map thinking/reasoning from specializations to features
+        for specialization in self.specializations:
+            if specialization in ["thinking", "reasoning"]:
+                features.add("thinking")
+                features.add("reasoning")
+            elif specialization == "code_generation":
+                features.add("code")
+            elif specialization == "multimodal":
+                features.add("multi_modal")
+        
         return features
     
     def update_from_features(self, features: Set[str]) -> None:
@@ -390,6 +404,7 @@ class ModelCapabilities:
         self.supports_vision = "vision" in features
         self.supports_async = "async" in features
         self.supports_batch = "batch" in features
+        self.supports_thinking = "thinking" in features  # NEW: Handle thinking flag
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -399,6 +414,7 @@ class ModelCapabilities:
             "supports_vision": self.supports_vision,
             "supports_async": self.supports_async,
             "supports_batch": self.supports_batch,
+            "supports_thinking": self.supports_thinking,  # NEW: Include thinking in dict
             "max_context_window": self.max_context_window,
             "max_output_tokens": self.max_output_tokens,
             "supported_formats": self.supported_formats,
@@ -415,6 +431,7 @@ class ModelCapabilities:
             supports_vision=data.get("supports_vision", False),
             supports_async=data.get("supports_async", False),
             supports_batch=data.get("supports_batch", False),
+            supports_thinking=data.get("supports_thinking", False),  # NEW: Load thinking flag
             max_context_window=data.get("max_context_window"),
             max_output_tokens=data.get("max_output_tokens"),
             supported_formats=data.get("supported_formats", []),

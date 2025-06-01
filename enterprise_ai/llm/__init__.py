@@ -5,6 +5,7 @@ This module provides a comprehensive framework for interacting with language mod
 through a clean, provider-agnostic interface with high-performance implementations.
 """
 
+from asyncio.log import logger
 from typing import Any, Dict, List, Optional, Union, cast
 
 from enterprise_ai.llm.base import LLMProvider
@@ -87,20 +88,36 @@ def inspect_model_capabilities(
         >>> print(caps["detected_features"])
         >>> print(caps["context_window"])
     """
-    provider = create_provider(provider_name, model_name, **kwargs)
-    
-    if hasattr(provider, 'get_capability_details'):
-        return provider.get_capability_details()
-    else:
-        # Fallback for providers without detailed capability inspection
-        model_info = provider.get_model_info()
+    try:
+        provider = create_provider(provider_name, model_name, **kwargs)
+        
+        if hasattr(provider, 'get_capability_details'):
+            result = provider.get_capability_details()
+            # Ensure provider is always included
+            if "provider" not in result:
+                result["provider"] = provider_name
+            return result
+        else:
+            # Fallback for providers without detailed capability inspection
+            model_info = provider.get_model_info()
+            return {
+                "model_name": model_name,
+                "provider": provider_name,  # Fixed: use provider_name consistently
+                "detected_features": list(model_info.features),
+                "context_window": model_info.context_window,
+                "max_tokens": model_info.max_tokens,
+                "description": model_info.description,
+            }
+    except Exception as e:
+        logger.error(f"Failed to inspect capabilities for {model_name}: {e}")
+        # Return a minimal structure to avoid KeyError
         return {
             "model_name": model_name,
             "provider": provider_name,
-            "detected_features": list(model_info.features),
-            "context_window": model_info.context_window,
-            "max_tokens": model_info.max_tokens,
-            "description": model_info.description,
+            "detected_features": [],
+            "context_window": 4096,
+            "max_tokens": 2048,
+            "error": str(e),
         }
 
 # Add to __all__

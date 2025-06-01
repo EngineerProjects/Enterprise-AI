@@ -29,15 +29,17 @@ class OllamaCapabilities:
     def _compile_template_patterns(self) -> Dict[str, re.Pattern]:
         """Compile regex patterns for template analysis."""
         return {
+            # Enhanced thinking/reasoning patterns - MORE COMPREHENSIVE
+            "thinking": re.compile(r'\{\{\s*[.$]*\s*(?:if\s+)?(?:and\s+)?\$?\.?(?:IsThinkSet|Think|Thinking)\s*[^}]*\}\}', re.IGNORECASE),
+            "think_tags": re.compile(r'<think>|<thinking>|</think>|</thinking>', re.IGNORECASE),
+            "think_variables": re.compile(r'\$\.(?:IsThinkSet|Think|Thinking)\b', re.IGNORECASE),
+            "think_conditionals": re.compile(r'\{\{\s*if.*(?:Think|Thinking|IsThinkSet)', re.IGNORECASE),
+            
             # Tool/Function calling patterns
             "tools": re.compile(r'\{\{\s*(?:if\s+)?\.Tools\s*\}\}', re.IGNORECASE),
             "toolcalls": re.compile(r'\{\{\s*(?:range\s+)?\.ToolCalls\s*\}\}', re.IGNORECASE),
             "function": re.compile(r'\{\{\s*\.Function\.(Name|Arguments)\s*\}\}', re.IGNORECASE),
             "tool_response": re.compile(r'tool_response|ipython', re.IGNORECASE),
-            
-            # Thinking/Reasoning patterns
-            "thinking": re.compile(r'\{\{\s*(?:if\s+)?\.Thinking\s*\}\}', re.IGNORECASE),
-            "think_tags": re.compile(r'<think>|<thinking>', re.IGNORECASE),
             
             # Vision patterns in templates
             "vision": re.compile(r'vision|image|visual', re.IGNORECASE),
@@ -146,37 +148,37 @@ class OllamaCapabilities:
         return capabilities
 
     def _analyze_template_capabilities(self, model_data: Dict[str, Any]) -> Set[str]:
-        """
-        Analyze the model template to detect advanced capabilities.
-        Templates contain Go template syntax that reveals supported features.
-        """
+        """Analyze template with direct pattern matching."""
         capabilities = set()
         
         template = model_data.get("template", "")
         if not template:
             return capabilities
         
-        # Check each pattern against the template
-        for capability, pattern in self._template_patterns.items():
-            if pattern.search(template):
-                if capability in ["tools", "toolcalls", "function", "tool_response"]:
-                    capabilities.add("tools")
-                elif capability == "thinking":
-                    capabilities.add("thinking")
-                elif capability == "vision":
-                    capabilities.add("vision")
-                elif capability == "conversation":
-                    capabilities.add("conversation")
-                elif capability == "system":
-                    capabilities.add("system_messages")
+        # Direct pattern checks - no complex logic
+        if any(pattern.search(template) for name, pattern in self._template_patterns.items() 
+            if name in ["thinking", "think_tags", "think_variables", "think_conditionals"]):
+            capabilities.add("thinking")
+            capabilities.add("reasoning")
+            logger.debug("Thinking capability detected from template")
         
-        # Advanced template analysis for specific patterns
-        if "ipython" in template.lower():
-            capabilities.add("tools")  # IPython suggests code execution/tools
-        
-        if "function call" in template.lower():
+        if any(pattern.search(template) for name, pattern in self._template_patterns.items() 
+            if name in ["tools", "toolcalls", "function", "tool_response"]):
             capabilities.add("tools")
-            
+            logger.debug("Tools capability detected from template")
+        
+        if self._template_patterns["vision"].search(template):
+            capabilities.add("vision")
+            logger.debug("Vision capability detected from template")
+        
+        if self._template_patterns["conversation"].search(template):
+            capabilities.add("conversation")
+            logger.debug("Conversation capability detected from template")
+        
+        if self._template_patterns["system"].search(template):
+            capabilities.add("system_messages")
+            logger.debug("System capability detected from template")
+        
         return capabilities
 
     def _detect_vision_from_projector(self, model_data: Dict[str, Any]) -> Set[str]:
@@ -252,6 +254,10 @@ class OllamaCapabilities:
             capabilities.supports_vision = True
             capabilities.supported_formats.extend(["jpeg", "png", "gif", "webp", "bmp"])
         
+        # Handle thinking capability
+        if "thinking" in detected_caps or "reasoning" in detected_caps:
+            capabilities.supports_thinking = True
+        
         # Advanced capabilities
         if "thinking" in detected_caps:
             capabilities.specializations.append("reasoning")
@@ -266,6 +272,29 @@ class OllamaCapabilities:
         
         if "conversation" in detected_caps:
             capabilities.specializations.append("conversation")
+        
+        # ADD: Enhanced capability inference
+        # Infer additional capabilities based on model characteristics
+        model_name_lower = model_data.get("name", "").lower() if model_data else ""
+        
+        # Text generation capability (all models can do this)
+        capabilities.specializations.append("text_generation")
+        
+        # Code generation inference
+        if any(indicator in model_name_lower for indicator in ["code", "coder", "programming"]):
+            capabilities.specializations.append("code_generation")
+            capabilities.supports_tools = True  # Code models typically support tools
+        
+        # Reasoning inference from model families/architecture
+        details = model_data.get("details", {}) if model_data else {}
+        families = details.get("families", [])
+        
+        for family in families:
+            family_lower = str(family).lower()
+            if family_lower in ["qwen", "llama", "granite"]:
+                # These families typically support reasoning
+                capabilities.specializations.append("reasoning")
+                capabilities.supports_thinking = True
 
     def _set_technical_specs(
         self, 
@@ -467,7 +496,47 @@ class OllamaCapabilities:
         capabilities = self.detect_model_capabilities(model_name, model_data)
         available_features = capabilities.to_feature_set()
         
-        return task_requirements.issubset(available_features)
+        # Enhanced mapping for broader capability matching
+        capability_aliases = {
+            "streaming": {"streaming", "async"},
+            "conversation": {"streaming", "async", "text_generation"},
+            "text_generation": {"streaming", "async"},
+            "function_calling": {"tools"},
+            "multimodal": {"vision"},
+            "reasoning": {"thinking", "reasoning"},
+            "code_generation": {"tools", "reasoning"},
+        }
+        
+        # Expand task requirements with aliases
+        expanded_requirements = set(task_requirements)
+        for req in task_requirements:
+            if req in capability_aliases:
+                expanded_requirements.update(capability_aliases[req])
+        
+        # Check if model has the core capability or related features
+        for req in task_requirements:
+            if req in available_features:
+                continue  # Direct match
+            elif req in capability_aliases:
+                # Check if any alias matches
+                if not any(alias in available_features for alias in capability_aliases[req]):
+                    logger.debug(f"Model {model_name} missing capability: {req}")
+                    return False
+            else:
+                # Basic capability matching
+                basic_caps = {
+                    "text_generation": capabilities.supports_streaming or capabilities.supports_async,
+                    "vision_analysis": capabilities.supports_vision,
+                    "tool_usage": capabilities.supports_tools,
+                    "reasoning": capabilities.supports_thinking or "reasoning" in capabilities.specializations,
+                    "coding": capabilities.supports_tools or "code_generation" in capabilities.specializations,
+                }
+                
+                if req in basic_caps and not basic_caps[req]:
+                    logger.debug(f"Model {model_name} missing basic capability: {req}")
+                    return False
+        
+        return True
 
     def clear_cache(self) -> None:
         """Clear the capability cache."""

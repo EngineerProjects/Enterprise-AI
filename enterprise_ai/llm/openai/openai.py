@@ -48,7 +48,7 @@ from enterprise_ai.llm.openai.helpers import (
     OpenAIConfigHelper,
     TokenCounter,
 )
-from enterprise_ai.llm.openai import REASONING_MODELS, MULTIMODAL_MODELS
+from enterprise_ai.llm.openai.constants import REASONING_MODELS, MULTIMODAL_MODELS
 
 logger = get_logger("llm.openai")
 

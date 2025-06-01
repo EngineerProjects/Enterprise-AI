@@ -621,13 +621,14 @@ class OllamaProvider(LLMProvider):
         
         return {
             "model_name": self.model_name,
+            "provider": "ollama",
             "detected_features": capabilities.to_feature_set(),
             "supports_streaming": capabilities.supports_streaming,
             "supports_tools": capabilities.supports_tools,
             "supports_vision": capabilities.supports_vision,
             "supports_async": capabilities.supports_async,
             "context_window": capabilities.max_context_window,
-            "max_output_tokens": capabilities.max_output_tokens,
+            "max_tokens": capabilities.max_output_tokens,
             "specializations": capabilities.specializations,
             "languages": capabilities.languages,
             "supported_formats": capabilities.supported_formats,

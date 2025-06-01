@@ -44,3 +44,5 @@ class ModelFeature:
     CODE = "code"
     JSON_MODE = "json_mode"
     MULTI_MODAL = "multi_modal"
+    THINKING = "thinking"  # NEW: Add thinking capability
+    REASONING = "reasoning"  # NEW: Add reasoning capability

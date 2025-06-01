@@ -18,7 +18,7 @@ from enterprise_ai.exceptions import APIError as EnterpriseAPIError, TokenLimitE
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import Message
 from enterprise_ai.types import MessageProtocol
-from enterprise_ai.llm.openai import REASONING_MODELS, MULTIMODAL_MODELS
+from enterprise_ai.llm.openai.constants import REASONING_MODELS
 
 logger = get_logger("llm.openai.helpers")
 
