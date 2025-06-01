@@ -1,36 +1,89 @@
 """
 Schema definitions for Enterprise AI.
 
-This module provides the core data models used throughout the framework.
+This module provides the core data models and type definitions used throughout
+the framework, ensuring type safety and consistent data structures.
 """
 
+# Core message types
 from enterprise_ai.schema.message import Message
-from enterprise_ai.schema.llm import ModelInfo, CompletionOptions, LLMResponse
+
+# LLM-related schemas
+from enterprise_ai.schema.llm import (
+    ModelInfo, 
+    CompletionOptions, 
+    LLMResponse,
+    ProviderInfo,
+    ModelCapabilities,
+    StreamingResponse,
+)
+
+# Memory system schemas
 from enterprise_ai.schema.memory import (
     ConversationMemory,
     InMemoryConversation,
     SlidingWindowConversation,
     ConversationMemoryFactory,
+    MemoryConfig,
 )
 
-from enterprise_ai.schema.tool import ToolCall, Function, ToolChoice, TOOL_CHOICE_TYPE, TOOL_CHOICE_VALUES
+# Tool system schemas
+from enterprise_ai.schema.tool import (
+    ToolCall, 
+    Function, 
+    ToolChoice, 
+    ToolDefinition,
+    ToolResult,
+    TOOL_CHOICE_TYPE, 
+    TOOL_CHOICE_VALUES,
+)
 
+# Image handling schemas
+from enterprise_ai.schema.image import (
+    ImageInfo,
+    ImageFormat,
+    ImageMetadata,
+)
+
+from enterprise_ai.schema.tool_utils import ToolConverter
+
+# Export all public schemas
 __all__ = [
-    # Message
+    # Core message
     "Message",
-    # LLM
+    
+    # LLM schemas
     "ModelInfo",
-    "CompletionOptions",
+    "CompletionOptions", 
     "LLMResponse",
-    # Memory
+    "ProviderInfo",
+    "ModelCapabilities",
+    "StreamingResponse",
+    
+    # Memory schemas
     "ConversationMemory",
-    "InMemoryConversation",
+    "InMemoryConversation", 
     "SlidingWindowConversation",
     "ConversationMemoryFactory",
-    # Tool
+    "MemoryConfig",
+    
+    # Tool schemas
     "ToolCall",
     "Function",
     "ToolChoice",
+    "ToolDefinition", 
+    "ToolResult",
     "TOOL_CHOICE_TYPE",
     "TOOL_CHOICE_VALUES",
+    
+    # Image schemas
+    "ImageInfo",
+    "ImageFormat", 
+    "ImageMetadata",
+
+    # Utility classes
+    "ToolConverter",
 ]
+
+# Schema version for compatibility tracking
+SCHEMA_VERSION = "1.0.0"

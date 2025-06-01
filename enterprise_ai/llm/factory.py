@@ -5,121 +5,50 @@ This module provides factory functions for creating LLM provider instances
 with appropriate configurations.
 """
 
-from typing import Any, Dict, List, Optional, Type, Union, cast
+from typing import Any, Dict, Optional
 
-from enterprise_ai.config import get_config
-from enterprise_ai.exceptions import ProviderNotSupportedError
 from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.llm.providers.registry import get_registry
 from enterprise_ai.logger import get_logger
 
 logger = get_logger("llm.factory")
 
 
-def create_provider(
-    provider_name: str, model_name: Optional[str] = None, **kwargs: Any
-) -> LLMProvider:
+def create_provider(provider_name: str, model_name: str, **kwargs: Any) -> LLMProvider:
     """
-    Create a provider instance with appropriate configuration.
+    Create an LLM provider instance.
 
     Args:
-        provider_name: Name of the provider to create
-        model_name: Name of the model to use (provider-dependent)
-        **kwargs: Additional provider-specific parameters
+        provider_name: Name of the provider ("ollama", "openai", etc.)
+        model_name: Name of the model to use
+        **kwargs: Provider-specific configuration
 
     Returns:
-        Provider instance
+        Configured LLM provider instance
 
     Raises:
-        ProviderNotSupportedError: If provider is not registered
+        ValueError: If provider is not supported
+        ImportError: If provider dependencies are not available
     """
-    registry = get_registry()
-    provider_cls = registry.get_provider_class(provider_name.lower())
-
-    if not provider_cls:
-        logger.error(f"Provider not found: {provider_name}")
-        raise ProviderNotSupportedError(provider_name)
-
-    # Get provider configuration from settings
-    provider_config = get_provider_config(provider_name.lower())
-
-    # Merge configurations with kwargs taking precedence
-    merged_config = {**provider_config, **kwargs}
-
-    # Set model name if provided
-    if model_name:
-        merged_config["model_name"] = model_name
-
-    # Create and return provider instance
-    try:
-        # Special case for Ollama - we need to ensure model_name is provided
-        if provider_name.lower() == "ollama" and provider_cls.__name__ == "OllamaProvider":
-            provider_model = (
-                model_name
-                or merged_config.get("model_name")
-                or get_config("llm.ollama.model", "llama3.2")
-            )
-            merged_config["model_name"] = provider_model
-            logger.debug(f"Creating Ollama provider with model: {provider_model}")
-
-        provider = provider_cls(**merged_config)
-        logger.debug(f"Created provider: {provider_name} with model: {provider.model_name}")
-        return provider
-    except Exception as e:
-        logger.error(f"Failed to create provider {provider_name}: {e}")
-        raise
+    provider_lower = provider_name.lower()
+    
+    if provider_lower == "ollama":
+        from enterprise_ai.llm.ollama import OllamaProvider
+        return OllamaProvider(model_name=model_name, **kwargs)
+    elif provider_lower == "openai":
+        from enterprise_ai.llm.openai import OpenAIProvider
+        return OpenAIProvider(model_name=model_name, **kwargs)
+    else:
+        raise ValueError(f"Unsupported provider: {provider_name}")
 
 
-def get_provider_config(provider_name: str) -> Dict[str, Any]:
+def list_available_providers() -> Dict[str, str]:
     """
-    Get configuration for a provider from settings.
-
-    Args:
-        provider_name: Provider name
+    List available LLM providers.
 
     Returns:
-        Provider configuration dictionary
+        Dictionary mapping provider names to descriptions
     """
-    # Get provider config from settings
-    config = get_config(f"llm.providers.{provider_name}", {})
-
-    # If no specific config, try general llm config
-    if not config:
-        config = get_config("llm", {})
-
-    return dict(config)
-
-
-def get_default_provider_name() -> str:
-    """
-    Get the default provider name from configuration.
-
-    Returns:
-        Default provider name
-    """
-    name = get_config("llm.default_provider", "ollama")
-    return str(name).lower()
-
-
-def get_default_provider(**kwargs: Any) -> LLMProvider:
-    """
-    Get the default provider instance.
-
-    Args:
-        **kwargs: Additional provider-specific parameters
-
-    Returns:
-        Default provider instance
-    """
-    provider_name = get_default_provider_name()
-    return create_provider(provider_name, **kwargs)
-
-
-def list_available_providers() -> List[str]:
-    """
-    Get list of available provider names.
-
-    Returns:
-        List of registered provider names
-    """
-    return list(get_registry().list_providers().keys())
+    return {
+        "ollama": "Local Ollama inference server",
+        "openai": "OpenAI GPT models with Azure and AWS support",
+    }

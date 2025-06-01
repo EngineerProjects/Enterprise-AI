@@ -1,39 +1,27 @@
 """
-Base LLM provider implementation with improved resource management.
+Minimal base LLM provider interface with enhanced tool support.
 
-This module defines the base class for all LLM providers and provides a common interface
-for interacting with language models. It includes methods for generating completions,
-streaming completions, and tool calling, along with metrics tracking and model information retrieval.
+This module defines the essential interface that all LLM providers must implement.
+Only includes methods that are truly universal across all providers.
 """
 
 import abc
 import time
-import asyncio
-import weakref
-from typing import Any, Dict, List, Optional, Set, Union, AsyncGenerator
+from typing import Any, Dict, List, Optional, Set, Union, Iterator, AsyncIterator
 
-from enterprise_ai.constants import (
-    DEFAULT_TEMPERATURE,
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_TOP_P,
-    ModelFeature,
-)
 from enterprise_ai.logger import get_logger
-from enterprise_ai.schema import Message, ModelInfo
-from enterprise_ai.schema.tool import TOOL_CHOICE_TYPE, ToolChoice
+from enterprise_ai.schema import ModelInfo
 from enterprise_ai.types import MessageProtocol
 
 logger = get_logger("llm.base")
 
-# Global registry for cleanup
-_active_providers = weakref.WeakSet()
-
 
 class LLMProvider(abc.ABC):
     """
-    Base class for LLM providers with improved resource management.
-
-    This class defines the interface that all LLM providers must implement.
+    Minimal base class for LLM providers with enhanced functionality.
+    
+    Only includes methods that ALL providers must have.
+    Provider-specific features should be in the concrete implementations.
     """
 
     def __init__(self, model_name: str, **kwargs: Any):
@@ -42,25 +30,19 @@ class LLMProvider(abc.ABC):
 
         Args:
             model_name: Name of the model to use
-            **kwargs: Additional provider-specific parameters
+            **kwargs: Provider-specific parameters
         """
         self.model_name = model_name
         self.config = kwargs
-
-        # Store start time for metrics
+        
+        # Metrics tracking
         self._start_time = time.time()
         self._request_count = 0
         self._success_count = 0
         self._error_count = 0
-
-        # Initialize model info
+        
+        # Cache for model info
         self._model_info = None
-        
-        # Track if provider is closed
-        self._closed = False
-        
-        # Add to global registry for cleanup
-        _active_providers.add(self)
 
     def get_model_name(self) -> str:
         """Get the model name."""
@@ -73,7 +55,7 @@ class LLMProvider(abc.ABC):
 
         Args:
             messages: List of messages
-            **kwargs: Additional parameters for the completion
+            **kwargs: Additional parameters
 
         Returns:
             Generated message
@@ -83,103 +65,83 @@ class LLMProvider(abc.ABC):
     @abc.abstractmethod
     async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
         """
-        Generate a completion asynchronously for the given messages.
+        Generate a completion asynchronously.
 
         Args:
-            messages: List of messages
-            **kwargs: Additional parameters for the completion
+            messages: List of messages  
+            **kwargs: Additional parameters
 
         Returns:
             Generated message
         """
         pass
 
-    def complete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> Any:
+    def complete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> Iterator[MessageProtocol]:
         """
-        Generate a streaming completion for the given messages.
+        Generate a streaming completion (optional implementation).
 
         Args:
             messages: List of messages
-            **kwargs: Additional parameters for the completion
+            **kwargs: Additional parameters
 
         Returns:
-            Generator yielding completion chunks
+            Iterator of partial messages
         """
-        # Default implementation: providers should override if they support streaming
-        raise NotImplementedError("Streaming not supported by this provider")
+        # Default implementation calls complete once
+        result = self.complete(messages, **kwargs)
+        yield result
 
-    async def acomplete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> AsyncGenerator[Any, None]:
+    async def acomplete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> AsyncIterator[MessageProtocol]:
         """
-        Generate an async streaming completion for the given messages.
+        Generate an async streaming completion (optional implementation).
 
         Args:
             messages: List of messages
-            **kwargs: Additional parameters for the completion
+            **kwargs: Additional parameters
 
         Returns:
-            Async generator yielding completion chunks
+            Async iterator of partial messages
         """
-        # Default implementation: providers should override if they support streaming
-        raise NotImplementedError("Async streaming not supported by this provider")
-
-    @abc.abstractmethod
-    async def ask_tool(
-        self,
-        messages: List[MessageProtocol],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        tool_choice: TOOL_CHOICE_TYPE = ToolChoice.AUTO,
-        timeout: int = 300,
-        temperature: Optional[float] = None,
-        max_tokens: Optional[int] = None,
-        **kwargs: Any,
-    ) -> Optional[Any]:
-        """
-        Ask LLM using functions/tools and return the response.
-
-        Args:
-            messages: List of conversation messages
-            tools: List of tools/functions available to the model
-            tool_choice: Tool choice strategy
-            timeout: Request timeout in seconds
-            temperature: Sampling temperature for the response
-            max_tokens: Maximum tokens to generate
-            **kwargs: Additional completion arguments
-
-        Returns:
-            Provider-specific response object, or None if failed
-        """
-        pass
+        # Default implementation calls acomplete once
+        result = await self.acomplete(messages, **kwargs)
+        yield result
 
     @abc.abstractmethod
     def get_model_info(self) -> ModelInfo:
         """
-        Get information about the model.
+        Get basic model information.
 
         Returns:
-            ModelInfo object with capabilities and limitations
+            ModelInfo with capabilities and limits
         """
         pass
 
-    def get_model_features(self) -> Set[str]:
-        """
-        Get the set of features supported by the model.
-
-        Returns:
-            Set of feature strings
-        """
-        return self.get_model_info().features
-
     def supports_feature(self, feature: str) -> bool:
         """
-        Check if the model supports a specific feature.
+        Check if model supports a feature.
 
         Args:
-            feature: Feature to check
+            feature: Feature to check (streaming, vision, etc.)
 
         Returns:
             True if supported, False otherwise
         """
-        return feature in self.get_model_features()
+        try:
+            return feature in self.get_model_info().features
+        except Exception:
+            return False
+
+    def get_context_window(self) -> Optional[int]:
+        """
+        Get context window size if available.
+
+        Returns:
+            Context window size or None if unknown
+        """
+        try:
+            return self.get_model_info().context_window
+        except Exception:
+            return None
 
     def track_request(self, success: bool) -> None:
         """
@@ -210,81 +172,4 @@ class LLMProvider(abc.ABC):
             "success_count": self._success_count,
             "error_count": self._error_count,
             "success_rate": self._success_count / max(1, self._request_count),
-            "closed": self._closed,
         }
-
-    def is_closed(self) -> bool:
-        """Check if the provider has been closed."""
-        return self._closed
-
-    def close(self) -> None:
-        """
-        Close and cleanup provider resources.
-        Providers should override this if they need cleanup.
-        """
-        if not self._closed:
-            self._closed = True
-            logger.debug(f"Closed {self.__class__.__name__} provider")
-
-    async def aclose(self) -> None:
-        """
-        Async close and cleanup provider resources.
-        Providers should override this if they need async cleanup.
-        """
-        if not self._closed:
-            self._closed = True
-            logger.debug(f"Async closed {self.__class__.__name__} provider")
-
-    def __enter__(self):
-        """Context manager entry."""
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit."""
-        self.close()
-
-    async def __aenter__(self):
-        """Async context manager entry."""
-        return self
-
-    async def __aexit__(self, exc_type, exc_val, exc_tb):
-        """Async context manager exit."""
-        await self.aclose()
-
-
-def cleanup_all_providers() -> None:
-    """
-    Clean up all active providers.
-    
-    This function is useful for testing or when shutting down the application.
-    """
-    active_count = 0
-    for provider in list(_active_providers):
-        if not provider.is_closed():
-            try:
-                provider.close()
-                active_count += 1
-            except Exception as e:
-                logger.warning(f"Error closing provider {provider}: {e}")
-    
-    if active_count > 0:
-        logger.info(f"Cleaned up {active_count} active providers")
-
-
-async def acleanup_all_providers() -> None:
-    """
-    Async clean up all active providers.
-    
-    This function is useful for testing or when shutting down the application.
-    """
-    active_count = 0
-    for provider in list(_active_providers):
-        if not provider.is_closed():
-            try:
-                await provider.aclose()
-                active_count += 1
-            except Exception as e:
-                logger.warning(f"Error async closing provider {provider}: {e}")
-    
-    if active_count > 0:
-        logger.info(f"Async cleaned up {active_count} active providers")
