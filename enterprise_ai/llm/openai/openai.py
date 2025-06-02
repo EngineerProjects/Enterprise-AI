@@ -1,8 +1,8 @@
 """
-OpenAI provider implementation with auto tool execution.
+OpenAI provider implementation with enhanced tool execution control.
 
 This implementation uses the OpenAI Python SDK and follows patterns from OpenManus
-while integrating with Enterprise AI schema classes and architecture.
+while integrating with Enterprise AI schema classes and enhanced execution control.
 """
 
 import asyncio
@@ -36,10 +36,11 @@ from enterprise_ai.constants import (
 )
 from enterprise_ai.exceptions import APIError as EnterpriseAPIError, TokenLimitExceeded
 from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.llm.tool_executor import ToolExecutor  # Reuse executor
+from enterprise_ai.llm.tool_executor import ToolExecutor
 from enterprise_ai.logger import get_logger
-from enterprise_ai.schema import Message, ModelInfo, LLMResponse, ProviderInfo, ToolCall
+from enterprise_ai.schema import Message, ModelInfo, LLMResponse, ProviderInfo, ToolCall, ToolResult
 from enterprise_ai.types import MessageProtocol
+from enterprise_ai.tool.core.base import ExecutionMode
 
 from enterprise_ai.llm.openai.tools import OpenAIToolConverter
 from enterprise_ai.llm.openai.helpers import (
@@ -54,7 +55,7 @@ logger = get_logger("llm.openai")
 
 
 class OpenAIProvider(LLMProvider):
-    """OpenAI LLM provider with comprehensive features and auto tool execution."""
+    """OpenAI LLM provider with enhanced tool execution control."""
 
     def __init__(
         self,
@@ -68,16 +69,18 @@ class OpenAIProvider(LLMProvider):
         top_p: Optional[float] = None,
         timeout: Optional[float] = None,
         max_input_tokens: Optional[int] = None,
-        # Auto tool execution parameters
-        tool_execute: str = "manual",  # "auto", "manual", "disabled"
-        tool_executor: Optional[ToolExecutor] = None,
+        # Enhanced execution parameters (inherited from base)
+        execution_mode: ExecutionMode = ExecutionMode.AUTO,
+        approval_callback: Optional[Callable] = None,
+        verbose: bool = False,
         max_tool_iterations: int = 5,
         tool_execution_timeout: float = 30.0,
         allowed_tools: Optional[Set[str]] = None,
         forbidden_tools: Optional[Set[str]] = None,
+        hybrid_danger_threshold: int = 2,
         **kwargs: Any,
     ):
-        """Initialize the OpenAI provider with enhanced capabilities."""
+        """Initialize the OpenAI provider with enhanced execution control."""
         # Configuration
         self.model_name = model_name or get_config("llm.openai.model", "gpt-4o-mini")
         self.api_type = api_type
@@ -87,9 +90,17 @@ class OpenAIProvider(LLMProvider):
         self._timeout = timeout or DEFAULT_TIMEOUT
         self.max_input_tokens = max_input_tokens
 
-        # Initialize base class
+        # Initialize base class with enhanced parameters
         super().__init__(
             model_name=self.model_name,
+            execution_mode=execution_mode,
+            approval_callback=approval_callback,
+            verbose=verbose,
+            max_tool_iterations=max_tool_iterations,
+            tool_execution_timeout=tool_execution_timeout,
+            allowed_tools=allowed_tools,
+            forbidden_tools=forbidden_tools,
+            hybrid_danger_threshold=hybrid_danger_threshold,
             api_key=self.api_key,
             api_type=api_type,
             base_url=self.base_url,
@@ -117,24 +128,22 @@ class OpenAIProvider(LLMProvider):
         
         self.token_counter = TokenCounter(self.tokenizer)
 
-        # Auto tool execution setup
-        self.tool_execute = tool_execute
-        self.max_tool_iterations = max_tool_iterations
-        
-        if tool_execute == "auto":
-            self._tool_executor = tool_executor or ToolExecutor(
-                max_iterations=max_tool_iterations,
-                execution_timeout=tool_execution_timeout,
-                allowed_tools=allowed_tools,
-                forbidden_tools=forbidden_tools
-            )
-        else:
-            self._tool_executor = None
+        # Enhanced tool execution setup
+        self._tool_executor = ToolExecutor(
+            max_iterations=max_tool_iterations,
+            execution_timeout=tool_execution_timeout,
+            allowed_tools=allowed_tools,
+            forbidden_tools=forbidden_tools,
+            execution_mode=execution_mode,
+            approval_callback=approval_callback,
+            verbose=verbose,
+            hybrid_danger_threshold=hybrid_danger_threshold,
+        )
 
         # Initialize OpenAI client
         self._client = self._create_client()
 
-        logger.info(f"Initialized OpenAI provider: {self.model_name} | API: {api_type} | Tool execution: {tool_execute}")
+        logger.info(f"Initialized OpenAI provider: {self.model_name} | API: {api_type} | Execution mode: {execution_mode}")
 
     def _create_client(self):
         """Create the appropriate OpenAI client based on API type."""
@@ -153,67 +162,74 @@ class OpenAIProvider(LLMProvider):
                 base_url=self.base_url
             )
 
-    # Tool Registration Methods
+    # Tool Registration Methods (enhanced)
     def register_tool(self, name: str, func: Callable) -> None:
-        """Register a tool for auto execution."""
-        if self._tool_executor:
-            self._tool_executor.register_tool(name, func)
-            logger.debug(f"Registered tool: {name}")
-        else:
-            logger.warning("Tool executor not initialized. Set tool_execute='auto' to enable.")
+        """Register a tool for execution."""
+        self._tool_executor.register_tool(name, func)
+        if self.verbose:
+            logger.info(f"Registered tool: {name}")
 
     def register_tools(self, tools: Dict[str, Callable]) -> None:
-        """Register multiple tools for auto execution."""
-        if self._tool_executor:
-            self._tool_executor.register_tools(tools)
-            logger.debug(f"Registered {len(tools)} tools")
-        else:
-            logger.warning("Tool executor not initialized. Set tool_execute='auto' to enable.")
+        """Register multiple tools for execution."""
+        self._tool_executor.register_tools(tools)
+        if self.verbose:
+            logger.info(f"Registered {len(tools)} tools")
 
-    # Token Management Methods
-    def count_tokens(self, text: str) -> int:
-        """Calculate the number of tokens in a text."""
-        return self.token_counter.count_text(text)
-
-    def count_message_tokens(self, messages: List[Dict]) -> int:
-        """Count tokens in messages."""
-        return self.token_counter.count_message_tokens(messages)
-
-    def update_token_count(self, input_tokens: int, completion_tokens: int = 0) -> None:
-        """Update token counts."""
-        self.total_input_tokens += input_tokens
-        self.total_completion_tokens += completion_tokens
-        logger.info(
-            f"Token usage: Input={input_tokens}, Completion={completion_tokens}, "
-            f"Cumulative Total={self.total_input_tokens + self.total_completion_tokens}"
-        )
-
-    def check_token_limit(self, input_tokens: int) -> bool:
-        """Check if token limits are exceeded."""
-        if self.max_input_tokens is not None:
-            return (self.total_input_tokens + input_tokens) <= self.max_input_tokens
-        return True
-
-    def get_limit_error_message(self, input_tokens: int) -> str:
-        """Generate error message for token limit exceeded."""
-        if self.max_input_tokens is not None:
-            return f"Token limit exceeded (Current: {self.total_input_tokens}, Needed: {input_tokens}, Max: {self.max_input_tokens})"
-        return "Token limit exceeded"
-
-    # Main Completion Methods
+    # Enhanced completion methods
     def complete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Generate completion with optional auto tool execution."""
-        # Run async method in sync context
+        """Generate completion with execution mode support."""
         return asyncio.run(self.acomplete(messages, **kwargs))
 
     async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Generate async completion with optional auto tool execution."""
-        if self.tool_execute == "auto" and self._tool_executor:
+        """Generate async completion with execution mode support."""
+        if self.execution_mode == ExecutionMode.AUTO:
             return await self._acomplete_with_auto_tools(messages, **kwargs)
-        else:
+        elif self.execution_mode == ExecutionMode.DISABLED:
             return await self._acomplete_standard(messages, **kwargs)
+        else:  # MANUAL or HYBRID
+            # For manual/hybrid modes, we can still auto-execute if no approval callback
+            if self.approval_callback:
+                return await self._acomplete_with_controlled_tools(messages, **kwargs)
+            else:
+                return await self._acomplete_with_auto_tools(messages, **kwargs)
 
-    # Standard Completion Methods (without auto tool execution)
+    # Enhanced tool execution methods
+    def complete_with_tool_calls(
+        self, 
+        messages: List[MessageProtocol],
+        **kwargs: Any
+    ) -> tuple[MessageProtocol, List[ToolCall]]:
+        """Generate completion and extract tool calls without executing them."""
+        return asyncio.run(self.acomplete_with_tool_calls(messages, **kwargs))
+
+    async def acomplete_with_tool_calls(
+        self, 
+        messages: List[MessageProtocol],
+        **kwargs: Any
+    ) -> tuple[MessageProtocol, List[ToolCall]]:
+        """Generate completion and extract tool calls without executing them (async)."""
+        # Get response without executing tools
+        response = await self._acomplete_standard(messages, **kwargs)
+        tool_calls = self._extract_tool_calls_from_response(response)
+        return response, tool_calls
+
+    def execute_tool_calls(
+        self, 
+        tool_calls: List[ToolCall],
+        context: Optional[Dict[str, Any]] = None
+    ) -> List[ToolResult]:
+        """Execute tool calls manually with current execution settings."""
+        return self._tool_executor.execute_tool_calls(tool_calls, context)
+
+    async def aexecute_tool_calls(
+        self, 
+        tool_calls: List[ToolCall],
+        context: Optional[Dict[str, Any]] = None
+    ) -> List[ToolResult]:
+        """Execute tool calls manually with current execution settings (async)."""
+        return await self._tool_executor.aexecute_tool_calls(tool_calls, context)
+
+    # Standard completion (no auto tool execution)
     async def _acomplete_standard(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
         """Standard async completion without auto tool execution."""
         try:
@@ -241,6 +257,9 @@ class OpenAIProvider(LLMProvider):
                 **kwargs
             )
 
+            if self.verbose:
+                logger.info(f"Making OpenAI API call with {len(formatted_messages)} messages")
+
             # Execute request
             response = await self._execute_completion_request(params)
             
@@ -251,7 +270,7 @@ class OpenAIProvider(LLMProvider):
             self.track_request(False)
             raise self._error_handler.handle_error(e)
 
-    # Auto Tool Execution Methods
+    # Auto tool execution (existing behavior)
     async def _acomplete_with_auto_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
         """Async complete with automatic tool execution loop."""
         conversation = list(messages)
@@ -263,15 +282,17 @@ class OpenAIProvider(LLMProvider):
             
             # Check if model made tool calls
             if not self._has_tool_calls(response):
-                logger.debug(f"No tool calls found, returning response (iteration {iteration + 1})")
+                if self.verbose:
+                    logger.info(f"No tool calls found, returning response (iteration {iteration + 1})")
                 return response
             
             tool_calls_data = response.metadata["tool_calls"]
             tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
             
-            logger.info(f"Auto-executing {len(tool_calls)} tool calls async (iteration {iteration + 1})")
+            if self.verbose:
+                logger.info(f"Auto-executing {len(tool_calls)} tool calls (iteration {iteration + 1})")
             
-            # Execute tools asynchronously
+            # Execute tools with current executor settings
             tool_results = await self._tool_executor.aexecute_tool_calls(tool_calls)
             
             # Update conversation
@@ -281,7 +302,42 @@ class OpenAIProvider(LLMProvider):
             
             iteration += 1
         
-        logger.warning(f"Reached maximum async tool iterations ({self.max_tool_iterations})")
+        logger.warning(f"Reached maximum tool iterations ({self.max_tool_iterations})")
+        return response
+
+    # Controlled tool execution (manual/hybrid with approval)
+    async def _acomplete_with_controlled_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
+        """Async complete with controlled tool execution based on execution mode."""
+        conversation = list(messages)
+        iteration = 0
+        
+        while iteration < self.max_tool_iterations:
+            # Get response from model
+            response = await self._acomplete_standard(conversation, **kwargs)
+            
+            # Check if model made tool calls
+            if not self._has_tool_calls(response):
+                if self.verbose:
+                    logger.info(f"No tool calls found, returning response (iteration {iteration + 1})")
+                return response
+            
+            tool_calls_data = response.metadata["tool_calls"]
+            tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
+            
+            if self.verbose:
+                logger.info(f"Processing {len(tool_calls)} tool calls with {self.execution_mode} mode (iteration {iteration + 1})")
+            
+            # Execute tools with approval control
+            tool_results = await self._tool_executor.aexecute_tool_calls(tool_calls)
+            
+            # Update conversation
+            conversation.append(response)
+            tool_messages = self._tool_executor.create_tool_messages(tool_results)
+            conversation.extend(tool_messages)
+            
+            iteration += 1
+        
+        logger.warning(f"Reached maximum tool iterations ({self.max_tool_iterations})")
         return response
 
     def _has_tool_calls(self, response: MessageProtocol) -> bool:
@@ -293,7 +349,38 @@ class OpenAIProvider(LLMProvider):
             response.metadata["tool_calls"]
         )
 
-    # HTTP Request Execution Methods
+    # Token Management Methods (unchanged)
+    def count_tokens(self, text: str) -> int:
+        """Calculate the number of tokens in a text."""
+        return self.token_counter.count_text(text)
+
+    def count_message_tokens(self, messages: List[Dict]) -> int:
+        """Count tokens in messages."""
+        return self.token_counter.count_message_tokens(messages)
+
+    def update_token_count(self, input_tokens: int, completion_tokens: int = 0) -> None:
+        """Update token counts."""
+        self.total_input_tokens += input_tokens
+        self.total_completion_tokens += completion_tokens
+        if self.verbose:
+            logger.info(
+                f"Token usage: Input={input_tokens}, Completion={completion_tokens}, "
+                f"Cumulative Total={self.total_input_tokens + self.total_completion_tokens}"
+            )
+
+    def check_token_limit(self, input_tokens: int) -> bool:
+        """Check if token limits are exceeded."""
+        if self.max_input_tokens is not None:
+            return (self.total_input_tokens + input_tokens) <= self.max_input_tokens
+        return True
+
+    def get_limit_error_message(self, input_tokens: int) -> str:
+        """Generate error message for token limit exceeded."""
+        if self.max_input_tokens is not None:
+            return f"Token limit exceeded (Current: {self.total_input_tokens}, Needed: {input_tokens}, Max: {self.max_input_tokens})"
+        return "Token limit exceeded"
+
+    # HTTP Request Execution Methods (unchanged)
     @retry(
         wait=wait_random_exponential(min=1, max=60),
         stop=stop_after_attempt(6),
@@ -368,7 +455,7 @@ class OpenAIProvider(LLMProvider):
             metadata=metadata
         ))
 
-    # Streaming Methods
+    # Streaming Methods (unchanged, but could be enhanced similarly)
     def complete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> Iterator[MessageProtocol]:
         """Generate a streaming completion."""
         # Run async stream in sync context
@@ -462,7 +549,7 @@ class OpenAIProvider(LLMProvider):
         except Exception as e:
             raise self._error_handler.handle_error(e)
 
-    # Model Information Methods
+    # Model Information Methods (unchanged)
     def get_model_info(self) -> ModelInfo:
         """Get model information."""
         # Determine features based on model
@@ -493,6 +580,7 @@ class OpenAIProvider(LLMProvider):
                 "api_type": self.api_type,
                 "supports_vision": self.model_name in MULTIMODAL_MODELS,
                 "supports_reasoning": self.model_name in REASONING_MODELS,
+                "execution_mode": self.execution_mode,
             }
         )
 
@@ -519,39 +607,39 @@ class OpenAIProvider(LLMProvider):
         """Get provider information."""
         return ProviderInfo(
             name="openai",
-            description=f"OpenAI GPT models via {self.api_type} API with auto tool execution",
+            description=f"OpenAI GPT models via {self.api_type} API with enhanced execution control",
             base_url=self.base_url,
             supported_models=[self.model_name],
             features={ModelFeature.STREAMING, ModelFeature.FUNCTION_CALLING, ModelFeature.VISION},
             configuration={
                 "api_type": self.api_type,
                 "model": self.model_name,
-                "tool_execute": self.tool_execute,
+                "execution_mode": self.execution_mode,
                 "max_tool_iterations": self.max_tool_iterations,
+                "verbose": self.verbose,
             },
             is_available=True,
         )
 
-    # Tool Execution Control Methods
-    def enable_auto_tool_execution(self, tools: Optional[Dict[str, Callable]] = None) -> None:
-        """Enable auto tool execution with optional tools."""
-        self.tool_execute = "auto"
-        if not self._tool_executor:
-            self._tool_executor = ToolExecutor()
-        if tools:
-            self._tool_executor.register_tools(tools)
-        logger.info("Auto tool execution enabled")
+    # Enhanced execution control methods
+    def set_execution_mode(self, mode: ExecutionMode) -> None:
+        """Change the execution mode."""
+        super().set_execution_mode(mode)
+        self._tool_executor.set_execution_mode(mode)
 
-    def disable_auto_tool_execution(self) -> None:
-        """Disable auto tool execution."""
-        self.tool_execute = "manual"
-        logger.info("Auto tool execution disabled")
+    def set_approval_callback(self, callback: Optional[Callable]) -> None:
+        """Set or update the approval callback."""
+        super().set_approval_callback(callback)
+        self._tool_executor.set_approval_callback(callback)
+
+    def set_verbose(self, verbose: bool) -> None:
+        """Enable or disable verbose logging."""
+        super().set_verbose(verbose)
+        self._tool_executor.set_verbose(verbose)
 
     def get_tool_execution_stats(self) -> Optional[Dict[str, Any]]:
         """Get tool execution statistics."""
-        if self._tool_executor:
-            return self._tool_executor.get_execution_stats()
-        return None
+        return self._tool_executor.get_execution_stats()
 
     def get_token_stats(self) -> Dict[str, int]:
         """Get token usage statistics."""

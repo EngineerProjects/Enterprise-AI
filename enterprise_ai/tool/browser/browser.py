@@ -13,11 +13,10 @@ from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from enterprise_ai.config import get_config
-from enterprise_ai.llm import complete, CompletionOptions  # Updated import
-from enterprise_ai.schema import Message  # Updated import
+from enterprise_ai.schema import Message
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
-from enterprise_ai.tool.core.result import ToolResult  # Using unified ToolResult
+from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import WebSearch
 
@@ -46,6 +45,24 @@ Please extract the relevant information and format it as JSON with the following
   }}
 }}
 """
+
+
+def _get_llm_completion(messages, **kwargs):
+    """Lazy import and execute LLM completion to avoid circular imports."""
+    try:
+        from enterprise_ai.llm import complete, CompletionOptions
+        
+        return complete(
+            messages=messages,
+            provider_name="ollama",
+            options=CompletionOptions(
+                temperature=kwargs.get('temperature', 0.1),
+                max_tokens=kwargs.get('max_tokens', 2000)
+            )
+        )
+    except ImportError as e:
+        logger.error(f"Failed to import LLM completion: {e}")
+        raise ToolError("LLM completion not available for content extraction")
 
 
 @register_tool(category="browser")
@@ -168,7 +185,7 @@ class BrowserUseTool(BaseTool):
     browser: Optional[BrowserUseBrowser] = Field(default=None, exclude=True)
     context: Optional[BrowserContext] = Field(default=None, exclude=True)
     dom_service: Optional[DomService] = Field(default=None, exclude=True)
-    web_search_tool: Optional[WebSearch] = Field(default=None, exclude=True)
+    web_search_tool: Optional["WebSearch"] = Field(default=None, exclude=True)
 
     def __init__(
         self,
@@ -187,14 +204,13 @@ class BrowserUseTool(BaseTool):
             name=name or model_fields["name"].default,
             description=description or model_fields["description"].default,
             parameters=parameters or model_fields["parameters"].default,
+            config=config or ToolConfig(
+                timeout=60.0, 
+                max_retries=3, 
+                cache_results=False, 
+                sandbox_enabled=True
+            ),
             **kwargs,
-        )
-
-        self.config = config or ToolConfig(
-            timeout=60.0, 
-            max_retries=3, 
-            cache_results=False, 
-            sandbox_enabled=True
         )
         
         # Initialize tool fields
@@ -218,12 +234,7 @@ class BrowserUseTool(BaseTool):
         Initialize the browser and any required resources.
         """
         try:
-            # Initialize web search tool
-            if self.web_search_tool is None:
-                self.web_search_tool = WebSearch()
-                logger.debug("WebSearch tool initialized")
-
-            # Browser will be initialized lazily when needed
+            # Initialize web search tool lazily when needed
             logger.info("BrowserUseTool initialization completed")
             return True
         except Exception as e:
@@ -272,66 +283,61 @@ class BrowserUseTool(BaseTool):
 
         return self.context
 
-    async def _extract_content_with_llm(self, content: str, goal: str) -> Dict[str, Any]:
-        """
-        Extract content using the new LLM system.
-        """
+    async def _get_page_content(self) -> str:
+        """Get current page content."""
+        if not self.context:
+            return ""
+        
+        page = await self.context.get_current_page()
         try:
-            max_content_length = get_config("browser_config.max_content_length", 2000)
+            import markdownify
+            content = markdownify.markdownify(await page.content())
+        except ImportError:
+            # Fallback to plain text if markdownify is not available
+            content = await page.inner_text('body')
+        
+        return content
+
+    async def _extract_content(self, goal: str, max_content_length: int = 4000) -> str:
+        """Extract content from current page using LLM."""
+        try:
+            content = await self._get_page_content()
+            if not content:
+                return "No content could be extracted from the page."
+
             prompt = llm_prompt(goal, content, max_content_length)
-            
-            # Create messages for the LLM
             messages = [Message.user_message(prompt)]
             
-            # Use the new LLM system
-            response = complete(
+            # Use lazy import for LLM functionality
+            response = _get_llm_completion(
                 messages=messages,
-                provider_name="ollama",  # Can be configured
-                options=CompletionOptions(
-                    temperature=0.1,  # Low temperature for factual extraction
-                    max_tokens=2000
-                )
+                temperature=0.1,
+                max_tokens=2000
             )
             
-            # Parse the response
             if hasattr(response, 'content') and response.content:
                 try:
-                    # Try to parse as JSON
                     extracted_data = json.loads(response.content)
-                    return extracted_data
+                    return json.dumps(extracted_data, indent=2)
                 except json.JSONDecodeError:
-                    # If not valid JSON, wrap the content
-                    return {
-                        "extracted_content": {
-                            "text": response.content,
-                            "metadata": {
-                                "source": "Browser content extraction",
-                                "note": "Content was not in expected JSON format"
-                            }
-                        }
-                    }
-            else:
-                return {
-                    "extracted_content": {
-                        "text": "No content could be extracted",
-                        "metadata": {
-                            "source": "Browser content extraction",
-                            "error": "Empty response from LLM"
-                        }
-                    }
-                }
-                
+                    return response.content
+            
+            return "No content extracted."
+            
         except Exception as e:
-            logger.error(f"Error during LLM content extraction: {e}")
-            return {
-                "extracted_content": {
-                    "text": f"Content extraction failed: {str(e)}",
-                    "metadata": {
-                        "source": "Browser content extraction",
-                        "error": str(e)
-                    }
-                }
-            }
+            logger.error(f"Content extraction failed: {e}")
+            return f"Content extraction failed: {str(e)}"
+
+    async def _ensure_web_search_tool(self):
+        """Ensure web search tool is initialized."""
+        if self.web_search_tool is None:
+            try:
+                from enterprise_ai.tool.research.web_search import WebSearch
+                self.web_search_tool = WebSearch()
+                logger.debug("WebSearch tool initialized")
+            except ImportError:
+                logger.error("WebSearch tool not available")
+                raise ToolError("WebSearch tool not available")
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """
@@ -402,8 +408,7 @@ class BrowserUseTool(BaseTool):
                         logger.debug(f"Performing web search for: {query}")
 
                         # Initialize web search tool if not already done
-                        if self.web_search_tool is None:
-                            self.web_search_tool = WebSearch()
+                        await self._ensure_web_search_tool()
 
                         # Execute the web search
                         search_response = await self.web_search_tool.execute(
@@ -411,31 +416,28 @@ class BrowserUseTool(BaseTool):
                         )
 
                         # Navigate to the first search result if available
-                        if hasattr(search_response, "results") and search_response.results:
-                            first_result = search_response.results[0]
-                            url_to_navigate = first_result.url
+                        if hasattr(search_response, "result") and search_response.result:
+                            results = search_response.result.get("results", [])
+                            if results:
+                                first_result = results[0]
+                                url_to_navigate = first_result.get("url")
 
-                            page = await context.get_current_page()
-                            await page.goto(url_to_navigate)
-                            await page.wait_for_load_state()
-                            logger.info(f"Navigated to search result: {url_to_navigate}")
+                                if url_to_navigate:
+                                    page = await context.get_current_page()
+                                    await page.goto(url_to_navigate)
+                                    await page.wait_for_load_state()
+                                    logger.info(f"Navigated to search result: {url_to_navigate}")
 
-                            # Return the search results and navigation info
-                            return ToolResult.create_success(
-                                {
-                                    "search_results": [
+                                    # Return the search results and navigation info
+                                    return ToolResult.create_success(
                                         {
-                                            "title": result.title,
-                                            "url": result.url,
-                                            "snippet": result.snippet
-                                        } for result in search_response.results
-                                    ],
-                                    "navigated_to": url_to_navigate
-                                },
-                                tool_name=self.name
-                            )
-                        else:
-                            return ToolResult.create_error("No search results found", tool_name=self.name)
+                                            "search_results": results,
+                                            "navigated_to": url_to_navigate
+                                        },
+                                        tool_name=self.name
+                                    )
+                        
+                        return ToolResult.create_error("No search results found", tool_name=self.name)
 
                     elif action == "click_element":
                         if index is None:
@@ -554,17 +556,9 @@ class BrowserUseTool(BaseTool):
                             return ToolResult.create_error("Goal is required for 'extract_content' action", tool_name=self.name)
 
                         logger.debug(f"Extracting content with goal: {goal}")
-                        page = await context.get_current_page()
                         
-                        try:
-                            import markdownify
-                            content = markdownify.markdownify(await page.content())
-                        except ImportError:
-                            # Fallback to plain text if markdownify is not available
-                            content = await page.inner_text('body')
-
-                        # Use the new LLM system for content extraction
-                        extracted_data = await self._extract_content_with_llm(content, goal)
+                        # FIXED: Use the correct method name
+                        extracted_data = await self._extract_content(goal, max_content_length=4000)
                         
                         logger.info("Content extraction successful")
                         return ToolResult.create_success(extracted_data, tool_name=self.name)

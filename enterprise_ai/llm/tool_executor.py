@@ -1,8 +1,8 @@
 """
-Auto tool execution for Ollama provider.
+Enhanced tool execution for Enterprise AI with approval mechanisms and verbose logging.
 
 This module handles automatic execution of tool calls made by the model,
-enabling autonomous reasoning and action loops.
+enabling autonomous reasoning and action loops with human oversight capabilities.
 """
 
 import asyncio
@@ -14,15 +14,17 @@ from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import ToolCall, ToolResult, Message
 from enterprise_ai.types import MessageProtocol
+from enterprise_ai.tool.core.base import ExecutionMode, ToolCapability
 
-logger = get_logger("llm.ollama.executor")
+logger = get_logger("llm.tool_executor")
 
 
 class ToolExecutor:
     """
-    Handles automatic execution of tool calls for autonomous reasoning.
+    Enhanced tool executor with approval mechanisms and verbose logging.
     
-    Supports both sync and async tool execution with comprehensive error handling.
+    Supports both sync and async tool execution with comprehensive error handling,
+    human approval workflows, and detailed execution logging.
     """
 
     def __init__(
@@ -31,10 +33,15 @@ class ToolExecutor:
         max_iterations: int = 5,
         execution_timeout: float = 30.0,
         allowed_tools: Optional[Set[str]] = None,
-        forbidden_tools: Optional[Set[str]] = None
+        forbidden_tools: Optional[Set[str]] = None,
+        # Enhanced options
+        execution_mode: ExecutionMode = ExecutionMode.AUTO,
+        approval_callback: Optional[Callable[[ToolCall, str], bool]] = None,
+        verbose: bool = False,
+        hybrid_danger_threshold: int = 2,
     ):
         """
-        Initialize the tool executor.
+        Initialize the tool executor with enhanced capabilities.
         
         Args:
             tools: Dictionary mapping tool names to callable functions
@@ -42,6 +49,10 @@ class ToolExecutor:
             execution_timeout: Timeout for individual tool execution
             allowed_tools: Set of allowed tool names (None = all allowed)
             forbidden_tools: Set of forbidden tool names
+            execution_mode: Default execution mode for tools
+            approval_callback: Function to call for human approval
+            verbose: Whether to log detailed execution information
+            hybrid_danger_threshold: Danger level threshold for hybrid mode
         """
         self.tools = tools or {}
         self.max_iterations = max_iterations
@@ -49,22 +60,36 @@ class ToolExecutor:
         self.allowed_tools = allowed_tools
         self.forbidden_tools = forbidden_tools or set()
         
+        # Enhanced execution control
+        self.execution_mode = execution_mode
+        self.approval_callback = approval_callback
+        self.verbose = verbose
+        self.hybrid_danger_threshold = hybrid_danger_threshold
+        
         # Execution tracking
         self._execution_count = 0
         self._total_execution_time = 0.0
         self._failed_executions = 0
+        self._approved_executions = 0
+        self._denied_executions = 0
         
-        logger.info(f"Initialized tool executor with {len(self.tools)} tools")
+        logger.info(f"Initialized tool executor with {len(self.tools)} tools | Mode: {execution_mode} | Verbose: {verbose}")
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool function for execution."""
         self.tools[name] = func
-        logger.debug(f"Registered tool: {name}")
+        if self.verbose:
+            logger.info(f"Registered tool: {name}")
+        else:
+            logger.debug(f"Registered tool: {name}")
 
     def register_tools(self, tools: Dict[str, Callable]) -> None:
         """Register multiple tools at once."""
         self.tools.update(tools)
-        logger.debug(f"Registered {len(tools)} tools")
+        if self.verbose:
+            logger.info(f"Registered {len(tools)} tools: {list(tools.keys())}")
+        else:
+            logger.debug(f"Registered {len(tools)} tools")
 
     def can_execute_tool(self, tool_name: str) -> bool:
         """Check if a tool can be executed based on policies."""
@@ -81,6 +106,109 @@ class ToolExecutor:
             return False
         
         return True
+
+    def _should_request_approval(self, tool_call: ToolCall) -> bool:
+        """Determine if approval should be requested for a tool call."""
+        tool_name = tool_call.function.name
+        
+        # Check if we have the tool object for more detailed analysis
+        if hasattr(self.tools.get(tool_name), 'config'):
+            tool = self.tools[tool_name]
+            tool_config = getattr(tool, 'config', None)
+            if tool_config:
+                return tool_config.should_require_approval(self.hybrid_danger_threshold)
+        
+        # Fallback based on execution mode
+        if self.execution_mode == ExecutionMode.MANUAL:
+            return True
+        elif self.execution_mode == ExecutionMode.AUTO:
+            return False
+        elif self.execution_mode == ExecutionMode.HYBRID:
+            # Simple heuristic for dangerous tools if no tool config available
+            dangerous_tools = {'python_execute', 'bash_execute', 'file_write', 'terminal_access'}
+            return tool_name in dangerous_tools
+        else:  # DISABLED
+            return False
+
+    def _request_approval(self, tool_call: ToolCall) -> bool:
+        """Request human approval for tool execution with enhanced UI."""
+        if not self.approval_callback:
+            logger.warning(f"No approval callback set, defaulting to deny for {tool_call.function.name}")
+            return False
+        
+        # Terminal colors for approval UI
+        class Colors:
+            RESET = '\033[0m'
+            BOLD = '\033[1m'
+            RED = '\033[91m'
+            GREEN = '\033[92m'
+            YELLOW = '\033[93m'
+            BLUE = '\033[94m'
+            MAGENTA = '\033[95m'
+            CYAN = '\033[96m'
+            WHITE = '\033[97m'
+            BG_YELLOW = '\033[43m'
+            BG_RED = '\033[41m'
+        
+        try:
+            # Get approval message
+            approval_message = self._get_approval_message(tool_call)
+            
+            if self.verbose:
+                print(f"\n{Colors.BG_YELLOW}{Colors.BLACK} ⚠️  APPROVAL REQUIRED ⚠️ {Colors.RESET}")
+                print(f"{Colors.YELLOW}{'─'*60}{Colors.RESET}")
+                print(f"{Colors.BOLD}{Colors.YELLOW}Tool:{Colors.RESET} {Colors.WHITE}{tool_call.function.name}{Colors.RESET}")
+                print(f"{Colors.BOLD}{Colors.YELLOW}Arguments:{Colors.RESET}")
+                
+                args = tool_call.get_arguments()
+                for key, value in args.items():
+                    print(f"  {Colors.CYAN}{key}:{Colors.RESET} {Colors.WHITE}{str(value)[:100]}{Colors.RESET}")
+                
+                print(f"{Colors.YELLOW}{'─'*60}{Colors.RESET}")
+            
+            approved = self.approval_callback(tool_call, approval_message)
+            
+            if approved:
+                self._approved_executions += 1
+                if self.verbose:
+                    print(f"{Colors.GREEN}✅ APPROVED{Colors.RESET} - Tool execution will proceed")
+            else:
+                self._denied_executions += 1
+                if self.verbose:
+                    print(f"{Colors.RED}❌ DENIED{Colors.RESET} - Tool execution cancelled")
+            
+            return approved
+            
+        except Exception as e:
+            logger.error(f"Error in approval callback: {e}")
+            if self.verbose:
+                print(f"{Colors.RED}❌ APPROVAL ERROR{Colors.RESET} - Defaulting to deny: {str(e)}")
+            return False
+
+    def _get_approval_message(self, tool_call: ToolCall) -> str:
+        """Generate approval message for a tool call."""
+        tool_name = tool_call.function.name
+        args = tool_call.get_arguments()
+        
+        # Try to get detailed message from tool if available
+        if hasattr(self.tools.get(tool_name), 'get_approval_message'):
+            tool = self.tools[tool_name]
+            try:
+                return tool.get_approval_message()
+            except Exception:
+                pass
+        
+        # Fallback to basic message
+        args_preview = json.dumps(args, indent=2)[:200]
+        if len(json.dumps(args, indent=2)) > 200:
+            args_preview += "..."
+        
+        return (
+            f"Tool Call Request:\n"
+            f"Name: {tool_name}\n"
+            f"Arguments: {args_preview}\n"
+            f"Approve execution?"
+        )
 
     def execute_tool_calls(
         self, 
@@ -99,7 +227,13 @@ class ToolExecutor:
         """
         results = []
         
-        for tool_call in tool_calls:
+        if self.verbose:
+            logger.info(f"Executing {len(tool_calls)} tool calls in sync mode")
+        
+        for i, tool_call in enumerate(tool_calls):
+            if self.verbose:
+                logger.info(f"Processing tool call {i+1}/{len(tool_calls)}: {tool_call.function.name}")
+            
             result = self._execute_single_tool(tool_call, context)
             results.append(result)
         
@@ -120,9 +254,15 @@ class ToolExecutor:
         Returns:
             List of tool execution results
         """
+        if self.verbose:
+            logger.info(f"Executing {len(tool_calls)} tool calls in async mode")
+        
         tasks = []
         
-        for tool_call in tool_calls:
+        for i, tool_call in enumerate(tool_calls):
+            if self.verbose:
+                logger.info(f"Queuing tool call {i+1}/{len(tool_calls)}: {tool_call.function.name}")
+            
             task = self._aexecute_single_tool(tool_call, context)
             tasks.append(task)
         
@@ -150,19 +290,115 @@ class ToolExecutor:
         tool_call: ToolCall, 
         context: Optional[Dict[str, Any]] = None
     ) -> ToolResult:
-        """Execute a single tool call with comprehensive error handling."""
+        """Execute a single tool call with comprehensive error handling and enhanced verbose logging."""
         start_time = time.time()
         tool_name = tool_call.function.name
+        
+        # Terminal colors
+        class Colors:
+            RESET = '\033[0m'
+            BOLD = '\033[1m'
+            DIM = '\033[2m'
+            
+            # Standard colors
+            RED = '\033[91m'
+            GREEN = '\033[92m'
+            YELLOW = '\033[93m'
+            BLUE = '\033[94m'
+            MAGENTA = '\033[95m'
+            CYAN = '\033[96m'
+            WHITE = '\033[97m'
+            
+            # Background colors
+            BG_RED = '\033[41m'
+            BG_GREEN = '\033[42m'
+            BG_YELLOW = '\033[43m'
+            BG_BLUE = '\033[44m'
+            
+            # Emojis for visual appeal
+            ROBOT = '🤖'
+            TOOL = '🔧'
+            GEAR = '⚙️'
+            CHECK = '✅'
+            CROSS = '❌'
+            WARNING = '⚠️'
+            CLOCK = '⏱️'
+            ROCKET = '🚀'
+            SEARCH = '🔍'
+            FIRE = '🔥'
+            LOCK = '🔒'
+            SHIELD = '🛡️'
+        
+        if self.verbose:
+            print(f"\n{Colors.CYAN}{'='*80}{Colors.RESET}")
+            print(f"{Colors.ROBOT} {Colors.BOLD}{Colors.BLUE}MODEL DECISION:{Colors.RESET} {Colors.YELLOW}Call tool '{tool_name}'{Colors.RESET}")
+            print(f"{Colors.CYAN}{'='*80}{Colors.RESET}")
+            
+            print(f"{Colors.TOOL} {Colors.BOLD}Tool Call Details:{Colors.RESET}")
+            print(f"   {Colors.MAGENTA}Function:{Colors.RESET} {Colors.WHITE}{tool_call.function.name}{Colors.RESET}")
+            print(f"   {Colors.MAGENTA}Call ID:{Colors.RESET} {Colors.DIM}{tool_call.id or 'auto-generated'}{Colors.RESET}")
+            
+            # Pretty print arguments with syntax highlighting
+            args = tool_call.get_arguments()
+            print(f"   {Colors.MAGENTA}Arguments:{Colors.RESET}")
+            
+            if args:
+                args_json = json.dumps(args, indent=6, ensure_ascii=False)
+                # Add basic syntax highlighting
+                args_json = args_json.replace('"', f'{Colors.GREEN}"{Colors.RESET}')
+                args_json = args_json.replace(':', f'{Colors.YELLOW}:{Colors.RESET}')
+                args_json = args_json.replace('{', f'{Colors.BLUE}{{{Colors.RESET}')
+                args_json = args_json.replace('}', f'{Colors.BLUE}}}{Colors.RESET}')
+                print(f"{Colors.DIM}{args_json}{Colors.RESET}")
+            else:
+                print(f"      {Colors.DIM}(no arguments){Colors.RESET}")
+            
+            print(f"\n{Colors.ROCKET} {Colors.BOLD}Starting Execution...{Colors.RESET}")
+            logger.info(f"Starting execution of tool: {tool_name}")
         
         try:
             # Check execution permissions
             if not self.can_execute_tool(tool_name):
                 self._failed_executions += 1
+                error_msg = f"Tool '{tool_name}' execution not allowed"
+                
+                if self.verbose:
+                    print(f"{Colors.CROSS} {Colors.RED}{Colors.BOLD}EXECUTION DENIED{Colors.RESET}")
+                    print(f"   {Colors.RED}Reason: {error_msg}{Colors.RESET}")
+                    print(f"{Colors.CYAN}{'='*80}{Colors.RESET}\n")
+                
+                logger.warning(error_msg)
                 return self._create_error_result(
                     tool_call_id=tool_call.id,
                     name=tool_name,
-                    error=f"Tool '{tool_name}' execution not allowed"
+                    error=error_msg
                 )
+            
+            # Check if approval is required
+            if self._should_request_approval(tool_call):
+                if self.verbose:
+                    print(f"{Colors.LOCK} {Colors.YELLOW}{Colors.BOLD}APPROVAL REQUIRED{Colors.RESET}")
+                    print(f"   {Colors.YELLOW}Tool requires human approval before execution{Colors.RESET}")
+                
+                if not self._request_approval(tool_call):
+                    self._denied_executions += 1
+                    error_msg = f"Tool '{tool_name}' execution denied by user"
+                    
+                    if self.verbose:
+                        print(f"{Colors.CROSS} {Colors.RED}{Colors.BOLD}EXECUTION DENIED BY USER{Colors.RESET}")
+                        print(f"   {Colors.RED}User chose not to approve execution{Colors.RESET}")
+                        print(f"{Colors.CYAN}{'='*80}{Colors.RESET}\n")
+                    
+                    logger.info(error_msg)
+                    return self._create_error_result(
+                        tool_call_id=tool_call.id,
+                        name=tool_name,
+                        error=error_msg
+                    )
+                else:
+                    if self.verbose:
+                        print(f"{Colors.CHECK} {Colors.GREEN}{Colors.BOLD}EXECUTION APPROVED{Colors.RESET}")
+                        print(f"   {Colors.GREEN}User approved tool execution{Colors.RESET}")
             
             # Get the tool function
             tool_func = self.tools[tool_name]
@@ -172,11 +408,53 @@ class ToolExecutor:
             if context:
                 args.update(context)
             
-            # Execute with timeout
-            raw_result = self._execute_with_timeout(tool_func, args)
+            if self.verbose:
+                print(f"\n{Colors.GEAR} {Colors.BOLD}Executing Tool Function...{Colors.RESET}")
+                print(f"   {Colors.BLUE}Function:{Colors.RESET} {Colors.WHITE}{tool_func.__name__ if hasattr(tool_func, '__name__') else 'callable'}{Colors.RESET}")
+                print(f"   {Colors.BLUE}Timeout:{Colors.RESET} {Colors.WHITE}{self.execution_timeout}s{Colors.RESET}")
+                
+                # Show processed arguments (might be different from original)
+                if args != tool_call.get_arguments():
+                    print(f"   {Colors.BLUE}Processed args:{Colors.RESET} {Colors.DIM}{json.dumps(args, default=str)[:100]}...{Colors.RESET}")
             
+            # Execute with timeout
+            execution_start = time.time()
+            raw_result = self._execute_with_timeout(tool_func, args)
             execution_time = time.time() - start_time
+            actual_exec_time = time.time() - execution_start
+            
             self._track_execution(execution_time, success=True)
+            
+            if self.verbose:
+                print(f"\n{Colors.CHECK} {Colors.GREEN}{Colors.BOLD}EXECUTION COMPLETED{Colors.RESET}")
+                print(f"   {Colors.GREEN}Status:{Colors.RESET} {Colors.WHITE}Success{Colors.RESET}")
+                print(f"   {Colors.CLOCK} {Colors.GREEN}Total time:{Colors.RESET} {Colors.WHITE}{execution_time:.3f}s{Colors.RESET}")
+                print(f"   {Colors.CLOCK} {Colors.GREEN}Execution time:{Colors.RESET} {Colors.WHITE}{actual_exec_time:.3f}s{Colors.RESET}")
+                
+                # Show result preview with smart truncation
+                result_preview = str(raw_result)
+                if len(result_preview) > 200:
+                    truncated = result_preview[:200] + f"{Colors.DIM}... (truncated, {len(result_preview)} total chars){Colors.RESET}"
+                else:
+                    truncated = result_preview
+                
+                print(f"   {Colors.FIRE} {Colors.GREEN}Result:{Colors.RESET}")
+                
+                # Try to pretty-print JSON results
+                if isinstance(raw_result, dict):
+                    try:
+                        pretty_result = json.dumps(raw_result, indent=4, ensure_ascii=False)[:300]
+                        if len(pretty_result) > 300:
+                            pretty_result += f"{Colors.DIM}...{Colors.RESET}"
+                        print(f"{Colors.DIM}{pretty_result}{Colors.RESET}")
+                    except:
+                        print(f"      {Colors.WHITE}{truncated}{Colors.RESET}")
+                else:
+                    print(f"      {Colors.WHITE}{truncated}{Colors.RESET}")
+                
+                print(f"{Colors.CYAN}{'='*80}{Colors.RESET}\n")
+            
+            logger.info(f"Tool {tool_name} completed successfully in {execution_time:.3f}s")
             
             # Process the result safely and create ToolResult directly
             return self._create_success_result_safe(
@@ -191,6 +469,22 @@ class ToolExecutor:
             self._track_execution(execution_time, success=False)
             
             error_msg = self._format_error_message(e)
+            
+            if self.verbose:
+                print(f"\n{Colors.CROSS} {Colors.RED}{Colors.BOLD}EXECUTION FAILED{Colors.RESET}")
+                print(f"   {Colors.RED}Error type:{Colors.RESET} {Colors.WHITE}{type(e).__name__}{Colors.RESET}")
+                print(f"   {Colors.RED}Error message:{Colors.RESET} {Colors.WHITE}{str(e)[:200]}{Colors.RESET}")
+                print(f"   {Colors.CLOCK} {Colors.RED}Failed after:{Colors.RESET} {Colors.WHITE}{execution_time:.3f}s{Colors.RESET}")
+                
+                # Show stack trace for debugging if it's not a simple error
+                if not isinstance(e, (ValueError, TypeError, KeyError)):
+                    import traceback
+                    trace = traceback.format_exc()
+                    print(f"   {Colors.RED}Stack trace:{Colors.RESET}")
+                    print(f"{Colors.DIM}{trace[:500]}{'...' if len(trace) > 500 else ''}{Colors.RESET}")
+                
+                print(f"{Colors.CYAN}{'='*80}{Colors.RESET}\n")
+            
             logger.error(f"Tool execution failed for {tool_name}: {error_msg}")
             
             return self._create_error_result(
@@ -300,19 +594,41 @@ class ToolExecutor:
         start_time = time.time()
         tool_name = tool_call.function.name
         
+        if self.verbose:
+            logger.info(f"Starting async execution of tool: {tool_name}")
+        
         try:
             if not self.can_execute_tool(tool_name):
                 self._failed_executions += 1
+                error_msg = f"Tool '{tool_name}' execution not allowed"
+                if self.verbose:
+                    logger.warning(error_msg)
                 return self._create_error_result(
                     tool_call_id=tool_call.id,
                     name=tool_name,
-                    error=f"Tool '{tool_name}' execution not allowed"
+                    error=error_msg
                 )
+            
+            # Check if approval is required (in async context, might need different handling)
+            if self._should_request_approval(tool_call):
+                if not self._request_approval(tool_call):
+                    self._denied_executions += 1
+                    error_msg = f"Tool '{tool_name}' execution denied by user"
+                    if self.verbose:
+                        logger.info(error_msg)
+                    return self._create_error_result(
+                        tool_call_id=tool_call.id,
+                        name=tool_name,
+                        error=error_msg
+                    )
             
             tool_func = self.tools[tool_name]
             args = tool_call.get_arguments()
             if context:
                 args.update(context)
+            
+            if self.verbose:
+                logger.info(f"Async executing {tool_name} with arguments: {json.dumps(args, default=str)}")
             
             # Handle both sync and async functions
             if inspect.iscoroutinefunction(tool_func):
@@ -331,6 +647,9 @@ class ToolExecutor:
             execution_time = time.time() - start_time
             self._track_execution(execution_time, success=True)
             
+            if self.verbose:
+                logger.info(f"Async tool {tool_name} completed successfully in {execution_time:.2f}s")
+            
             return self._create_success_result_safe(
                 tool_call_id=tool_call.id,
                 name=tool_name,
@@ -341,10 +660,13 @@ class ToolExecutor:
         except asyncio.TimeoutError:
             execution_time = time.time() - start_time
             self._track_execution(execution_time, success=False)
+            error_msg = f"Tool execution timed out after {self.execution_timeout}s"
+            if self.verbose:
+                logger.warning(f"Timeout for {tool_name}: {error_msg}")
             return self._create_error_result(
                 tool_call_id=tool_call.id,
                 name=tool_name,
-                error=f"Tool execution timed out after {self.execution_timeout}s",
+                error=error_msg,
                 execution_time=execution_time
             )
         except Exception as e:
@@ -407,12 +729,16 @@ class ToolExecutor:
             "total_executions": self._execution_count,
             "successful_executions": self._execution_count - self._failed_executions,
             "failed_executions": self._failed_executions,
+            "approved_executions": self._approved_executions,
+            "denied_executions": self._denied_executions,
             "success_rate": success_rate,
             "total_execution_time": self._total_execution_time,
             "average_execution_time": avg_time,
             "registered_tools": list(self.tools.keys()),
             "allowed_tools": list(self.allowed_tools) if self.allowed_tools else None,
             "forbidden_tools": list(self.forbidden_tools),
+            "execution_mode": self.execution_mode,
+            "verbose_logging": self.verbose,
         }
 
     def create_tool_messages(self, tool_results: List[ToolResult]) -> List[MessageProtocol]:
@@ -434,6 +760,9 @@ class ToolExecutor:
                     }
                 )
                 messages.append(tool_message)
+                
+                if self.verbose:
+                    logger.info(f"Created tool message for {result.name}: success={result.success}")
                 
             except Exception as e:
                 logger.error(f"Failed to create tool message for {result.name}: {e}")
@@ -479,4 +808,30 @@ class ToolExecutor:
         self._execution_count = 0
         self._total_execution_time = 0.0
         self._failed_executions = 0
-        logger.debug("Tool execution statistics reset")
+        self._approved_executions = 0
+        self._denied_executions = 0
+        if self.verbose:
+            logger.info("Tool execution statistics reset")
+        else:
+            logger.debug("Tool execution statistics reset")
+
+    # Enhanced control methods
+    def set_execution_mode(self, mode: ExecutionMode) -> None:
+        """Change the execution mode."""
+        old_mode = self.execution_mode
+        self.execution_mode = mode
+        if self.verbose or old_mode != mode:
+            logger.info(f"Execution mode changed from {old_mode} to {mode}")
+
+    def set_approval_callback(self, callback: Optional[Callable[[ToolCall, str], bool]]) -> None:
+        """Set or update the approval callback."""
+        self.approval_callback = callback
+        if self.verbose:
+            logger.info(f"Approval callback {'set' if callback else 'removed'}")
+
+    def set_verbose(self, verbose: bool) -> None:
+        """Enable or disable verbose logging."""
+        old_verbose = self.verbose
+        self.verbose = verbose
+        if old_verbose != verbose:
+            logger.info(f"Verbose logging {'enabled' if verbose else 'disabled'}")

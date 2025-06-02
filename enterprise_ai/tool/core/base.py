@@ -13,6 +13,9 @@ from pydantic import BaseModel, Field, field_validator
 
 from enterprise_ai.exceptions import EnterpriseAIError
 
+# Import enums from constants to avoid circular imports
+from enterprise_ai.tool.constants import ExecutionMode, SandboxMode
+
 
 class ToolState(str, Enum):
     """Enum representing the possible states of a tool."""
@@ -56,6 +59,27 @@ class ToolConfig(BaseModel):
     sandbox_enabled: Optional[bool] = Field(
         default=True, description="Whether to run the tool in a sandbox environment"
     )
+    
+    # Enhanced execution control options
+    execution_mode: ExecutionMode = Field(
+        default=ExecutionMode.AUTO, description="How this tool should be executed"
+    )
+    requires_approval: bool = Field(
+        default=False, description="Whether this tool requires human approval before execution"
+    )
+    verbose_logging: bool = Field(
+        default=False, description="Whether to log detailed execution information"
+    )
+    sandbox_mode: SandboxMode = Field(
+        default=SandboxMode.NONE, description="Sandbox execution strategy for this tool"
+    )
+    approval_message: Optional[str] = Field(
+        default=None, description="Custom message to show when requesting approval"
+    )
+    danger_level: int = Field(
+        default=0, description="Danger level (0=safe, 5=very dangerous) for hybrid mode"
+    )
+    
     custom_config: Optional[Dict[str, Any]] = Field(
         default_factory=lambda: dict(), description="Tool-specific configuration parameters"
     )
@@ -74,7 +98,33 @@ class ToolConfig(BaseModel):
             raise ValueError("Max retries cannot be negative")
         return v
 
+    @field_validator("danger_level")
+    def validate_danger_level(cls, v: int) -> int:
+        """Validate the danger level."""
+        if not 0 <= v <= 5:
+            raise ValueError("Danger level must be between 0 and 5")
+        return v
 
+    def should_require_approval(self, hybrid_threshold: int = 2) -> bool:
+        """Determine if this tool should require approval in hybrid mode."""
+        if self.execution_mode == ExecutionMode.MANUAL:
+            return True
+        elif self.execution_mode == ExecutionMode.AUTO:
+            return False
+        elif self.execution_mode == ExecutionMode.HYBRID:
+            return self.danger_level >= hybrid_threshold or self.requires_approval
+        else:  # DISABLED
+            return False
+
+    def should_use_sandbox(self) -> bool:
+        """Determine if this tool should use sandbox based on capabilities and config."""
+        return (
+            self.sandbox_enabled and 
+            self.sandbox_mode != SandboxMode.NONE
+        )
+
+
+# Rest of the file remains the same...
 class ToolError(EnterpriseAIError):
     """Error raised by tools during execution."""
 
@@ -131,6 +181,7 @@ class BaseTool(ABC, BaseModel):
         self._execution_count: int = 0
         self._last_execution_time: Optional[float] = None
         self._validate_capabilities()
+        self._auto_configure_from_capabilities()
 
     def _validate_capabilities(self) -> None:
         """Validate that all capabilities are valid."""
@@ -142,6 +193,32 @@ class BaseTool(ABC, BaseModel):
         ]
         if invalid_capabilities:
             raise ValueError(f"Invalid capabilities: {', '.join(invalid_capabilities)}")
+
+    def _auto_configure_from_capabilities(self) -> None:
+        """Auto-configure tool settings based on capabilities."""
+        # Auto-set danger level based on capabilities
+        dangerous_capabilities = {
+            ToolCapability.CODE_EXECUTION,
+            ToolCapability.TERMINAL_ACCESS,
+            ToolCapability.FILE_ACCESS,
+            ToolCapability.NETWORK_ACCESS,
+        }
+        
+        if any(cap in self.capabilities for cap in dangerous_capabilities):
+            if self.config.danger_level == 0:  # Only set if not explicitly configured
+                if ToolCapability.CODE_EXECUTION in self.capabilities:
+                    self.config.danger_level = 4
+                elif ToolCapability.TERMINAL_ACCESS in self.capabilities:
+                    self.config.danger_level = 5
+                elif ToolCapability.FILE_ACCESS in self.capabilities:
+                    self.config.danger_level = 3
+                elif ToolCapability.NETWORK_ACCESS in self.capabilities:
+                    self.config.danger_level = 2
+
+        # Auto-enable sandbox for dangerous tools
+        if any(cap in self.capabilities for cap in dangerous_capabilities):
+            if self.config.sandbox_mode == SandboxMode.NONE:
+                self.config.sandbox_mode = SandboxMode.UNIFIED
 
     def register_state_change_handler(self, handler: Callable[[ToolState], None]) -> None:
         """Register a handler to be called when the tool's state changes."""
@@ -258,3 +335,28 @@ class BaseTool(ABC, BaseModel):
     def add_usage_example(self, example: Dict[str, Any]) -> None:
         """Add a usage example for this tool."""
         self.usage_examples.append(example)
+
+    def get_approval_message(self) -> str:
+        """Get the message to display when requesting approval."""
+        if self.config.approval_message:
+            return self.config.approval_message
+        
+        # Generate default message based on capabilities and danger level
+        danger_labels = {
+            0: "Safe",
+            1: "Low Risk", 
+            2: "Moderate Risk",
+            3: "High Risk",
+            4: "Very High Risk",
+            5: "Extremely Dangerous"
+        }
+        
+        danger_label = danger_labels.get(self.config.danger_level, "Unknown Risk")
+        capabilities_str = ", ".join(str(cap) for cap in self.capabilities)
+        
+        return (
+            f"Tool: {self.name}\n"
+            f"Risk Level: {danger_label} ({self.config.danger_level}/5)\n"
+            f"Capabilities: {capabilities_str}\n"
+            f"Description: {self.description}"
+        )

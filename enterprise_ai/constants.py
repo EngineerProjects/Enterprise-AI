@@ -4,6 +4,7 @@ Constants for Enterprise AI.
 This module defines global constants used throughout the Enterprise AI framework.
 """
 
+from enum import Enum
 import os
 from pathlib import Path
 
@@ -26,7 +27,7 @@ DEFAULT_MAX_TOKENS = 1024
 DEFAULT_TOP_P = 1.0
 DEFAULT_TIMEOUT = float(
     os.environ.get("ENTERPRISE_AI_DEFAULT_TIMEOUT", "60.0")
-)  # Read from env or use default
+)
 DEFAULT_MAX_RETRIES = 3
 
 # Ollama API
@@ -44,5 +45,24 @@ class ModelFeature:
     CODE = "code"
     JSON_MODE = "json_mode"
     MULTI_MODAL = "multi_modal"
-    THINKING = "thinking"  # NEW: Add thinking capability
-    REASONING = "reasoning"  # NEW: Add reasoning capability
+    THINKING = "thinking"
+    REASONING = "reasoning"
+
+# Re-export tool constants for convenience (but don't define them here)
+try:
+    from enterprise_ai.tool.constants import ExecutionMode, SandboxMode
+    __all__ = [
+        "PROJECT_ROOT", "CONFIG_DIR", "DEFAULT_CONFIG_PATH", "ENV_PREFIX",
+        "DEFAULT_TEMPERATURE", "DEFAULT_MAX_TOKENS", "DEFAULT_TOP_P", 
+        "DEFAULT_TIMEOUT", "DEFAULT_MAX_RETRIES",
+        "OLLAMA_API_BASE", "DEFAULT_OLLAMA_MODEL", "ModelFeature",
+        "ExecutionMode", "SandboxMode"
+    ]
+except ImportError:
+    # Tool constants not available yet during bootstrap
+    __all__ = [
+        "PROJECT_ROOT", "CONFIG_DIR", "DEFAULT_CONFIG_PATH", "ENV_PREFIX",
+        "DEFAULT_TEMPERATURE", "DEFAULT_MAX_TOKENS", "DEFAULT_TOP_P", 
+        "DEFAULT_TIMEOUT", "DEFAULT_MAX_RETRIES",
+        "OLLAMA_API_BASE", "DEFAULT_OLLAMA_MODEL", "ModelFeature"
+    ]

@@ -1,5 +1,5 @@
 """
-Base configuration functionality for Enterprise AI.
+Enhanced configuration functionality for Enterprise AI with execution defaults.
 """
 
 import os
@@ -10,6 +10,14 @@ import yaml
 
 from enterprise_ai.constants import DEFAULT_CONFIG_PATH, ENV_PREFIX
 from enterprise_ai.exceptions import ConfigFileError
+
+# Import enums from constants to avoid circular imports
+try:
+    from enterprise_ai.tool.constants import ExecutionMode, SandboxMode
+except ImportError:
+    # Fallback for backwards compatibility
+    ExecutionMode = None
+    SandboxMode = None
 
 # Global config cache
 _config_cache: Dict[str, Dict[str, Any]] = {}
@@ -82,3 +90,70 @@ def get_config(key: str, default: Any = None, config_path: Optional[str] = None)
         current = current[part]
 
     return current
+
+
+def get_execution_config() -> Dict[str, Any]:
+    """
+    Get execution-related configuration with sensible defaults.
+    
+    Returns:
+        Dictionary of execution configuration options
+    """
+    # Handle case where enums are not available due to circular imports
+    if ExecutionMode is None or SandboxMode is None:
+        return {
+            "execution_mode": get_config("execution.mode", "auto"),
+            "max_tool_iterations": get_config("execution.max_iterations", 5),
+            "tool_execution_timeout": get_config("execution.timeout", 30.0),
+            "verbose_logging": get_config("execution.verbose", False),
+            "hybrid_danger_threshold": get_config("execution.hybrid_threshold", 2),
+            
+            "sandbox_mode": get_config("sandbox.mode", "none"),
+            "enable_sandbox_routing": get_config("sandbox.routing_enabled", False),
+            "sandbox_image": get_config("sandbox.image", "python:3.12-slim"),
+            "sandbox_memory_limit": get_config("sandbox.memory_limit", "512m"),
+            "sandbox_cpu_limit": get_config("sandbox.cpu_limit", 0.5),
+            "sandbox_network_enabled": get_config("sandbox.network_enabled", False),
+            
+            "allowed_tools": get_config("security.allowed_tools", None),
+            "forbidden_tools": get_config("security.forbidden_tools", []),
+            "require_approval_for_dangerous": get_config("security.require_approval", True),
+        }
+    
+    return {
+        # Tool execution defaults
+        "execution_mode": ExecutionMode(get_config("execution.mode", ExecutionMode.AUTO)),
+        "max_tool_iterations": get_config("execution.max_iterations", 5),
+        "tool_execution_timeout": get_config("execution.timeout", 30.0),
+        "verbose_logging": get_config("execution.verbose", False),
+        "hybrid_danger_threshold": get_config("execution.hybrid_threshold", 2),
+        
+        # Sandbox defaults
+        "sandbox_mode": SandboxMode(get_config("sandbox.mode", SandboxMode.NONE)),
+        "enable_sandbox_routing": get_config("sandbox.routing_enabled", False),
+        "sandbox_image": get_config("sandbox.image", "python:3.12-slim"),
+        "sandbox_memory_limit": get_config("sandbox.memory_limit", "512m"),
+        "sandbox_cpu_limit": get_config("sandbox.cpu_limit", 0.5),
+        "sandbox_network_enabled": get_config("sandbox.network_enabled", False),
+        
+        # Security defaults
+        "allowed_tools": get_config("security.allowed_tools", None),
+        "forbidden_tools": get_config("security.forbidden_tools", []),
+        "require_approval_for_dangerous": get_config("security.require_approval", True),
+    }
+
+
+def set_execution_defaults(config_updates: Dict[str, Any]) -> None:
+    """
+    Update execution configuration defaults.
+    
+    Args:
+        config_updates: Dictionary of configuration updates
+    """
+    # This would update the config file or environment
+    # For now, we'll just log the intent
+    import logging
+    logger = logging.getLogger("config.base")
+    
+    logger.info(f"Execution config updates requested: {config_updates}")
+    # In a full implementation, this would write to config file
