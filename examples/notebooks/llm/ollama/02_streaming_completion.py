@@ -428,37 +428,29 @@ def main():
     print_header("🌊 Enterprise AI - Streaming Completion Tests", "double")
     print_test("Starting streaming completion test suite...", "running")
     
-    separator()
-    
     # Test results tracking
     results = {}
     
     # Test 1: Sync streaming
     results['sync_streaming'] = test_sync_streaming() is not None
-    separator()
     
     # Test 2: Async streaming
     results['async_streaming'] = test_async_streaming() is not None
-    separator()
     
     # Test 3: Model comparison
     model_results = test_streaming_models_comparison()
     results['model_comparison'] = any(r.get("success", False) for r in model_results.values())
-    separator()
     
     # Test 4: Parameter testing
     param_results = test_streaming_with_parameters()
     results['parameter_streaming'] = len([r for r in param_results.values() if r.get("success", False)]) > 0
-    separator()
     
     # Test 5: Content analysis
     results['content_analysis'] = test_streaming_content_analysis() is not None
-    separator()
     
     # Test 6: Error handling
     error_results = test_streaming_error_handling()
     results['error_handling'] = len(error_results) > 0
-    separator()
     
     # Final summary
     print_header("📊 Streaming Completion Test Results", "box")

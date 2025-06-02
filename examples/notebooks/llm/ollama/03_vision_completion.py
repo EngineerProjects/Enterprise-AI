@@ -353,15 +353,12 @@ def main():
     print_header("🖼️ Enterprise AI - Vision Completion Tests", "double")
     print_test("Starting vision completion test suite...", "running")
     
-    separator()
-    
     # Test results tracking
     results = {}
     
     # Test 0: Image setup
     has_images = test_image_setup()
     results['image_setup'] = has_images
-    separator()
     
     if not has_images:
         print_test("⚠️ No images available - skipping vision tests", "warn")
@@ -371,7 +368,6 @@ def main():
     # Test 1: Vision model availability
     model_availability = test_vision_model_availability()
     results['model_availability'] = any(m.get("available", False) for m in model_availability.values())
-    separator()
     
     if not results['model_availability']:
         print_test("⚠️ No vision models available - skipping vision tests", "warn")
@@ -379,24 +375,19 @@ def main():
     
     # Test 2: Sync vision analysis
     results['sync_vision'] = test_sync_vision_analysis() is not None
-    separator()
     
     # Test 3: Async vision analysis
     results['async_vision'] = test_async_vision_analysis() is not None
-    separator()
     
     # Test 4: Various vision prompts
     prompt_results = test_vision_prompts()
     results['vision_prompts'] = len([r for r in prompt_results.values() if r.get("success", False)]) > 0
-    separator()
     
     # Test 5: Multimodal conversation
     results['multimodal_conversation'] = test_multimodal_conversation() is not None
-    separator()
     
     # Test 6: Non-vision model error handling
     results['error_handling'] = test_non_vision_model_error() is not None
-    separator()
     
     # Final summary
     print_header("📊 Vision Completion Test Results", "box")
@@ -408,7 +399,6 @@ def main():
         status = "pass" if success else "fail"
         print_test(f"{test_name.replace('_', ' ').title()}", status)
     
-    separator()
     print_test(f"Overall: {passed}/{total} tests passed", "pass" if passed == total else "warn")
     
     if passed == total:
