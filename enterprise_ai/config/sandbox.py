@@ -19,7 +19,7 @@ class SandboxSettings:
 
     def __init__(
         self,
-        image: str = "python:3.9-slim",
+        image: str = "python:3.12-slim",
         work_dir: str = "/workspace",
         memory_limit: str = "512m",
         cpu_limit: float = 0.5,

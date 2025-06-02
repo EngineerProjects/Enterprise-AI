@@ -1,35 +1,32 @@
 """
-Tool result definitions for Enterprise AI.
+Unified tool result system for Enterprise AI.
 
-This module defines the classes for representing tool execution results,
-with enhanced capabilities for result tracking and validation.
+This module provides result classes that are compatible with both the core tool system
+and the LLM integration system, eliminating redundancy.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Set, Union, TypeVar
+from typing import Any, Dict, List, Optional, Union
 import json
 import uuid
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
-
-T = TypeVar("T", bound="ToolResult")
+# Import the schema ToolResult as the base
+from enterprise_ai.schema.tool import ToolResult as SchemaToolResult
 
 
 class ToolResultMetadata(BaseModel):
-    """Metadata for tool execution results."""
+    """Enhanced metadata for tool execution results."""
 
     execution_id: str = Field(
         default_factory=lambda: str(uuid.uuid4()),
         description="Unique identifier for this execution",
     )
-    start_time: datetime = Field(
+    start_time: Optional[datetime] = Field(
         default_factory=datetime.now, description="Time when execution started"
     )
     end_time: Optional[datetime] = Field(default=None, description="Time when execution completed")
-    execution_time_ms: Optional[float] = Field(
-        default=None, description="Execution time in milliseconds"
-    )
     tool_name: Optional[str] = Field(
         default=None, description="Name of the tool that produced this result"
     )
@@ -45,162 +42,95 @@ class ToolResultMetadata(BaseModel):
     parameters: Dict[str, Any] = Field(
         default_factory=dict, description="Parameters used for this execution"
     )
-    tags: Set[str] = Field(default_factory=set, description="Tags associated with this execution")
 
     def complete(self) -> "ToolResultMetadata":
-        """Mark as complete and return self for method chaining."""
-        self.end_time = datetime.now() if self.end_time is None else self.end_time
-        if self.start_time and self.end_time:
-            self.execution_time_ms = (self.end_time - self.start_time).total_seconds() * 1000
+        """Mark as complete and calculate execution time."""
+        self.end_time = datetime.now()
         return self
 
+    def get_execution_time(self) -> Optional[float]:
+        """Get execution time in seconds."""
+        if self.start_time and self.end_time:
+            return (self.end_time - self.start_time).total_seconds()
+        return None
 
-class ToolResult(BaseModel):
-    """Represents the result of a tool execution."""
 
-    output: Any = Field(default=None, description="Output data from the tool execution")
-    error: Optional[str] = Field(default=None, description="Error message if execution failed")
+class ToolResult(SchemaToolResult):
+    """
+    Unified ToolResult that extends the schema version with additional core features.
+    
+    This eliminates redundancy by using the schema ToolResult as the base
+    and adding only the additional features needed by the core system.
+    """
+    
+    # Additional fields for core functionality
     base64_image: Optional[str] = Field(
         default=None, description="Base64-encoded image data if the result includes an image"
     )
-    system: Optional[str] = Field(
+    system_message: Optional[str] = Field(
         default=None, description="System message related to the execution"
     )
-    metadata: Optional[ToolResultMetadata] = Field(
-        default=None, description="Metadata about the execution"
-    )
     result_type: Optional[str] = Field(default=None, description="Type of the result data")
+    enhanced_metadata: Optional[ToolResultMetadata] = Field(
+        default=None, description="Enhanced metadata for core tool usage"
+    )
 
-    class Config:
-        arbitrary_types_allowed = True
+    def __init__(self, **data: Any) -> None:
+        # Handle legacy 'output' parameter by mapping it to 'result'
+        if 'output' in data and 'result' not in data:
+            data['result'] = data.pop('output')
+        
+        # Handle system -> system_message mapping
+        if 'system' in data and 'system_message' not in data:
+            data['system_message'] = data.pop('system')
+            
+        super().__init__(**data)
 
-    @field_validator("metadata", mode="before")
-    def set_metadata_default(cls, v: Optional[ToolResultMetadata]) -> ToolResultMetadata:
-        """Set default metadata if none is provided."""
-        return v or ToolResultMetadata()
+    @property
+    def output(self) -> Any:
+        """Backward compatibility property."""
+        return self.result
 
-    def add_tag(self, tag: str) -> None:
-        """Add a tag to the result metadata."""
-        if self.metadata is None:
-            self.metadata = ToolResultMetadata()
-        self.metadata.tags.add(tag)
+    @output.setter
+    def output(self, value: Any) -> None:
+        """Backward compatibility setter."""
+        self.result = value
 
     def complete(self) -> "ToolResult":
         """Mark the execution as complete and calculate execution time."""
-        try:
-            if self.metadata:
-                self.metadata.end_time = datetime.now()
-                if self.metadata.start_time:
-                    delta = self.metadata.end_time - self.metadata.start_time
-                    self.metadata.execution_time_ms = delta.total_seconds() * 1000
-        except Exception as e:
-            # If there's an error completing the result, log it but don't crash
-            import logging
-
-            logging.warning(f"Error completing tool result: {e}")
+        if self.enhanced_metadata:
+            self.enhanced_metadata.complete()
+            # Update execution_time from enhanced metadata
+            exec_time = self.enhanced_metadata.get_execution_time()
+            if exec_time is not None:
+                self.execution_time = exec_time
         return self
 
     def set_tool_info(self, tool_name: str, tool_version: str = "1.0.0") -> "ToolResult":
         """Set tool information in the metadata."""
-        if self.metadata is None:
-            self.metadata = ToolResultMetadata()
-        self.metadata.tool_name = tool_name
-        self.metadata.tool_version = tool_version
+        if self.enhanced_metadata is None:
+            self.enhanced_metadata = ToolResultMetadata()
+        self.enhanced_metadata.tool_name = tool_name
+        self.enhanced_metadata.tool_version = tool_version
+        
+        # Also set in the base metadata for consistency
+        self.name = tool_name
+        
         return self
 
-    def __bool__(self) -> bool:
-        """Return True if the result has any content."""
-        return self.output is not None or self.error is not None or self.base64_image is not None
-
-    def __add__(self, other: "ToolResult") -> "ToolResult":
-        """Combine two tool results."""
-
-        def combine_fields(
-            field: Optional[str], other_field: Optional[str], concatenate: bool = True
-        ) -> Optional[str]:
-            if field and other_field:
-                if concatenate:
-                    return field + other_field
-                raise ValueError("Cannot combine tool results")
-            return field or other_field
-
-        # Create combined metadata
-        combined_metadata = None
-        if self.metadata or other.metadata:
-            if self.metadata and other.metadata:
-                # Use the earlier metadata as base and add tags from both
-                if self.metadata.start_time and other.metadata.start_time:
-                    base_metadata = (
-                        self.metadata
-                        if self.metadata.start_time <= other.metadata.start_time
-                        else other.metadata
-                    )
-                else:
-                    base_metadata = self.metadata or other.metadata
-
-                combined_metadata = ToolResultMetadata(**base_metadata.dict())
-
-                # Combine tags from both
-                if self.metadata and self.metadata.tags:
-                    combined_metadata.tags.update(self.metadata.tags)
-                if other.metadata and other.metadata.tags:
-                    combined_metadata.tags.update(other.metadata.tags)
-
-            else:
-                combined_metadata = self.metadata or other.metadata
-
-        return ToolResult(
-            output=combine_fields(self.output, other.output),
-            error=combine_fields(self.error, other.error),
-            base64_image=combine_fields(self.base64_image, other.base64_image, False),
-            system=combine_fields(self.system, other.system),
-            metadata=combined_metadata,
-        )
-
-    def __str__(self) -> str:
-        """String representation of the result."""
-        if self.error:
+    def to_display_format(self) -> str:
+        """Convert result to a display-friendly format."""
+        if not self.success and self.error:
             return f"Error: {self.error}"
-        elif self.output is not None:
-            return str(self.output)
+        elif self.result is not None:
+            if isinstance(self.result, str):
+                return self.result
+            elif isinstance(self.result, (dict, list)):
+                return json.dumps(self.result, indent=2, default=str)
+            else:
+                return str(self.result)
         else:
-            return "Empty result"
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert the result to a dictionary."""
-        result = {
-            "output": self.output,
-            "error": self.error,
-            "system": self.system,
-        }
-
-        # Add image if present
-        if self.base64_image:
-            result["has_image"] = True
-
-        # Add metadata if present
-        if self.metadata:
-            meta_dict = self.metadata.dict()
-            # Convert datetime objects to string for JSON serialization
-            if meta_dict.get("start_time"):
-                meta_dict["start_time"] = meta_dict["start_time"].isoformat()
-            if meta_dict.get("end_time"):
-                meta_dict["end_time"] = meta_dict["end_time"].isoformat()
-            result["metadata"] = meta_dict
-
-        # Add result type if present
-        if self.result_type:
-            result["result_type"] = self.result_type
-
-        return result
-
-    def to_json(self) -> str:
-        """Convert the result to a JSON string."""
-        return json.dumps(self.to_dict())
-
-    def replace(self, **kwargs: Any) -> "ToolResult":
-        """Return a new ToolResult with the given fields replaced."""
-        return self.__class__(**{**self.dict(), **kwargs})
+            return "No output"
 
     @classmethod
     def from_exception(cls, exception: Exception, context: Optional[str] = None) -> "ToolResult":
@@ -209,13 +139,57 @@ class ToolResult(BaseModel):
         if context:
             error_message = f"{context}: {error_message}"
 
-        result = cls(error=error_message)
+        result = cls(
+            tool_call_id="",
+            name=context or "unknown",
+            result="",
+            success=False,
+            error=error_message,
+            enhanced_metadata=ToolResultMetadata()
+        )
         result.complete()
         return result
 
+    @classmethod
+    def create_success(
+        cls,
+        result: Any,
+        tool_name: str = "unknown",
+        tool_call_id: str = "",
+        **kwargs: Any
+    ) -> "ToolResult":
+        """Create a successful ToolResult."""
+        return cls(
+            tool_call_id=tool_call_id,
+            name=tool_name,
+            result=result,
+            success=True,
+            enhanced_metadata=ToolResultMetadata(),
+            **kwargs
+        )
+
+    @classmethod
+    def create_error(
+        cls,
+        error: str,
+        tool_name: str = "unknown", 
+        tool_call_id: str = "",
+        **kwargs: Any
+    ) -> "ToolResult":
+        """Create an error ToolResult."""
+        return cls(
+            tool_call_id=tool_call_id,
+            name=tool_name,
+            result="",
+            success=False,
+            error=error,
+            enhanced_metadata=ToolResultMetadata(),
+            **kwargs
+        )
+
 
 class CLIResult(ToolResult):
-    """A ToolResult that can be rendered as a CLI output."""
+    """A ToolResult that can be rendered as CLI output."""
 
     formatted_output: Optional[str] = Field(
         default=None, description="Formatted output for CLI display"
@@ -225,12 +199,8 @@ class CLIResult(ToolResult):
         """Get formatted text for display in CLI."""
         if self.formatted_output:
             return self.formatted_output
-        elif self.error:
-            return f"Error: {self.error}"
-        elif self.output is not None:
-            return str(self.output)
         else:
-            return "No output"
+            return self.to_display_format()
 
 
 class ToolFailure(ToolResult):
@@ -244,15 +214,33 @@ class ToolFailure(ToolResult):
         default_factory=list, description="Suggestions for resolving the failure"
     )
 
+    def __init__(self, **data: Any) -> None:
+        # Ensure this is marked as a failure
+        data['success'] = False
+        super().__init__(**data)
+
     def add_suggestion(self, suggestion: str) -> None:
         """Add a suggestion for resolving the failure."""
         self.suggestions.append(suggestion)
 
     @classmethod
     def create(
-        cls, error: str, error_code: Optional[str] = None, retryable: bool = False
+        cls, 
+        error: str, 
+        tool_name: str = "unknown",
+        tool_call_id: str = "",
+        error_code: Optional[str] = None, 
+        retryable: bool = False
     ) -> "ToolFailure":
         """Create a new ToolFailure with the given error."""
-        result = cls(error=error, error_code=error_code, retryable=retryable)
+        result = cls(
+            tool_call_id=tool_call_id,
+            name=tool_name,
+            result="",
+            error=error,
+            error_code=error_code,
+            retryable=retryable,
+            enhanced_metadata=ToolResultMetadata()
+        )
         result.complete()
         return result

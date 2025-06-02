@@ -387,7 +387,19 @@ class ToolRegistry:
 
     def get_all_capability_names(self) -> List[str]:
         """Get all registered capability names."""
-        return list(self._capabilities.keys())
+        # Make sure capabilities are properly counted
+        capabilities = set()
+        
+        # Collect capabilities from all registered tools
+        for tool_cls in self._tools.values():
+            tool_capabilities = getattr(tool_cls, "capabilities", set())
+            for cap in tool_capabilities:
+                if isinstance(cap, ToolCapability):
+                    capabilities.add(cap.value)
+                else:
+                    capabilities.add(str(cap))
+        
+        return list(capabilities)
 
     def get_tool_info(self, name: str) -> Dict[str, Any]:
         """

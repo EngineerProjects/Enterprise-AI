@@ -2,11 +2,14 @@
 Advanced file editor tool for Enterprise AI.
 
 This module provides a comprehensive tool for viewing, creating, and editing files
-with sandbox support, regex capabilities, and edit history.
+with local and sandbox support, regex capabilities, and edit history.
 """
 
 import os
 import re
+import time
+import shutil
+import subprocess
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Literal, Optional, Union, Pattern, Set, Tuple, cast
@@ -103,6 +106,7 @@ class FileEditor(BaseTool):
     * Insert content at specific character positions
     * Track edit history with undo functionality
     * Create automatic backups before edits
+    * Local and sandbox execution modes
 
     Use this tool when:
     * You need to inspect file or directory contents
@@ -112,15 +116,16 @@ class FileEditor(BaseTool):
     * You want to make changes with the ability to undo them
 
     Notes:
-    * All operations run in a secure sandbox environment
+    * Runs locally by default for better performance
+    * Can optionally run in sandbox environment for security
     * Large files are automatically truncated in the display
     * Use view_range parameter to view specific portions of large files
-    * Backups can be automatically created before file modifications
+    * Backups are automatically created before file modifications
     """
 
     name: str = "file_editor"
     description: str = """
-    Comprehensive file editor with sandbox support for secure file operations.
+    Comprehensive file editor with local and sandbox support for secure file operations.
 
     * Purpose: View, create, and edit files with precision and safety
     * Usage: Manipulate files with various editing operations and pattern matching
@@ -128,8 +133,8 @@ class FileEditor(BaseTool):
     * Returns: Operation results with file content previews and confirmation messages
 
     The editor supports multiple editing modes including exact string replacement, regex patterns,
-    line-based editing, and character position insertion. All operations are performed in a
-    secure sandbox environment, and edit history is maintained for undo functionality.
+    line-based editing, and character position insertion. Runs locally by default for performance,
+    with optional sandbox mode for enhanced security.
     """
 
     parameters: dict = {
@@ -228,20 +233,21 @@ class FileEditor(BaseTool):
 
         # Store tool configuration
         self.config = config or ToolConfig(
-            timeout=60.0,  # Default timeout for file operations
-            max_retries=2,  # File operations can be retried
-            sandbox_enabled=True,  # Always run in sandbox environment
+            timeout=60.0,
+            max_retries=2,
+            sandbox_enabled=False,  # Local mode by default
         )
 
         # Initialize file history tracking
         self._file_history: DefaultDict[str, List[str]] = defaultdict(list)
         self._sandbox_client: Optional[BaseSandboxClient] = None
+        self._local_mode = not getattr(self.config, 'sandbox_enabled', False)
 
-        logger.debug("FileEditor tool initialized")
+        logger.debug(f"FileEditor tool initialized in {'local' if self._local_mode else 'sandbox'} mode")
 
     async def initialize(self, **kwargs: Any) -> bool:
         """
-        Initialize the file editor, creating sandbox environment.
+        Initialize the file editor.
 
         Args:
             **kwargs: Additional initialization parameters
@@ -250,24 +256,36 @@ class FileEditor(BaseTool):
             True if initialization succeeded, False otherwise
         """
         try:
-            self._sandbox_client = create_sandbox_client()
-            await self._sandbox_client.create()
-            logger.info("FileEditor sandbox environment created")
-            return True
+            if self._local_mode:
+                # Local mode - no sandbox needed
+                logger.info("FileEditor initialized in local mode")
+                return True
+            else:
+                # Sandbox mode - create sandbox environment
+                self._sandbox_client = create_sandbox_client()
+                await self._sandbox_client.create()
+                logger.info("FileEditor sandbox environment created")
+                return True
         except Exception as e:
-            logger.error(f"Failed to initialize sandbox: {e}")
-            return False
+            logger.error(f"Failed to initialize FileEditor: {e}")
+            # Fallback to local mode if sandbox fails
+            self._local_mode = True
+            logger.info("Falling back to local mode")
+            return True
 
-    async def _get_sandbox_client(self) -> BaseSandboxClient:
+    async def _get_sandbox_client(self) -> Optional[BaseSandboxClient]:
         """
-        Get or create a sandbox client.
+        Get sandbox client or None for local mode.
 
         Returns:
-            Initialized sandbox client
+            Initialized sandbox client or None
 
         Raises:
-            ToolError: If sandbox creation fails
+            ToolError: If sandbox creation fails in sandbox mode
         """
+        if self._local_mode:
+            return None
+            
         if self._sandbox_client is None:
             try:
                 logger.info("Creating new sandbox client")
@@ -278,31 +296,84 @@ class FileEditor(BaseTool):
                 raise ToolError(f"Failed to initialize sandbox environment: {str(e)}")
         return self._sandbox_client
 
+    async def _run_local_command(self, command: str) -> str:
+        """
+        Run a command locally (for local mode).
+
+        Args:
+            command: Shell command to execute
+
+        Returns:
+            Command output as string
+        """
+        try:
+            result = subprocess.run(
+                command, 
+                shell=True, 
+                capture_output=True, 
+                text=True, 
+                timeout=30
+            )
+            return result.stdout if result.returncode == 0 else result.stderr
+        except Exception as e:
+            logger.error(f"Error executing local command: {e}")
+            raise ToolError(f"Error executing local command: {str(e)}")
+
     async def _run_sandbox_command(
         self, command: str, sandbox: Optional[BaseSandboxClient] = None
     ) -> str:
         """
-        Run a command in the sandbox environment.
+        Run a command in sandbox or locally.
 
         Args:
             command: Shell command to execute
-            sandbox: Optional sandbox client (will use current client if not provided)
+            sandbox: Optional sandbox client
 
         Returns:
             Command output as string
-
-        Raises:
-            ToolError: If command execution fails
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
+        if self._local_mode:
+            return await self._run_local_command(command)
+        else:
+            if sandbox is None:
+                sandbox = await self._get_sandbox_client()
+            try:
+                result = await sandbox.run_command(command)
+                return result
+            except Exception as e:
+                logger.error(f"Error executing command: {e}")
+                raise ToolError(f"Error executing command: {str(e)}")
 
+    async def _read_file_local(self, path: str) -> str:
+        """Read file content locally."""
         try:
-            result = await sandbox.run_command(command)
-            return result
+            return Path(path).read_text(encoding='utf-8', errors='replace')
         except Exception as e:
-            logger.error(f"Error executing sandbox command: {e}")
-            raise ToolError(f"Error executing sandbox command: {str(e)}")
+            raise ToolError(f"Could not read file {path}: {str(e)}")
+
+    async def _write_file_local(self, path: str, content: str) -> None:
+        """Write file content locally."""
+        try:
+            Path(path).write_text(content, encoding='utf-8')
+        except Exception as e:
+            raise ToolError(f"Could not write file {path}: {str(e)}")
+
+    async def _create_backup_local(self, path: str) -> Optional[str]:
+        """Create a backup of the file locally."""
+        try:
+            path_obj = Path(path)
+            if not path_obj.exists():
+                return None
+                
+            timestamp = int(time.time())
+            backup_path = f"{path}.bak.{timestamp}"
+            
+            shutil.copy2(path, backup_path)
+            logger.debug(f"Created local backup: {backup_path}")
+            return backup_path
+        except Exception as e:
+            logger.warning(f"Failed to create local backup: {e}")
+            return None
 
     async def _ensure_directory_exists(
         self, path: str, sandbox: Optional[BaseSandboxClient] = None
@@ -317,9 +388,6 @@ class FileEditor(BaseTool):
         Raises:
             ToolError: If directory creation fails
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         # Extract directory path from file path
         dir_path = os.path.dirname(path)
         if not dir_path:
@@ -327,24 +395,31 @@ class FileEditor(BaseTool):
             return
 
         try:
-            # Check if directory exists
-            dir_exists = await self._run_sandbox_command(
-                f"[ -d '{dir_path}' ] && echo 'exists' || echo 'not_exists'", sandbox
-            )
-
-            if "not_exists" in dir_exists:
-                # Directory doesn't exist, create it
-                logger.info(f"Creating directory structure: {dir_path}")
-                await self._run_sandbox_command(f"mkdir -p '{dir_path}'", sandbox)
-
-                # Verify directory was created
-                check_result = await self._run_sandbox_command(
-                    f"[ -d '{dir_path}' ] && echo 'created' || echo 'failed'", sandbox
+            if self._local_mode:
+                # Local mode - use pathlib
+                Path(dir_path).mkdir(parents=True, exist_ok=True)
+                logger.info(f"Directory structure created locally: {dir_path}")
+            else:
+                # Sandbox mode - use sandbox commands
+                # Check if directory exists
+                dir_exists = await self._run_sandbox_command(
+                    f"[ -d '{dir_path}' ] && echo 'exists' || echo 'not_exists'", sandbox
                 )
-                if "failed" in check_result:
-                    raise ToolError(f"Failed to create directory structure: {dir_path}")
 
-                logger.info(f"Directory structure created: {dir_path}")
+                if "not_exists" in dir_exists:
+                    # Directory doesn't exist, create it
+                    logger.info(f"Creating directory structure: {dir_path}")
+                    await self._run_sandbox_command(f"mkdir -p '{dir_path}'", sandbox)
+
+                    # Verify directory was created
+                    check_result = await self._run_sandbox_command(
+                        f"[ -d '{dir_path}' ] && echo 'created' || echo 'failed'", sandbox
+                    )
+                    if "failed" in check_result:
+                        raise ToolError(f"Failed to create directory structure: {dir_path}")
+
+                    logger.info(f"Directory structure created: {dir_path}")
+                    
         except ToolError:
             raise
         except Exception as e:
@@ -378,7 +453,7 @@ class FileEditor(BaseTool):
 
         return result
 
-    async def _create_backup(self, path: str, sandbox: BaseSandboxClient) -> Optional[str]:
+    async def _create_backup(self, path: str, sandbox: Optional[BaseSandboxClient] = None) -> Optional[str]:
         """
         Create a backup of the file.
 
@@ -390,11 +465,14 @@ class FileEditor(BaseTool):
             Path to the backup file or None if backup failed
         """
         try:
-            backup_path = f"{path}.bak"
-            logger.debug(f"Creating backup at {backup_path}")
-            # Use cp command to create backup
-            await self._run_sandbox_command(f"cp {path} {backup_path}", sandbox)
-            return backup_path
+            if self._local_mode:
+                return await self._create_backup_local(path)
+            else:
+                backup_path = f"{path}.bak"
+                logger.debug(f"Creating backup at {backup_path}")
+                # Use cp command to create backup
+                await self._run_sandbox_command(f"cp {path} {backup_path}", sandbox)
+                return backup_path
         except Exception as e:
             logger.warning(f"Failed to create backup: {e}")
             return None
@@ -423,14 +501,10 @@ class FileEditor(BaseTool):
             logger.error("Missing required 'path' parameter")
             raise ToolError("Parameter 'path' is required")
 
-        # Apply timeout from config
-        _ = (
-            self.config.timeout if hasattr(self.config, "timeout") else None
-        )  # Set timeout for operations
-        logger.info(f"Executing command: {command} on path: {path}")
+        logger.info(f"Executing command: {command} on path: {path} (mode: {'local' if self._local_mode else 'sandbox'})")
 
-        # Get the sandbox client
-        sandbox = await self._get_sandbox_client()
+        # Get the sandbox client (None for local mode)
+        sandbox = await self._get_sandbox_client() if not self._local_mode else None
 
         # Validate path and command combination
         try:
@@ -457,7 +531,13 @@ class FileEditor(BaseTool):
                 await self._ensure_directory_exists(path, sandbox)
 
                 logger.debug(f"Creating file at {path}")
-                await sandbox.write_file(path, file_text)
+                if self._local_mode:
+                    # Local file creation
+                    await self._write_file_local(path, file_text)
+                else:
+                    # Sandbox file creation
+                    await sandbox.write_file(path, file_text)
+                
                 logger.info(f"File created successfully at: {path}")
                 return ToolResult(output=f"File created successfully at: {path}")
 
@@ -479,9 +559,7 @@ class FileEditor(BaseTool):
 
                 if regex_params is None:
                     logger.error("Missing required 'regex_params' parameter")
-                    raise ToolError(
-                        "Parameter `regex_params` is required for command: regex_replace"
-                    )
+                    raise ToolError("Parameter `regex_params` is required for command: regex_replace")
 
                 # Validate and extract regex params
                 validated_params = RegexReplaceParams(**regex_params)
@@ -566,14 +644,14 @@ class FileEditor(BaseTool):
             logger.error(f"Unexpected error executing command {command}: {e}")
             return ToolResult(error=f"Error executing command {command}: {str(e)}")
 
-    async def validate_path(self, command: str, path: str, sandbox: BaseSandboxClient) -> None:
+    async def validate_path(self, command: str, path: str, sandbox: Optional[BaseSandboxClient]) -> None:
         """
         Validate path and command combination.
 
         Args:
             command: Operation to perform
             path: Path to validate
-            sandbox: Sandbox client
+            sandbox: Sandbox client (None for local mode)
 
         Raises:
             ToolError: If path validation fails
@@ -588,40 +666,41 @@ class FileEditor(BaseTool):
         # Check if path exists (except for create command)
         if command != "create":
             try:
-                # Check if path exists by running a command in the sandbox
-                exists_result = await self._run_sandbox_command(
-                    f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
-                )
-                if "not exists" in exists_result:
-                    # For commands that might need auto-creation
-                    if command in [
-                        "str_replace",
-                        "regex_replace",
-                        "line_edit",
-                        "insert",
-                        "insert_at",
-                    ]:
-                        # Check if parent directory exists and can be created
-                        dir_path = os.path.dirname(path)
-                        if dir_path:
-                            dir_exists = await self._run_sandbox_command(
-                                f"test -d {dir_path} && echo 'exists' || echo 'not exists'", sandbox
-                            )
-                            if "not exists" in dir_exists:
-                                logger.warning(f"Parent directory does not exist: {dir_path}")
-                                # We'll try to create it when needed, but for now just warn
-                    else:
-                        # For commands that require existing paths
-                        logger.error(f"Path does not exist: {path}")
-                        raise ToolError(
-                            f"The path {path} does not exist. Please provide a valid path."
-                        )
+                if self._local_mode:
+                    # Local mode - use pathlib
+                    if not path_obj.exists():
+                        if command in ["str_replace", "regex_replace", "line_edit", "insert", "insert_at"]:
+                            # Check if parent directory exists
+                            if not path_obj.parent.exists():
+                                logger.warning(f"Parent directory does not exist: {path_obj.parent}")
+                        else:
+                            logger.error(f"Path does not exist: {path}")
+                            raise ToolError(f"The path {path} does not exist. Please provide a valid path.")
+                    
+                    is_dir = path_obj.is_dir()
+                else:
+                    # Sandbox mode - use sandbox commands
+                    exists_result = await self._run_sandbox_command(
+                        f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
+                    )
+                    if "not exists" in exists_result:
+                        if command in ["str_replace", "regex_replace", "line_edit", "insert", "insert_at"]:
+                            dir_path = os.path.dirname(path)
+                            if dir_path:
+                                dir_exists = await self._run_sandbox_command(
+                                    f"test -d {dir_path} && echo 'exists' || echo 'not exists'", sandbox
+                                )
+                                if "not exists" in dir_exists:
+                                    logger.warning(f"Parent directory does not exist: {dir_path}")
+                        else:
+                            logger.error(f"Path does not exist: {path}")
+                            raise ToolError(f"The path {path} does not exist. Please provide a valid path.")
 
-                # Check if path is a directory
-                dir_result = await self._run_sandbox_command(
-                    f"test -d {path} && echo 'directory' || echo 'file'", sandbox
-                )
-                is_dir = "directory" in dir_result
+                    # Check if path is a directory
+                    dir_result = await self._run_sandbox_command(
+                        f"test -d {path} && echo 'directory' || echo 'file'", sandbox
+                    )
+                    is_dir = "directory" in dir_result
 
                 if is_dir and command != "view":
                     logger.error(f"Path is a directory but command is not 'view': {path}")
@@ -637,14 +716,19 @@ class FileEditor(BaseTool):
         # Check if file exists for create command
         elif command == "create":
             try:
-                exists_result = await self._run_sandbox_command(
-                    f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
-                )
-                if "exists" in exists_result:
-                    logger.error(f"File already exists: {path}")
-                    raise ToolError(
-                        f"File already exists at: {path}. Cannot overwrite files using command `create`."
+                if self._local_mode:
+                    # Local mode
+                    if path_obj.exists():
+                        logger.error(f"File already exists: {path}")
+                        raise ToolError(f"File already exists at: {path}. Cannot overwrite files using command `create`.")
+                else:
+                    # Sandbox mode
+                    exists_result = await self._run_sandbox_command(
+                        f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
                     )
+                    if "exists" in exists_result:
+                        logger.error(f"File already exists: {path}")
+                        raise ToolError(f"File already exists at: {path}. Cannot overwrite files using command `create`.")
             except Exception as e:
                 if not isinstance(e, ToolError):
                     logger.error(f"Error checking file existence: {e}")
@@ -663,19 +747,20 @@ class FileEditor(BaseTool):
         Args:
             path: Path to file or directory
             view_range: Optional line range to view [start, end]
-            sandbox: Sandbox client
+            sandbox: Sandbox client (None for local mode)
 
         Returns:
             CLIResult with file or directory content
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         # Determine if path is a directory
-        is_dir_result = await self._run_sandbox_command(
-            f"test -d {path} && echo 'directory' || echo 'file'", sandbox
-        )
-        is_dir = "directory" in is_dir_result
+        if self._local_mode:
+            path_obj = Path(path)
+            is_dir = path_obj.is_dir()
+        else:
+            is_dir_result = await self._run_sandbox_command(
+                f"test -d {path} && echo 'directory' || echo 'file'", sandbox
+            )
+            is_dir = "directory" in is_dir_result
 
         if is_dir:
             # Directory handling
@@ -685,24 +770,49 @@ class FileEditor(BaseTool):
                     "The `view_range` parameter is not allowed when `path` points to a directory."
                 )
 
-            # List directory contents
-            find_cmd = f"find {path} -maxdepth 2 -not -path '*/\\.*'"
-            find_result = await self._run_sandbox_command(find_cmd, sandbox)
-
-            if isinstance(find_result, str) and find_result:
-                output = (
-                    f"Here are the files and directories up to 2 levels deep in {path}, "
-                    f"excluding hidden items:\n{find_result}\n"
-                )
-                logger.info(f"Listed directory contents: {path}")
-                return CLIResult(output=output)
+            if self._local_mode:
+                # Local directory listing
+                try:
+                    path_obj = Path(path)
+                    items = list(path_obj.iterdir())
+                    items = sorted(items, key=lambda x: (x.is_file(), x.name))  # Dirs first, then files
+                    
+                    output = f"Here are the files and directories in {path}:\n"
+                    for item in items[:100]:  # Limit to 100 items
+                        item_type = "[DIR]" if item.is_dir() else "[FILE]"
+                        output += f"{item_type} {item.name}\n"
+                    
+                    if len(items) > 100:
+                        output += f"... and {len(items) - 100} more items\n"
+                    
+                    logger.info(f"Listed local directory contents: {path}")
+                    return CLIResult(output=output)
+                except Exception as e:
+                    logger.warning(f"Failed to list local directory contents: {path}")
+                    return CLIResult(error=f"Failed to list directory contents: {str(e)}")
             else:
-                logger.warning(f"Failed to list directory contents: {path}")
-                return CLIResult(error=f"Failed to list directory contents: {path}")
+                # Sandbox directory listing
+                find_cmd = f"find {path} -maxdepth 2 -not -path '*/\\.*'"
+                find_result = await self._run_sandbox_command(find_cmd, sandbox)
+
+                if isinstance(find_result, str) and find_result:
+                    output = (
+                        f"Here are the files and directories up to 2 levels deep in {path}, "
+                        f"excluding hidden items:\n{find_result}\n"
+                    )
+                    logger.info(f"Listed directory contents: {path}")
+                    return CLIResult(output=output)
+                else:
+                    logger.warning(f"Failed to list directory contents: {path}")
+                    return CLIResult(error=f"Failed to list directory contents: {path}")
         else:
             # File handling - read file content
             try:
-                file_content = await sandbox.read_file(path)
+                if self._local_mode:
+                    file_content = await self._read_file_local(path)
+                else:
+                    file_content = await sandbox.read_file(path)
+                    
                 init_line = 1
 
                 # Apply view range if specified
@@ -785,23 +895,28 @@ class FileEditor(BaseTool):
         Returns:
             CLIResult with replacement result
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         # Check if file exists, and create path to it if needed
-        exists_result = await self._run_sandbox_command(
-            f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
-        )
-        if "not exists" in exists_result:
-            # Try to create directory structure for the file
-            await self._ensure_directory_exists(path, sandbox)
-
-            # If file doesn't exist, can't perform replacement
-            logger.error(f"File does not exist and cannot be created for replacement: {path}")
-            raise ToolError(f"The file {path} does not exist for replacement operation.")
+        if self._local_mode:
+            path_obj = Path(path)
+            if not path_obj.exists():
+                await self._ensure_directory_exists(path, sandbox)
+                logger.error(f"File does not exist for replacement: {path}")
+                raise ToolError(f"The file {path} does not exist for replacement operation.")
+        else:
+            exists_result = await self._run_sandbox_command(
+                f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
+            )
+            if "not exists" in exists_result:
+                await self._ensure_directory_exists(path, sandbox)
+                logger.error(f"File does not exist for replacement: {path}")
+                raise ToolError(f"The file {path} does not exist for replacement operation.")
 
         # Read file content
-        file_content = await sandbox.read_file(path)
+        if self._local_mode:
+            file_content = await self._read_file_local(path)
+        else:
+            file_content = await sandbox.read_file(path)
+            
         new_str = new_str or ""
 
         # Create backup if requested
@@ -813,8 +928,10 @@ class FileEditor(BaseTool):
         # Check if old_str is unique in the file
         occurrences = file_content.count(old_str)
         if occurrences == 0:
-            if backup_path:
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.warning(f"String not found: {old_str}")
             raise ToolError(
                 f"No replacement was performed, old_str `{old_str}` did not appear verbatim in {path}."
@@ -829,8 +946,10 @@ class FileEditor(BaseTool):
                     lines.append(line_num)
                 line_num += 1
 
-            if backup_path:
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.warning(f"Multiple occurrences found: {old_str}")
             raise ToolError(
                 f"No replacement was performed. Multiple occurrences of old_str in {path} "
@@ -845,7 +964,10 @@ class FileEditor(BaseTool):
         logger.debug(f"Added original content to history for {path}")
 
         # Write the new content to the file
-        await sandbox.write_file(path, new_file_content)
+        if self._local_mode:
+            await self._write_file_local(path, new_file_content)
+        else:
+            await sandbox.write_file(path, new_file_content)
         logger.info(f"Successfully replaced string in {path}")
 
         # Create a snippet of the edited section
@@ -894,23 +1016,27 @@ class FileEditor(BaseTool):
         Returns:
             CLIResult with replacement result
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         # Check if file exists, and create path to it if needed
-        exists_result = await self._run_sandbox_command(
-            f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
-        )
-        if "not exists" in exists_result:
-            # Try to create directory structure for the file
-            await self._ensure_directory_exists(path, sandbox)
-
-            # If file doesn't exist, can't perform replacement
-            logger.error(f"File does not exist and cannot be created for replacement: {path}")
-            raise ToolError(f"The file {path} does not exist for replacement operation.")
+        if self._local_mode:
+            path_obj = Path(path)
+            if not path_obj.exists():
+                await self._ensure_directory_exists(path, sandbox)
+                logger.error(f"File does not exist for replacement: {path}")
+                raise ToolError(f"The file {path} does not exist for replacement operation.")
+        else:
+            exists_result = await self._run_sandbox_command(
+                f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
+            )
+            if "not exists" in exists_result:
+                await self._ensure_directory_exists(path, sandbox)
+                logger.error(f"File does not exist for replacement: {path}")
+                raise ToolError(f"The file {path} does not exist for replacement operation.")
 
         # Read file content
-        file_content = await sandbox.read_file(path)
+        if self._local_mode:
+            file_content = await self._read_file_local(path)
+        else:
+            file_content = await sandbox.read_file(path)
 
         # Create backup if requested
         backup_path = None
@@ -924,9 +1050,10 @@ class FileEditor(BaseTool):
             compiled_pattern = re.compile(pattern, regex_flags)
             logger.debug(f"Compiled regex pattern: {pattern} with flags: {flags}")
         except re.error as e:
-            if backup_path:
-                # Clean up backup if not needed
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.error(f"Invalid regex pattern: {e}")
             raise ToolError(f"Invalid regex pattern: {e}")
 
@@ -935,9 +1062,10 @@ class FileEditor(BaseTool):
         match_count = len(matches)
 
         if match_count == 0:
-            if backup_path:
-                # Clean up backup if not needed
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.warning(f"No matches found for pattern: {pattern}")
             raise ToolError(f"No matches found for pattern: {pattern}")
 
@@ -947,9 +1075,10 @@ class FileEditor(BaseTool):
         )
 
         if replacement_count == 0:
-            if backup_path:
-                # Clean up backup if not needed
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.warning("No replacements made")
             raise ToolError("No replacements made. Pattern matched but replacement failed.")
 
@@ -958,7 +1087,10 @@ class FileEditor(BaseTool):
         logger.debug(f"Added original content to history for {path}")
 
         # Write the new content to the file
-        await sandbox.write_file(path, new_file_content)
+        if self._local_mode:
+            await self._write_file_local(path, new_file_content)
+        else:
+            await sandbox.write_file(path, new_file_content)
         logger.info(f"Successfully replaced {replacement_count} occurrences in {path}")
 
         # Find line numbers of matches (for reporting)
@@ -1062,27 +1194,35 @@ class FileEditor(BaseTool):
         Returns:
             CLIResult with edit result
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         # Check if file exists, and create path to it if needed
-        exists_result = await self._run_sandbox_command(
-            f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
-        )
-        if "not exists" in exists_result:
-            # For insert operations, we can create the file with empty content
-            if operation == "insert":
-                await self._ensure_directory_exists(path, sandbox)
-                await sandbox.write_file(path, "")
-                logger.info(f"Created empty file for insertion: {path}")
-                file_content = ""  # Empty content for new file
+        if self._local_mode:
+            path_obj = Path(path)
+            if not path_obj.exists():
+                if operation == "insert":
+                    await self._ensure_directory_exists(path, sandbox)
+                    await self._write_file_local(path, "")
+                    logger.info(f"Created empty file for insertion: {path}")
+                    file_content = ""
+                else:
+                    logger.error(f"File does not exist for {operation} operation: {path}")
+                    raise ToolError(f"The file {path} does not exist for {operation} operation.")
             else:
-                # For other operations, file must exist
-                logger.error(f"File does not exist for {operation} operation: {path}")
-                raise ToolError(f"The file {path} does not exist for {operation} operation.")
+                file_content = await self._read_file_local(path)
         else:
-            # Read file content for existing file
-            file_content = await sandbox.read_file(path)
+            exists_result = await self._run_sandbox_command(
+                f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
+            )
+            if "not exists" in exists_result:
+                if operation == "insert":
+                    await self._ensure_directory_exists(path, sandbox)
+                    await sandbox.write_file(path, "")
+                    logger.info(f"Created empty file for insertion: {path}")
+                    file_content = ""
+                else:
+                    logger.error(f"File does not exist for {operation} operation: {path}")
+                    raise ToolError(f"The file {path} does not exist for {operation} operation.")
+            else:
+                file_content = await sandbox.read_file(path)
 
         lines = file_content.splitlines()
 
@@ -1098,15 +1238,19 @@ class FileEditor(BaseTool):
             # Convert 1-based to 0-based line numbering
             line_idx = line_number - 1
             if operation != "insert" and (line_idx < 0 or line_idx >= len(lines)):
-                if backup_path:
+                if backup_path and not self._local_mode:
                     await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+                elif backup_path and self._local_mode:
+                    Path(backup_path).unlink(missing_ok=True)
                 logger.error(f"Line number out of range: {line_number}")
                 raise ToolError(f"Line number {line_number} is out of range (1-{len(lines)})")
 
             # For insert, allow line number at end of file
             if operation == "insert" and line_idx > len(lines):
-                if backup_path:
+                if backup_path and not self._local_mode:
                     await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+                elif backup_path and self._local_mode:
+                    Path(backup_path).unlink(missing_ok=True)
                 logger.error(f"Line number out of range: {line_number}")
                 raise ToolError(f"Line number {line_number} is out of range (1-{len(lines) + 1})")
 
@@ -1119,8 +1263,10 @@ class FileEditor(BaseTool):
             # Find lines matching the pattern
             matches = self._find_line_numbers(file_content, pattern, count)
             if not matches:
-                if backup_path:
+                if backup_path and not self._local_mode:
                     await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+                elif backup_path and self._local_mode:
+                    Path(backup_path).unlink(missing_ok=True)
                 logger.warning(f"No lines matched pattern: {pattern}")
                 raise ToolError(f"No lines matched pattern: {pattern}")
             target_lines = matches
@@ -1144,8 +1290,10 @@ class FileEditor(BaseTool):
 
         elif operation == "replace":
             if content is None:
-                if backup_path:
+                if backup_path and not self._local_mode:
                     await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+                elif backup_path and self._local_mode:
+                    Path(backup_path).unlink(missing_ok=True)
                 logger.error("Missing content for replace operation")
                 raise ToolError("Content must be provided for replace operation")
 
@@ -1164,8 +1312,10 @@ class FileEditor(BaseTool):
 
         elif operation == "insert":
             if content is None:
-                if backup_path:
+                if backup_path and not self._local_mode:
                     await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+                elif backup_path and self._local_mode:
+                    Path(backup_path).unlink(missing_ok=True)
                 logger.error("Missing content for insert operation")
                 raise ToolError("Content must be provided for insert operation")
 
@@ -1198,7 +1348,10 @@ class FileEditor(BaseTool):
             if file_content.endswith("\n"):  # Preserve trailing newline if it existed
                 new_content += "\n"
 
-            await sandbox.write_file(path, new_content)
+            if self._local_mode:
+                await self._write_file_local(path, new_content)
+            else:
+                await sandbox.write_file(path, new_content)
             logger.info(f"Successfully applied {operation} operation to {path}")
 
             # Create snippet for preview around the modified lines
@@ -1229,8 +1382,10 @@ class FileEditor(BaseTool):
                 )
         else:
             # No changes made
-            if backup_path:
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.warning("No changes were made to the file")
             return CLIResult(output="No changes were made to the file.")
 
@@ -1255,24 +1410,31 @@ class FileEditor(BaseTool):
         Returns:
             CLIResult with insertion result
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         # Check if file exists, and create path to it if needed
-        exists_result = await self._run_sandbox_command(
-            f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
-        )
-        if "not exists" in exists_result:
-            # Create the directory structure and empty file for insertion
-            await self._ensure_directory_exists(path, sandbox)
-            await sandbox.write_file(path, "")
-            logger.info(f"Created empty file for insertion: {path}")
-            file_content = ""  # Empty content for new file
-            lines = []
+        if self._local_mode:
+            path_obj = Path(path)
+            if not path_obj.exists():
+                await self._ensure_directory_exists(path, sandbox)
+                await self._write_file_local(path, "")
+                logger.info(f"Created empty file for insertion: {path}")
+                file_content = ""
+                lines = []
+            else:
+                file_content = await self._read_file_local(path)
+                lines = file_content.splitlines()
         else:
-            # Read file content for existing file
-            file_content = await sandbox.read_file(path)
-            lines = file_content.splitlines()
+            exists_result = await self._run_sandbox_command(
+                f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
+            )
+            if "not exists" in exists_result:
+                await self._ensure_directory_exists(path, sandbox)
+                await sandbox.write_file(path, "")
+                logger.info(f"Created empty file for insertion: {path}")
+                file_content = ""
+                lines = []
+            else:
+                file_content = await sandbox.read_file(path)
+                lines = file_content.splitlines()
 
         # Create backup if requested and file has content
         backup_path = None
@@ -1282,8 +1444,10 @@ class FileEditor(BaseTool):
 
         # Validate insert_line
         if insert_line < 0 or insert_line > len(lines) + 1:
-            if backup_path:
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.error(f"Invalid line number for insertion: {insert_line}")
             raise ToolError(
                 f"Invalid line number {insert_line}. It should be within the range [1-{len(lines) + 1}]"
@@ -1310,7 +1474,10 @@ class FileEditor(BaseTool):
             new_content += "\n"
 
         # Write the new content to the file
-        await sandbox.write_file(path, new_content)
+        if self._local_mode:
+            await self._write_file_local(path, new_content)
+        else:
+            await sandbox.write_file(path, new_content)
         logger.info(f"Successfully inserted at line {insert_line} in {path}")
 
         # Create a snippet for preview
@@ -1354,27 +1521,35 @@ class FileEditor(BaseTool):
         Returns:
             CLIResult with insertion result
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         # Check if file exists, and create path to it if needed
-        exists_result = await self._run_sandbox_command(
-            f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
-        )
-        if "not exists" in exists_result:
-            # If position is 0, we can create an empty file and insert at beginning
-            if position == 0:
-                await self._ensure_directory_exists(path, sandbox)
-                await sandbox.write_file(path, "")
-                logger.info(f"Created empty file for insertion: {path}")
-                file_content = ""  # Empty content for new file
+        if self._local_mode:
+            path_obj = Path(path)
+            if not path_obj.exists():
+                if position == 0:
+                    await self._ensure_directory_exists(path, sandbox)
+                    await self._write_file_local(path, "")
+                    logger.info(f"Created empty file for insertion: {path}")
+                    file_content = ""
+                else:
+                    logger.error(f"File does not exist for insert_at operation: {path}")
+                    raise ToolError(f"The file {path} does not exist for insert_at operation.")
             else:
-                # For other positions, file must exist
-                logger.error(f"File does not exist for insert_at operation: {path}")
-                raise ToolError(f"The file {path} does not exist for insert_at operation.")
+                file_content = await self._read_file_local(path)
         else:
-            # Read file content for existing file
-            file_content = await sandbox.read_file(path)
+            exists_result = await self._run_sandbox_command(
+                f"test -e {path} && echo 'exists' || echo 'not exists'", sandbox
+            )
+            if "not exists" in exists_result:
+                if position == 0:
+                    await self._ensure_directory_exists(path, sandbox)
+                    await sandbox.write_file(path, "")
+                    logger.info(f"Created empty file for insertion: {path}")
+                    file_content = ""
+                else:
+                    logger.error(f"File does not exist for insert_at operation: {path}")
+                    raise ToolError(f"The file {path} does not exist for insert_at operation.")
+            else:
+                file_content = await sandbox.read_file(path)
 
         # Create backup if requested
         backup_path = None
@@ -1384,8 +1559,10 @@ class FileEditor(BaseTool):
 
         # Validate position
         if position < 0 or position > len(file_content):
-            if backup_path:
+            if backup_path and not self._local_mode:
                 await self._run_sandbox_command(f"rm {backup_path}", sandbox)
+            elif backup_path and self._local_mode:
+                Path(backup_path).unlink(missing_ok=True)
             logger.error(f"Invalid position for insertion: {position}")
             raise ToolError(
                 f"Invalid position {position}. It should be within the range [0-{len(file_content)}]"
@@ -1400,7 +1577,10 @@ class FileEditor(BaseTool):
         new_content = file_content[:position] + new_str + file_content[position:]
 
         # Write the new content to the file
-        await sandbox.write_file(path, new_content)
+        if self._local_mode:
+            await self._write_file_local(path, new_content)
+        else:
+            await sandbox.write_file(path, new_content)
         logger.info(f"Successfully inserted at position {position} in {path}")
 
         # Determine the line number where the insertion occurred for better context
@@ -1443,9 +1623,6 @@ class FileEditor(BaseTool):
         Returns:
             CLIResult with undo result
         """
-        if sandbox is None:
-            sandbox = await self._get_sandbox_client()
-
         if not self._file_history[path]:
             logger.warning(f"No edit history found for {path}")
             raise ToolError(f"No edit history found for {path}.")
@@ -1453,7 +1630,10 @@ class FileEditor(BaseTool):
         old_text = self._file_history[path].pop()
         logger.debug(f"Retrieved previous version from history for {path}")
 
-        await sandbox.write_file(path, old_text)
+        if self._local_mode:
+            await self._write_file_local(path, old_text)
+        else:
+            await sandbox.write_file(path, old_text)
         logger.info(f"Successfully undid last edit to {path}")
 
         # Create a snippet of the first few lines for preview

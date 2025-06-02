@@ -87,10 +87,13 @@ class Terminate(BaseTool):
             config: Tool configuration settings
             **kwargs: Additional keyword arguments
         """
+        model_fields = self.__class__.model_fields
+
         super().__init__(
-            name=name if name is not None else self.name,
-            description=description if description is not None else self.description,
-            parameters=parameters if parameters is not None else self.parameters,
+            name=name or model_fields["name"].default,
+            description=description or model_fields["description"].default,
+            parameters=parameters or model_fields["parameters"].default,
+            **kwargs,
         )
 
         # Store tool configuration

@@ -4,15 +4,16 @@ import asyncio
 import json
 import re
 import time
-from typing import Any, Dict, List, Optional, Set, Union, cast
+from typing import Any, Dict, List, Optional, Set, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from enterprise_ai.exceptions import EnterpriseAIError
-from enterprise_ai.llm.simple import LLM
+from enterprise_ai.llm import complete, CompletionOptions  # Updated import
+from enterprise_ai.schema import Message  # Updated import
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
-from enterprise_ai.tool.core.result import ToolResult
+from enterprise_ai.tool.core.result import ToolResult  # Using unified ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import SearchResult, WebSearch
 
@@ -37,9 +38,16 @@ Research query: {query}
 Content to analyze:
 {content}
 
-Extract up to 3 most important insights from this content. For each insight:
-1. Provide the insight content
-2. Provide relevance score (0.0-1.0)
+Extract up to 3 most important insights from this content. Format your response as:
+
+1. [Insight content here]
+   Relevance: [0.0-1.0]
+
+2. [Second insight content here]
+   Relevance: [0.0-1.0]
+
+3. [Third insight content here]
+   Relevance: [0.0-1.0]
 """
 
 GENERATE_FOLLOW_UPS_PROMPT = """
@@ -53,22 +61,25 @@ Key insights so far:
 
 Generate up to 3 specific follow-up queries that would help address gaps in our current knowledge.
 Each query should be concise and focused on a specific aspect of the research topic.
+
+Format your response as:
+1. [First follow-up query]
+2. [Second follow-up query]
+3. [Third follow-up query]
 """
 
 # Constants for insight parsing
 DEFAULT_RELEVANCE_SCORE = 1.0
 FALLBACK_RELEVANCE_SCORE = 0.7
 FALLBACK_CONTENT_LIMIT = 500
-# Pattern to detect start of an insight (number., -, *, •) and capture content
 INSIGHT_MARKER_PATTERN = re.compile(r"^\s*(?:\d+\.|-|\*|•)\s*(.*)")
-# Pattern to detect relevance score, capturing the number (case-insensitive)
 RELEVANCE_SCORE_PATTERN = re.compile(r"relevance.*?:.*?(\d\.?\d*)", re.IGNORECASE)
 
 
 class ResearchInsight(BaseModel):
     """A single insight discovered during research."""
 
-    model_config = ConfigDict(frozen=True)  # Make insights immutable
+    model_config = ConfigDict(frozen=True)
 
     content: str = Field(description="The insight content")
     source_url: str = Field(description="URL where this insight was found")
@@ -99,9 +110,7 @@ class ResearchContext(BaseModel):
 
 
 class ResearchSummary(ToolResult):
-    """Comprehensive summary of deep research results."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
+    """Comprehensive summary of deep research results using unified ToolResult."""
 
     query: str = Field(description="The original research query")
     insights: List[ResearchInsight] = Field(
@@ -110,35 +119,58 @@ class ResearchSummary(ToolResult):
     visited_urls: Set[str] = Field(default_factory=set, description="URLs visited during research")
     depth_reached: int = Field(default=0, description="Maximum depth of research reached", ge=0)
 
-    @model_validator(mode="after")
-    def populate_output(self) -> "ResearchSummary":
-        """Populate the output field after validation."""
+    def __init__(self, **data: Any) -> None:
+        # Format the research summary for the unified result field
+        query = data.get("query", "")
+        insights = data.get("insights", [])
+        visited_urls = data.get("visited_urls", set())
+        depth_reached = data.get("depth_reached", 0)
+        
+        formatted_result = self._format_research_summary(query, insights, visited_urls, depth_reached)
+        
+        # Set unified fields
+        data["result"] = formatted_result
+        data["tool_call_id"] = data.get("tool_call_id", "")
+        data["name"] = data.get("name", "deep_research")
+        data["success"] = not bool(data.get("error"))
+        
+        super().__init__(**data)
+
+    def _format_research_summary(
+        self, 
+        query: str, 
+        insights: List[ResearchInsight], 
+        visited_urls: Set[str], 
+        depth_reached: int
+    ) -> str:
+        """Format research summary for display."""
         # Group and sort insights by relevance
         grouped_insights: Dict[str, List[ResearchInsight]] = {
-            "Key Findings": [i for i in self.insights if i.relevance_score >= 0.8],
-            "Additional Information": [i for i in self.insights if 0.5 <= i.relevance_score < 0.8],
-            "Supplementary Information": [i for i in self.insights if i.relevance_score < 0.5],
+            "Key Findings": [i for i in insights if i.relevance_score >= 0.8],
+            "Additional Information": [i for i in insights if 0.5 <= i.relevance_score < 0.8],
+            "Supplementary Information": [i for i in insights if i.relevance_score < 0.5],
         }
 
         sections = [
-            f"# Research: {self.query}\n",
-            f"**Sources**: {len(self.visited_urls)} | **Depth**: {self.depth_reached + 1}\n",
+            f"# Research: {query}\n",
+            f"**Sources**: {len(visited_urls)} | **Depth**: {depth_reached + 1}\n",
         ]
 
-        for section_title, insights in grouped_insights.items():
-            if insights:
+        for section_title, section_insights in grouped_insights.items():
+            if section_insights:
                 sections.append(f"## {section_title}")
-                for i, insight in enumerate(insights, 1):
-                    sections.extend(
-                        [
-                            insight.content,
-                            f"> Source: [{insight.source_title or 'Link'}]({insight.source_url})\n",
-                        ]
-                    )
+                for insight in section_insights:
+                    sections.extend([
+                        insight.content,
+                        f"> Source: [{insight.source_title or 'Link'}]({insight.source_url})\n",
+                    ])
 
-        # Assign the formatted string to the 'output' field inherited from ToolResult
-        self.output = "\n".join(sections)
-        return self
+        return "\n".join(sections)
+
+    @property
+    def output(self) -> str:
+        """Backward compatibility property."""
+        return self.result
 
 
 @register_tool(category="research")
@@ -213,11 +245,10 @@ class DeepResearch(BaseTool):
         "required": ["query"],
     }
 
-    # Define capabilities - use SEARCH instead of RESEARCH which doesn't exist
     capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.SEARCH}
 
-    search_tool: Optional[Any] = Field(default=None, exclude=True)
-    llm: Optional[Any] = Field(default=None, exclude=True)
+    # Tool fields
+    search_tool: Optional[WebSearch] = Field(default=None, exclude=True)
 
     def __init__(
         self,
@@ -227,20 +258,9 @@ class DeepResearch(BaseTool):
         config: Optional[ToolConfig] = None,
         **kwargs: Any,
     ) -> None:
-        """
-        Initialize DeepResearch tool with standard parameters.
-
-        Args:
-            name: Override for tool name
-            description: Override for tool description
-            parameters: Override for tool parameters schema
-            config: Tool configuration settings
-            **kwargs: Additional keyword arguments
-        """
-        # Access class field info directly from the model fields
+        """Initialize DeepResearch tool with standard parameters."""
         model_fields = self.__class__.model_fields
 
-        # Initialize with parent class first, using field info to get defaults
         super().__init__(
             name=name or model_fields["name"].default,
             description=description or model_fields["description"].default,
@@ -248,36 +268,23 @@ class DeepResearch(BaseTool):
             **kwargs,
         )
 
-        # Store tool configuration
         self.config = config or ToolConfig(
-            timeout=180.0,  # Default research timeout
-            max_retries=2,  # Research can be retried
-            cache_results=True,  # Cache research results
+            timeout=180.0,
+            max_retries=2,
+            cache_results=True,
         )
 
-        # Initialize dependent tools (now these will work properly)
+        # Initialize dependent tools
         self.search_tool = None
-        self.llm = None
 
         logger.debug("DeepResearch tool initialized")
 
     async def initialize(self, **kwargs: Any) -> bool:
-        """
-        Initialize the research tool and its dependencies.
-
-        Args:
-            **kwargs: Additional initialization parameters
-
-        Returns:
-            True if initialization succeeded, False otherwise
-        """
+        """Initialize the research tool and its dependencies."""
         try:
-            # Initialize WebSearch tool
             self.search_tool = WebSearch()
-
-            # Initialize LLM
-            self.llm = LLM()
-
+            await self.search_tool.initialize()
+            
             logger.info("DeepResearch tool successfully initialized")
             return True
         except Exception as e:
@@ -285,44 +292,31 @@ class DeepResearch(BaseTool):
             return False
 
     async def execute(self, **kwargs: Any) -> ResearchSummary:
-        """
-        Execute deep research on the given query.
-
-        Args:
-            **kwargs: Keyword arguments including:
-                query: The research question or topic
-                max_depth: Maximum depth of research (1-5)
-                results_per_search: Results to analyze per search
-                max_insights: Maximum insights to return
-                time_limit_seconds: Maximum execution time
-
-        Returns:
-            ResearchSummary with organized findings
-        """
-        # Extract parameters from kwargs
+        """Execute deep research on the given query."""
+        # Extract parameters
         query = kwargs.get("query")
         if not query:
             logger.error("Missing required 'query' parameter")
-            raise ToolError("Query parameter is required")
+            return ResearchSummary(
+                query="",
+                insights=[],
+                visited_urls=set(),
+                depth_reached=0,
+                error="Query parameter is required",
+                tool_call_id="",
+                name=self.name
+            )
 
-        max_depth = kwargs.get("max_depth", 2)
-        results_per_search = kwargs.get("results_per_search", 5)
+        max_depth = max(1, min(kwargs.get("max_depth", 2), 5))
+        results_per_search = max(1, min(kwargs.get("results_per_search", 5), 20))
         max_insights = kwargs.get("max_insights", 20)
-
-        # Use timeout from config if available, otherwise use parameter
         config_timeout = getattr(self.config, "timeout", 120)
         time_limit_seconds = kwargs.get("time_limit_seconds", config_timeout)
 
-        # Normalize parameters
-        max_depth = max(1, min(max_depth, 5))
-        results_per_search = max(1, min(results_per_search, 20))
-
         logger.info(f"Starting deep research on query: {query}")
-        logger.debug(
-            f"Parameters: max_depth={max_depth}, results_per_search={results_per_search}, time_limit={time_limit_seconds}s"
-        )
+        logger.debug(f"Parameters: max_depth={max_depth}, results_per_search={results_per_search}")
 
-        # Initialize research context and set deadline
+        # Initialize research context
         context = ResearchContext(query=query, max_depth=max_depth)
         deadline = time.time() + time_limit_seconds
 
@@ -330,13 +324,9 @@ class DeepResearch(BaseTool):
             # Initialize tools if needed
             if self.search_tool is None:
                 self.search_tool = WebSearch()
-                logger.debug("Initialized WebSearch tool")
+                await self.search_tool.initialize()
 
-            if self.llm is None:
-                self.llm = LLM()
-                logger.debug("Initialized LLM")
-
-            # Initiate research process with optimized query
+            # Start research process
             optimized_query = await self._generate_optimized_query(query)
             logger.info(f"Optimized query: {optimized_query}")
 
@@ -347,9 +337,7 @@ class DeepResearch(BaseTool):
                 deadline=deadline,
             )
 
-            logger.info(
-                f"Research completed: {len(context.insights)} insights found, depth {context.current_depth} reached"
-            )
+            logger.info(f"Research completed: {len(context.insights)} insights, depth {context.current_depth}")
 
         except ToolError as e:
             logger.error(f"Research error: {str(e)}")
@@ -361,53 +349,40 @@ class DeepResearch(BaseTool):
         # Prepare final summary
         summary = ResearchSummary(
             query=query,
-            insights=sorted(context.insights, key=lambda x: x.relevance_score, reverse=True)[
-                :max_insights
-            ],
+            insights=sorted(context.insights, key=lambda x: x.relevance_score, reverse=True)[:max_insights],
             visited_urls=context.visited_urls,
             depth_reached=context.current_depth,
+            tool_call_id="",
+            name=self.name
         )
 
         return summary
 
     async def _generate_optimized_query(self, query: str) -> str:
-        """
-        Generate an optimized search query using LLM.
-
-        Args:
-            query: Original research query
-
-        Returns:
-            Optimized query for better search results
-        """
+        """Generate an optimized search query using the new LLM system."""
         try:
             logger.debug(f"Optimizing query: {query}")
             prompt = OPTIMIZE_QUERY_PROMPT.format(query=query)
 
-            # Prepare the request for the LLM
-            messages = [{"role": "user", "content": prompt}]
+            messages = [Message.user_message(prompt)]
 
-            # Get a response from the LLM
-            if self.llm is None:
-                raise ToolError("LLM is not initialized")
-            response = await self.llm.complete(messages=messages)
+            response = complete(
+                messages=messages,
+                provider_name="ollama",
+                options=CompletionOptions(temperature=0.1, max_tokens=100)
+            )
 
-            # Extract the optimized query from the response
-            optimized_query = ""
-            if response and hasattr(response, "content"):
-                content = response.content
-                if isinstance(content, str):
-                    optimized_query = content.strip()
+            if hasattr(response, 'content') and response.content:
+                optimized_query = response.content.strip()
+                if optimized_query:
+                    logger.info(f"Optimized query: '{optimized_query}'")
+                    return optimized_query
 
-            if not optimized_query:
-                logger.warning("Generated empty optimized query, using original")
-                return query
-
-            logger.info(f"Optimized query: '{optimized_query}'")
-            return optimized_query
+            logger.warning("Generated empty optimized query, using original")
+            return query
         except Exception as e:
             logger.warning(f"Failed to optimize query: {str(e)}")
-            return query  # Fall back to original query on error
+            return query
 
     async def _research_graph(
         self,
@@ -416,15 +391,7 @@ class DeepResearch(BaseTool):
         results_count: int,
         deadline: float,
     ) -> None:
-        """
-        Run a complete research cycle (search, analyze, generate follow-ups).
-
-        Args:
-            context: Current research context
-            query: Query to research
-            results_count: Number of results to analyze
-            deadline: Timestamp for execution deadline
-        """
+        """Run a complete research cycle."""
         # Check termination conditions
         if time.time() >= deadline or context.current_depth >= context.max_depth:
             if time.time() >= deadline:
@@ -433,7 +400,6 @@ class DeepResearch(BaseTool):
                 logger.info(f"Research cycle terminated: max depth {context.max_depth} reached")
             return
 
-        # Log current research step
         logger.info(f"Research cycle at depth {context.current_depth + 1} for query: {query}")
 
         # 1. Web search
@@ -444,9 +410,7 @@ class DeepResearch(BaseTool):
 
         # 2. Extract insights
         logger.debug(f"Analyzing {len(search_results)} search results")
-        new_insights = await self._extract_insights(
-            context, search_results, context.query, deadline
-        )
+        new_insights = await self._extract_insights(context, search_results, context.query, deadline)
         if not new_insights:
             logger.warning("No insights extracted from search results")
             return
@@ -458,50 +422,39 @@ class DeepResearch(BaseTool):
         context.follow_up_queries.extend(follow_up_queries)
         logger.info(f"Generated {len(follow_up_queries)} follow-up queries")
 
-        # Update depth and proceed to next level
+        # Update depth
         context.current_depth += 1
 
         # 4. Continue research with follow-up queries
         if follow_up_queries and context.current_depth < context.max_depth:
             logger.debug(f"Processing follow-up queries at depth {context.current_depth}")
 
-            tasks = []  # Create a list to hold the tasks
+            tasks = []
             for follow_up in follow_up_queries[:2]:  # Limit branching factor
                 if time.time() >= deadline:
                     logger.info("Follow-up processing terminated: time limit reached")
                     break
 
                 logger.debug(f"Scheduling follow-up query: {follow_up}")
-                # Create a coroutine for the recursive research call
                 task = self._research_graph(
                     context=context,
                     query=follow_up,
-                    results_count=max(1, results_count - 1),  # Reduce result count
+                    results_count=max(1, results_count - 1),
                     deadline=deadline,
                 )
-                tasks.append(task)  # Add the task to the list
+                tasks.append(task)
 
-            # Run all the created tasks concurrently
             if tasks:
                 logger.debug(f"Running {len(tasks)} follow-up queries in parallel")
                 await asyncio.gather(*tasks)
 
     async def _search_web(self, query: str, results_count: int) -> List[SearchResult]:
-        """
-        Perform web search for the given query.
-
-        Args:
-            query: Search query
-            results_count: Number of results to retrieve
-
-        Returns:
-            List of search results
-        """
+        """Perform web search for the given query."""
         logger.debug(f"Searching web for: {query}")
 
         if self.search_tool is None:
             self.search_tool = WebSearch()
-            logger.debug("Initialized WebSearch tool")
+            await self.search_tool.initialize()
 
         search_response = await self.search_tool.execute(
             query=query, num_results=results_count, fetch_content=True
@@ -518,105 +471,74 @@ class DeepResearch(BaseTool):
         original_query: str,
         deadline: float,
     ) -> List[ResearchInsight]:
-        """
-        Extract insights from search results.
-
-        Args:
-            context: Current research context
-            results: Search results to analyze
-            original_query: Original research query
-            deadline: Timestamp for execution deadline
-
-        Returns:
-            List of extracted insights
-        """
+        """Extract insights from search results."""
         all_insights = []
 
-        for result_index, rst in enumerate(results):
-            # Skip if URL already visited or time exceeded
-            if rst.url in context.visited_urls or time.time() >= deadline:
-                if rst.url in context.visited_urls:
-                    logger.debug(f"Skipping already visited URL: {rst.url}")
+        for result_index, result in enumerate(results):
+            if result.url in context.visited_urls or time.time() >= deadline:
+                if result.url in context.visited_urls:
+                    logger.debug(f"Skipping already visited URL: {result.url}")
                 else:
                     logger.debug("Analysis terminated: time limit reached")
                 continue
 
-            logger.debug(f"Analyzing result {result_index + 1}/{len(results)}: {rst.url}")
-            context.visited_urls.add(rst.url)
+            logger.debug(f"Analyzing result {result_index + 1}/{len(results)}: {result.url}")
+            context.visited_urls.add(result.url)
 
-            # Skip if no content available
-            if not rst.raw_content:
-                logger.debug(f"Skipping result with no content: {rst.url}")
+            if not result.raw_content:
+                logger.debug(f"Skipping result with no content: {result.url}")
                 continue
 
-            # Extract insights using LLM
             insights = await self._analyze_content(
-                content=rst.raw_content[:10000],  # Limit content size
-                url=rst.url,
-                title=rst.title,
+                content=result.raw_content[:10000],
+                url=result.url,
+                title=result.title,
                 query=original_query,
             )
 
             all_insights.extend(insights)
             context.insights.extend(insights)
-
-            # Log discovered insights
-            logger.info(f"Extracted {len(insights)} insights from {rst.url}")
+            logger.info(f"Extracted {len(insights)} insights from {result.url}")
 
         return all_insights
 
     async def _generate_follow_ups(
         self, insights: List[ResearchInsight], current_query: str, original_query: str
     ) -> List[str]:
-        """
-        Generate follow-up queries based on insights.
-
-        Args:
-            insights: Recently discovered insights
-            current_query: Current research query
-            original_query: Original research query
-
-        Returns:
-            List of follow-up queries
-        """
+        """Generate follow-up queries based on insights."""
         if not insights:
             logger.debug("No insights available for follow-up generation")
             return []
 
-        # Format insights for the prompt
         insights_text = "\n".join([f"- {insight.content}" for insight in insights[:5]])
-
-        # Create prompt for generating follow-up queries
         prompt = GENERATE_FOLLOW_UPS_PROMPT.format(
             original_query=original_query,
             current_query=current_query,
             insights=insights_text,
         )
 
-        # Get follow-up queries from LLM
         try:
             logger.debug("Generating follow-up queries")
 
-            if self.llm is None:
-                self.llm = LLM()
-                logger.debug("Initialized LLM")
+            messages = [Message.user_message(prompt)]
+            response = complete(
+                messages=messages,
+                provider_name="ollama",
+                options=CompletionOptions(temperature=0.3, max_tokens=200)
+            )
 
-            messages = [{"role": "user", "content": prompt}]
-            response = await self.llm.complete(messages=messages)
-            content = ""
-            if hasattr(response, "content") and isinstance(response.content, str):
-                content = response.content
+            if not (hasattr(response, 'content') and response.content):
+                return []
 
-            # Extract queries from response
+            content = response.content.strip()
             queries = []
-            for line in content.strip().split("\n"):
-                # Look for numbered lines, bulleted lines, or similar formatting
+            
+            for line in content.split("\n"):
                 if re.match(r"^\s*(\d+\.|\*|-|\•)\s+", line):
                     query_text = re.sub(r"^\s*(\d+\.|\*|-|\•)\s+", "", line).strip()
-                    if query_text and len(query_text) > 10:  # Avoid too short queries
+                    if query_text and len(query_text) > 10:
                         queries.append(query_text)
 
-            # Ensure we don't return more than 3 queries
             result = queries[:3]
             logger.info(f"Generated {len(result)} follow-up queries")
             return result
@@ -627,152 +549,99 @@ class DeepResearch(BaseTool):
     async def _analyze_content(
         self, content: str, url: str, title: str, query: str
     ) -> List[ResearchInsight]:
-        """
-        Extract insights from content based on relevance to query.
-
-        Args:
-            content: Content to analyze
-            url: Source URL
-            title: Source title
-            query: Research query
-
-        Returns:
-            List of extracted insights
-        """
+        """Extract insights from content based on relevance to query."""
         logger.debug(f"Analyzing content from: {url}")
 
         prompt = EXTRACT_INSIGHTS_PROMPT.format(
             query=query,
-            content=content[:5000],  # Limit content size
+            content=content[:5000],
         )
 
         try:
-            if self.llm is None:
-                self.llm = LLM()
-                logger.debug("Initialized LLM")
+            messages = [Message.user_message(prompt)]
+            response = complete(
+                messages=messages,
+                provider_name="ollama",
+                options=CompletionOptions(temperature=0.2, max_tokens=500)
+            )
 
-            messages = [{"role": "user", "content": prompt}]
-            response = await self.llm.complete(messages=messages)
             insights = []
+            
+            if not (hasattr(response, 'content') and response.content):
+                logger.warning(f"No response content for {url}")
+                return [self._create_fallback_insight(url, title)]
 
-            response_content = ""
-            if response and hasattr(response, "content") and isinstance(response.content, str):
-                response_content = response.content
+            response_content = response.content.strip()
+            current_insight: Dict[str, Any] = {
+                "content": "",
+                "relevance_score": DEFAULT_RELEVANCE_SCORE,
+            }
+            
+            for line in response_content.split("\n"):
+                # Check for new insight marker
+                if match := INSIGHT_MARKER_PATTERN.match(line):
+                    # Save previous insight if exists
+                    if current_insight["content"]:
+                        insights.append(self._create_insight_from_dict(current_insight, url, title))
+                        current_insight = {
+                            "content": "",
+                            "relevance_score": DEFAULT_RELEVANCE_SCORE,
+                        }
 
-                # Parse insights from the response text
-                current_insight: Dict[str, Any] = {
-                    "content": "",
-                    "relevance_score": DEFAULT_RELEVANCE_SCORE,
-                }
-                for line in response_content.strip().split("\n"):
-                    # Check for new insight marker
-                    if match := INSIGHT_MARKER_PATTERN.match(line):
-                        # If we have a previous insight, add it
-                        if current_insight["content"]:
-                            # Ensure content is a string
-                            insight_content = ""
-                            if isinstance(current_insight["content"], str):
-                                insight_content = current_insight["content"].strip()
-                            else:
-                                insight_content = str(current_insight["content"])
+                    # Start new insight
+                    current_insight["content"] = match.group(1)
+                elif "relevance" in line.lower() and (score_match := RELEVANCE_SCORE_PATTERN.search(line)):
+                    # Extract relevance score
+                    try:
+                        score = float(score_match.group(1))
+                        if 0 <= score <= 1:
+                            current_insight["relevance_score"] = score
+                    except ValueError:
+                        pass
+                elif current_insight["content"]:
+                    # Continue current insight
+                    current_insight["content"] += " " + line.strip()
 
-                            # Ensure relevance_score is a float
-                            relevance_score = DEFAULT_RELEVANCE_SCORE
-                            if isinstance(current_insight["relevance_score"], (int, float)):
-                                relevance_score = float(current_insight["relevance_score"])
+            # Add final insight
+            if current_insight["content"]:
+                insights.append(self._create_insight_from_dict(current_insight, url, title))
 
-                            insights.append(
-                                ResearchInsight(
-                                    content=insight_content,
-                                    source_url=url,
-                                    source_title=title,
-                                    relevance_score=relevance_score,
-                                )
-                            )
-                            current_insight = {
-                                "content": "",
-                                "relevance_score": DEFAULT_RELEVANCE_SCORE,
-                            }
-
-                        # Start new insight
-                        current_insight["content"] = match.group(1)
-                    elif "relevance" in line.lower() and (
-                        score_match := RELEVANCE_SCORE_PATTERN.search(line)
-                    ):
-                        # Extract relevance score
-                        try:
-                            score = float(score_match.group(1))
-                            if 0 <= score <= 1:
-                                current_insight["relevance_score"] = score
-                        except ValueError:
-                            pass
-                    elif current_insight["content"]:
-                        # Continue current insight
-                        if isinstance(current_insight["content"], str):
-                            current_insight["content"] += " " + line.strip()
-                        else:
-                            current_insight["content"] = (
-                                str(current_insight["content"]) + " " + line.strip()
-                            )
-
-                # Add the last insight if any
-                if current_insight["content"]:
-                    # Ensure content is a string
-                    insight_content = ""
-                    if isinstance(current_insight["content"], str):
-                        insight_content = current_insight["content"].strip()
-                    else:
-                        insight_content = str(current_insight["content"])
-
-                    # Ensure relevance_score is a float
-                    relevance_score = DEFAULT_RELEVANCE_SCORE
-                    if isinstance(current_insight["relevance_score"], (int, float)):
-                        relevance_score = float(current_insight["relevance_score"])
-
-                    insights.append(
-                        ResearchInsight(
-                            content=insight_content,
-                            source_url=url,
-                            source_title=title,
-                            relevance_score=relevance_score,
-                        )
-                    )
-
-            # If no insights found, use fallback approach
+            # Use fallback if no insights found
             if not insights:
-                logger.warning(
-                    f"Could not parse insights from LLM response for {url}. Using fallback."
-                )
-                insights.append(
-                    ResearchInsight(
-                        content=f"Information found about {title or url}."[:FALLBACK_CONTENT_LIMIT],
-                        source_url=url,
-                        source_title=title,
-                        relevance_score=FALLBACK_RELEVANCE_SCORE,
-                    )
-                )
+                logger.warning(f"Could not parse insights from LLM response for {url}. Using fallback.")
+                insights.append(self._create_fallback_insight(url, title))
 
             logger.debug(f"Extracted {len(insights)} insights from {url}")
             return insights
         except Exception as e:
             logger.error(f"Error analyzing content from {url}: {str(e)}")
-            # Return fallback insight on error
-            return [
-                ResearchInsight(
-                    content=f"Information related to the query was found at {title or url}."[
-                        :FALLBACK_CONTENT_LIMIT
-                    ],
-                    source_url=url,
-                    source_title=title,
-                    relevance_score=FALLBACK_RELEVANCE_SCORE,
-                )
-            ]
+            return [self._create_fallback_insight(url, title)]
+
+    def _create_insight_from_dict(self, insight_dict: Dict[str, Any], url: str, title: str) -> ResearchInsight:
+        """Create ResearchInsight from dictionary."""
+        content = str(insight_dict["content"]).strip()
+        relevance = float(insight_dict["relevance_score"])
+        
+        return ResearchInsight(
+            content=content,
+            source_url=url,
+            source_title=title,
+            relevance_score=relevance,
+        )
+
+    def _create_fallback_insight(self, url: str, title: str) -> ResearchInsight:
+        """Create a fallback insight when parsing fails."""
+        return ResearchInsight(
+            content=f"Information related to the query was found at {title or url}."[:FALLBACK_CONTENT_LIMIT],
+            source_url=url,
+            source_title=title,
+            relevance_score=FALLBACK_RELEVANCE_SCORE,
+        )
 
     async def cleanup(self) -> None:
         """Clean up resources used by the deep research tool."""
         logger.info("Cleaning up deep research resources")
 
-        # Clean up WebSearch tool if initialized
         if self.search_tool is not None:
             try:
                 await self.search_tool.cleanup()

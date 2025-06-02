@@ -1,7 +1,8 @@
 """
 Browser automation tools for Enterprise AI.
 
-This module provides tools for browser automation and web interaction.
+This module provides tools for browser automation and web interaction using
+the unified tool system and updated LLM integration.
 """
 
 from enterprise_ai.tool.browser.browser import BrowserUseTool

@@ -3,7 +3,7 @@
 import asyncio
 import base64
 import json
-from typing import Any, Dict, List, Optional, Set, TypeVar, Union, cast
+from typing import Any, Dict, List, Optional, Set, Union
 
 from browser_use import Browser as BrowserUseBrowser
 from browser_use import BrowserConfig
@@ -13,24 +13,38 @@ from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
 from enterprise_ai.config import get_config
-from enterprise_ai.llm.simple import LLM
+from enterprise_ai.llm import complete, CompletionOptions  # Updated import
+from enterprise_ai.schema import Message  # Updated import
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
-from enterprise_ai.tool.core.result import ToolResult
+from enterprise_ai.tool.core.result import ToolResult  # Using unified ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import WebSearch
-
 
 logger = get_logger("tool.browser.browser_use")
 
 
-def llm_prompt(goal: str, content: List[str], max_content_length: int) -> str:
+def llm_prompt(goal: str, content: str, max_content_length: int) -> str:
+    """Create a prompt for content extraction."""
+    truncated_content = content[:max_content_length] if len(content) > max_content_length else content
     return f"""\
 Your task is to extract the content of the page. You will be given a page and a goal, and you should extract all relevant information around this goal from the page. If the goal is vague, summarize the page. Respond in json format.
+
 Extraction goal: {goal}
 
 Page content:
-{content[:max_content_length]}
+{truncated_content}
+
+Please extract the relevant information and format it as JSON with the following structure:
+{{
+  "extracted_content": {{
+    "text": "The main content extracted from the page",
+    "metadata": {{
+      "source": "Description of the source",
+      "relevance": "How the content relates to the goal"
+    }}
+  }}
+}}
 """
 
 
@@ -87,12 +101,14 @@ class BrowserUseTool(BaseTool):
                     "get_dropdown_options",
                     "select_dropdown_option",
                     "go_back",
+                    "refresh",
                     "web_search",
                     "wait",
                     "extract_content",
                     "switch_tab",
                     "open_tab",
                     "close_tab",
+                    "get_current_state",
                 ],
                 "description": "The browser action to perform",
             },
@@ -111,6 +127,7 @@ class BrowserUseTool(BaseTool):
             "scroll_amount": {
                 "type": "integer",
                 "description": "Pixels to scroll (positive for down, negative for up) for 'scroll_down' or 'scroll_up' actions",
+                "default": 500,
             },
             "tab_id": {
                 "type": "integer",
@@ -131,26 +148,10 @@ class BrowserUseTool(BaseTool):
             "seconds": {
                 "type": "integer",
                 "description": "Seconds to wait for 'wait' action",
+                "default": 3,
             },
         },
         "required": ["action"],
-        "dependencies": {
-            "go_to_url": ["url"],
-            "click_element": ["index"],
-            "input_text": ["index", "text"],
-            "switch_tab": ["tab_id"],
-            "open_tab": ["url"],
-            "scroll_down": ["scroll_amount"],
-            "scroll_up": ["scroll_amount"],
-            "scroll_to_text": ["text"],
-            "send_keys": ["keys"],
-            "get_dropdown_options": ["index"],
-            "select_dropdown_option": ["index", "text"],
-            "go_back": [],
-            "web_search": ["query"],
-            "wait": ["seconds"],
-            "extract_content": ["goal"],
-        },
     }
 
     # Define capabilities
@@ -163,12 +164,11 @@ class BrowserUseTool(BaseTool):
     requires_initialization: bool = True
 
     # Tool fields
-    lock: asyncio.Lock = Field(default_factory=asyncio.Lock)
+    lock: asyncio.Lock = Field(default_factory=asyncio.Lock, exclude=True)
     browser: Optional[BrowserUseBrowser] = Field(default=None, exclude=True)
     context: Optional[BrowserContext] = Field(default=None, exclude=True)
     dom_service: Optional[DomService] = Field(default=None, exclude=True)
     web_search_tool: Optional[WebSearch] = Field(default=None, exclude=True)
-    llm: Optional[LLM] = Field(default=None, exclude=True)
 
     def __init__(
         self,
@@ -180,37 +180,29 @@ class BrowserUseTool(BaseTool):
     ) -> None:
         """
         Initialize the browser automation tool with standard parameters.
-
-        Args:
-            name: Override for tool name
-            description: Override for tool description
-            parameters: Override for tool parameters schema
-            config: Tool configuration settings
-            **kwargs: Additional keyword arguments
         """
-        # Access class field info directly from the model fields
-        from pydantic import fields
-
-        # Initialize with parent class first, using field info to get defaults
         model_fields = self.__class__.model_fields
 
         super().__init__(
             name=name or model_fields["name"].default,
             description=description or model_fields["description"].default,
             parameters=parameters or model_fields["parameters"].default,
-            config=config or model_fields["config"].default,
             **kwargs,
         )
 
         self.config = config or ToolConfig(
-            timeout=60.0, max_retries=3, cache_results=False, sandbox_enabled=True
+            timeout=60.0, 
+            max_retries=3, 
+            cache_results=False, 
+            sandbox_enabled=True
         )
+        
+        # Initialize tool fields
         self.lock = asyncio.Lock()
         self.browser = None
         self.context = None
         self.dom_service = None
-        self.web_search_tool = WebSearch()
-        self.llm = None
+        self.web_search_tool = None
 
         logger.debug("BrowserUseTool initialized")
 
@@ -224,23 +216,15 @@ class BrowserUseTool(BaseTool):
     async def initialize(self, **kwargs: Any) -> bool:
         """
         Initialize the browser and any required resources.
-
-        Args:
-            **kwargs: Additional initialization parameters
-
-        Returns:
-            True if initialization succeeded, False otherwise
         """
         try:
-            # Initialize LLM
-            if self.llm is None:
-                try:
-                    self.llm = LLM()
-                except Exception as e:
-                    logger.error(f"Failed to initialize LLM: {e}")
-                    # Continue even without LLM, just with reduced functionality
+            # Initialize web search tool
+            if self.web_search_tool is None:
+                self.web_search_tool = WebSearch()
+                logger.debug("WebSearch tool initialized")
 
             # Browser will be initialized lazily when needed
+            logger.info("BrowserUseTool initialization completed")
             return True
         except Exception as e:
             logger.error(f"Browser initialization error: {e}")
@@ -249,12 +233,6 @@ class BrowserUseTool(BaseTool):
     async def _ensure_browser_initialized(self) -> BrowserContext:
         """
         Ensure browser and context are initialized.
-
-        Returns:
-            The initialized browser context
-
-        Raises:
-            ToolError: If browser initialization fails
         """
         if self.browser is None:
             logger.info("Initializing browser")
@@ -263,9 +241,6 @@ class BrowserUseTool(BaseTool):
             headless = get_config("browser_config.headless", False)
             disable_security = get_config("browser_config.disable_security", True)
             extra_args = get_config("browser_config.extra_chromium_args", [])
-
-            # Apply timeout from ToolConfig
-            _ = self.config.timeout
 
             # Build browser configuration
             browser_config_kwargs: Dict[str, Any] = {
@@ -297,97 +272,132 @@ class BrowserUseTool(BaseTool):
 
         return self.context
 
+    async def _extract_content_with_llm(self, content: str, goal: str) -> Dict[str, Any]:
+        """
+        Extract content using the new LLM system.
+        """
+        try:
+            max_content_length = get_config("browser_config.max_content_length", 2000)
+            prompt = llm_prompt(goal, content, max_content_length)
+            
+            # Create messages for the LLM
+            messages = [Message.user_message(prompt)]
+            
+            # Use the new LLM system
+            response = complete(
+                messages=messages,
+                provider_name="ollama",  # Can be configured
+                options=CompletionOptions(
+                    temperature=0.1,  # Low temperature for factual extraction
+                    max_tokens=2000
+                )
+            )
+            
+            # Parse the response
+            if hasattr(response, 'content') and response.content:
+                try:
+                    # Try to parse as JSON
+                    extracted_data = json.loads(response.content)
+                    return extracted_data
+                except json.JSONDecodeError:
+                    # If not valid JSON, wrap the content
+                    return {
+                        "extracted_content": {
+                            "text": response.content,
+                            "metadata": {
+                                "source": "Browser content extraction",
+                                "note": "Content was not in expected JSON format"
+                            }
+                        }
+                    }
+            else:
+                return {
+                    "extracted_content": {
+                        "text": "No content could be extracted",
+                        "metadata": {
+                            "source": "Browser content extraction",
+                            "error": "Empty response from LLM"
+                        }
+                    }
+                }
+                
+        except Exception as e:
+            logger.error(f"Error during LLM content extraction: {e}")
+            return {
+                "extracted_content": {
+                    "text": f"Content extraction failed: {str(e)}",
+                    "metadata": {
+                        "source": "Browser content extraction",
+                        "error": str(e)
+                    }
+                }
+            }
+
     async def execute(self, **kwargs: Any) -> ToolResult:
         """
         Execute a specified browser action.
-
-        Args:
-            **kwargs: Keyword arguments including:
-                action: The browser action to perform
-                url: URL for navigation or new tab
-                index: Element index for click or input actions
-                text: Text for input action or search query
-                scroll_amount: Pixels to scroll for scroll action
-                tab_id: Tab ID for switch_tab action
-                query: Search query for web search
-                goal: Extraction goal for content extraction
-                keys: Keys to send for keyboard actions
-                seconds: Seconds to wait
-
-        Returns:
-            ToolResult with the action's output or error
         """
-        # Apply configured timeout
+        # Apply configured timeout and retries
         execution_timeout = self.config.timeout
         retry_count = 0
-        max_retries = self.config.max_retries or 0  # Ensure max_retries is not None
+        max_retries = self.config.max_retries or 0
 
-        # Extract parameters from kwargs
+        # Extract parameters
         action = kwargs.get("action")
         if not action:
-            return ToolResult(error="Action parameter is required")
+            return ToolResult.create_error("Action parameter is required", tool_name=self.name)
 
         # Extract other parameters
         url = kwargs.get("url")
         index = kwargs.get("index")
         text = kwargs.get("text")
-        scroll_amount = kwargs.get("scroll_amount")
+        scroll_amount = kwargs.get("scroll_amount", 500)
         tab_id = kwargs.get("tab_id")
         query = kwargs.get("query")
         goal = kwargs.get("goal")
         keys = kwargs.get("keys")
-        seconds = kwargs.get("seconds")
+        seconds = kwargs.get("seconds", 3)
 
-        # Log the action being performed
         logger.info(f"Executing browser action: {action}")
 
-        # Execution with retries if configured
+        # Execution with retries
         while retry_count <= max_retries:
             try:
                 async with self.lock:
-                    # Make sure browser is initialized
+                    # Ensure browser is initialized
                     context = await self._ensure_browser_initialized()
 
-                    # Get max content length from config
-                    max_content_length = get_config("browser_config.max_content_length", 2000)
-
-                    # Execute the appropriate action based on the action parameter
-
-                    # Navigation actions
+                    # Execute the appropriate action
                     if action == "go_to_url":
                         if not url:
-                            return ToolResult(error="URL is required for 'go_to_url' action")
+                            return ToolResult.create_error("URL is required for 'go_to_url' action", tool_name=self.name)
 
                         logger.debug(f"Navigating to URL: {url}")
                         page = await context.get_current_page()
-
-                        # Use timeout from config
-                        page_timeout = (
-                            execution_timeout * 1000 if execution_timeout else 60000
-                        )  # Convert to ms
+                        page_timeout = execution_timeout * 1000 if execution_timeout else 60000
 
                         try:
                             await page.goto(url, timeout=page_timeout)
                             await page.wait_for_load_state()
                             logger.info(f"Successfully navigated to: {url}")
-                            return ToolResult(output=f"Navigated to {url}")
+                            return ToolResult.create_success(f"Navigated to {url}", tool_name=self.name)
                         except Exception as e:
                             logger.error(f"Navigation error: {e}")
-                            return ToolResult(error=f"Failed to navigate to {url}: {str(e)}")
+                            return ToolResult.create_error(f"Failed to navigate to {url}: {str(e)}", tool_name=self.name)
 
                     elif action == "go_back":
                         logger.debug("Navigating back")
                         await context.go_back()
-                        return ToolResult(output="Navigated back")
+                        return ToolResult.create_success("Navigated back", tool_name=self.name)
 
                     elif action == "refresh":
                         logger.debug("Refreshing page")
                         await context.refresh_page()
-                        return ToolResult(output="Refreshed current page")
+                        return ToolResult.create_success("Refreshed current page", tool_name=self.name)
 
                     elif action == "web_search":
                         if not query:
-                            return ToolResult(error="Query is required for 'web_search' action")
+                            return ToolResult.create_error("Query is required for 'web_search' action", tool_name=self.name)
 
                         logger.debug(f"Performing web search for: {query}")
 
@@ -395,81 +405,82 @@ class BrowserUseTool(BaseTool):
                         if self.web_search_tool is None:
                             self.web_search_tool = WebSearch()
 
-                        # Execute the web search and return results directly
+                        # Execute the web search
                         search_response = await self.web_search_tool.execute(
-                            query=query, fetch_content=True, num_results=1
+                            query=query, fetch_content=True, num_results=5
                         )
 
-                        # Navigate to the first search result
+                        # Navigate to the first search result if available
                         if hasattr(search_response, "results") and search_response.results:
-                            first_search_result = search_response.results[0]
-                            url_to_navigate = first_search_result.url
+                            first_result = search_response.results[0]
+                            url_to_navigate = first_result.url
 
                             page = await context.get_current_page()
                             await page.goto(url_to_navigate)
                             await page.wait_for_load_state()
                             logger.info(f"Navigated to search result: {url_to_navigate}")
 
-                        return search_response
+                            # Return the search results and navigation info
+                            return ToolResult.create_success(
+                                {
+                                    "search_results": [
+                                        {
+                                            "title": result.title,
+                                            "url": result.url,
+                                            "snippet": result.snippet
+                                        } for result in search_response.results
+                                    ],
+                                    "navigated_to": url_to_navigate
+                                },
+                                tool_name=self.name
+                            )
+                        else:
+                            return ToolResult.create_error("No search results found", tool_name=self.name)
 
-                    # Element interaction actions
                     elif action == "click_element":
                         if index is None:
-                            return ToolResult(error="Index is required for 'click_element' action")
+                            return ToolResult.create_error("Index is required for 'click_element' action", tool_name=self.name)
 
                         logger.debug(f"Clicking element at index: {index}")
                         element = await context.get_dom_element_by_index(index)
                         if not element:
-                            return ToolResult(error=f"Element with index {index} not found")
+                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
 
                         download_path = await context._click_element_node(element)
-                        output = f"Clicked element at index {index}"
+                        result_msg = f"Clicked element at index {index}"
                         if download_path:
-                            output += f" - Downloaded file to {download_path}"
+                            result_msg += f" - Downloaded file to {download_path}"
 
-                        logger.info(output)
-                        return ToolResult(output=output)
+                        logger.info(result_msg)
+                        return ToolResult.create_success(result_msg, tool_name=self.name)
 
                     elif action == "input_text":
                         if index is None or not text:
-                            return ToolResult(
-                                error="Index and text are required for 'input_text' action"
-                            )
+                            return ToolResult.create_error("Index and text are required for 'input_text' action", tool_name=self.name)
 
                         logger.debug(f"Inputting text at element index {index}: {text}")
                         element = await context.get_dom_element_by_index(index)
                         if not element:
-                            return ToolResult(error=f"Element with index {index} not found")
+                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
 
                         await context._input_text_element_node(element, text)
                         logger.info(f"Text input successful at index {index}")
-                        return ToolResult(output=f"Input '{text}' into element at index {index}")
+                        return ToolResult.create_success(f"Input '{text}' into element at index {index}", tool_name=self.name)
 
-                    elif action == "scroll_down" or action == "scroll_up":
+                    elif action in ["scroll_down", "scroll_up"]:
                         direction = 1 if action == "scroll_down" else -1
-                        amount = (
-                            scroll_amount
-                            if scroll_amount is not None
-                            else context.config.browser_window_size["height"]
-                        )
+                        amount = scroll_amount if scroll_amount is not None else context.config.browser_window_size["height"]
 
-                        logger.debug(
-                            f"Scrolling {'down' if direction > 0 else 'up'} by {amount} pixels"
-                        )
-                        await context.execute_javascript(
-                            f"window.scrollBy(0, {direction * amount});"
-                        )
+                        logger.debug(f"Scrolling {'down' if direction > 0 else 'up'} by {amount} pixels")
+                        await context.execute_javascript(f"window.scrollBy(0, {direction * amount});")
 
-                        logger.info(
-                            f"Scrolled {'down' if direction > 0 else 'up'} by {amount} pixels"
-                        )
-                        return ToolResult(
-                            output=f"Scrolled {'down' if direction > 0 else 'up'} by {amount} pixels"
-                        )
+                        result_msg = f"Scrolled {'down' if direction > 0 else 'up'} by {amount} pixels"
+                        logger.info(result_msg)
+                        return ToolResult.create_success(result_msg, tool_name=self.name)
 
                     elif action == "scroll_to_text":
                         if not text:
-                            return ToolResult(error="Text is required for 'scroll_to_text' action")
+                            return ToolResult.create_error("Text is required for 'scroll_to_text' action", tool_name=self.name)
 
                         logger.debug(f"Scrolling to text: '{text}'")
                         page = await context.get_current_page()
@@ -477,32 +488,30 @@ class BrowserUseTool(BaseTool):
                             locator = page.get_by_text(text, exact=False)
                             await locator.scroll_into_view_if_needed()
                             logger.info(f"Successfully scrolled to text: '{text}'")
-                            return ToolResult(output=f"Scrolled to text: '{text}'")
+                            return ToolResult.create_success(f"Scrolled to text: '{text}'", tool_name=self.name)
                         except Exception as e:
                             logger.error(f"Failed to scroll to text: {e}")
-                            return ToolResult(error=f"Failed to scroll to text: {str(e)}")
+                            return ToolResult.create_error(f"Failed to scroll to text: {str(e)}", tool_name=self.name)
 
                     elif action == "send_keys":
                         if not keys:
-                            return ToolResult(error="Keys are required for 'send_keys' action")
+                            return ToolResult.create_error("Keys are required for 'send_keys' action", tool_name=self.name)
 
                         logger.debug(f"Sending keys: {keys}")
                         page = await context.get_current_page()
                         await page.keyboard.press(keys)
 
                         logger.info(f"Successfully sent keys: {keys}")
-                        return ToolResult(output=f"Sent keys: {keys}")
+                        return ToolResult.create_success(f"Sent keys: {keys}", tool_name=self.name)
 
                     elif action == "get_dropdown_options":
                         if index is None:
-                            return ToolResult(
-                                error="Index is required for 'get_dropdown_options' action"
-                            )
+                            return ToolResult.create_error("Index is required for 'get_dropdown_options' action", tool_name=self.name)
 
                         logger.debug(f"Getting dropdown options for element at index {index}")
                         element = await context.get_dom_element_by_index(index)
                         if not element:
-                            return ToolResult(error=f"Element with index {index} not found")
+                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
 
                         page = await context.get_current_page()
                         options = await page.evaluate(
@@ -522,118 +531,47 @@ class BrowserUseTool(BaseTool):
                         )
 
                         logger.info(f"Retrieved {len(options) if options else 0} dropdown options")
-                        return ToolResult(output=f"Dropdown options: {options}")
+                        return ToolResult.create_success(f"Dropdown options: {options}", tool_name=self.name)
 
                     elif action == "select_dropdown_option":
                         if index is None or not text:
-                            return ToolResult(
-                                error="Index and text are required for 'select_dropdown_option' action"
-                            )
+                            return ToolResult.create_error("Index and text are required for 'select_dropdown_option' action", tool_name=self.name)
 
                         logger.debug(f"Selecting option '{text}' from dropdown at index {index}")
                         element = await context.get_dom_element_by_index(index)
                         if not element:
-                            return ToolResult(error=f"Element with index {index} not found")
+                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
 
                         page = await context.get_current_page()
                         await page.select_option(element.xpath, label=text)
 
-                        logger.info(f"Selected option '{text}' from dropdown at index {index}")
-                        return ToolResult(
-                            output=f"Selected option '{text}' from dropdown at index {index}"
-                        )
+                        result_msg = f"Selected option '{text}' from dropdown at index {index}"
+                        logger.info(result_msg)
+                        return ToolResult.create_success(result_msg, tool_name=self.name)
 
-                    # Content extraction actions
                     elif action == "extract_content":
                         if not goal:
-                            return ToolResult(error="Goal is required for 'extract_content' action")
+                            return ToolResult.create_error("Goal is required for 'extract_content' action", tool_name=self.name)
 
                         logger.debug(f"Extracting content with goal: {goal}")
                         page = await context.get_current_page()
-                        import markdownify
-
-                        content = markdownify.markdownify(await page.content())
-
-                        # Prepare prompt for LLM
-                        prompt = llm_prompt(goal, content, max_content_length)
-
-                        # Initialize LLM if needed
-                        if not self.llm:
-                            try:
-                                self.llm = LLM()
-                                logger.debug("LLM initialized for content extraction")
-                            except Exception as e:
-                                logger.error(f"Failed to initialize LLM: {e}")
-                                return ToolResult(
-                                    error="LLM service unavailable for content extraction"
-                                )
-
-                        # Define extraction function schema
-                        extraction_function = {
-                            "type": "function",
-                            "function": {
-                                "name": "extract_content",
-                                "description": "Extract specific information from a webpage based on a goal",
-                                "parameters": {
-                                    "type": "object",
-                                    "properties": {
-                                        "extracted_content": {
-                                            "type": "object",
-                                            "description": "The content extracted from the page according to the goal",
-                                            "properties": {
-                                                "text": {
-                                                    "type": "string",
-                                                    "description": "Text content extracted from the page",
-                                                },
-                                                "metadata": {
-                                                    "type": "object",
-                                                    "description": "Additional metadata about the extracted content",
-                                                    "properties": {
-                                                        "source": {
-                                                            "type": "string",
-                                                            "description": "Source of the extracted content",
-                                                        }
-                                                    },
-                                                },
-                                            },
-                                        }
-                                    },
-                                    "required": ["extracted_content"],
-                                },
-                            },
-                        }
-
-                        # Use LLM to extract content
+                        
                         try:
-                            messages = [{"role": "user", "content": prompt}]
-                            response = await self.llm.acomplete(
-                                messages=messages,
-                                functions=[extraction_function],
-                                function_call={"name": "extract_content"},
-                            )
+                            import markdownify
+                            content = markdownify.markdownify(await page.content())
+                        except ImportError:
+                            # Fallback to plain text if markdownify is not available
+                            content = await page.inner_text('body')
 
-                            if (
-                                hasattr(response, "function_call")
-                                and response.function_call
-                                and response.function_call.get("name") == "extract_content"
-                            ):
-                                args = json.loads(response.function_call["arguments"])
-                                extracted_content = args.get("extracted_content", {})
-                                logger.info("Content extraction successful")
-                                return ToolResult(
-                                    output=f"Extracted from page:\n{extracted_content}\n"
-                                )
+                        # Use the new LLM system for content extraction
+                        extracted_data = await self._extract_content_with_llm(content, goal)
+                        
+                        logger.info("Content extraction successful")
+                        return ToolResult.create_success(extracted_data, tool_name=self.name)
 
-                            logger.warning("No content extracted")
-                            return ToolResult(output="No content was extracted from the page.")
-                        except Exception as e:
-                            logger.error(f"Error during content extraction: {e}")
-                            return ToolResult(error=f"Content extraction failed: {str(e)}")
-
-                    # Tab management actions
                     elif action == "switch_tab":
                         if tab_id is None:
-                            return ToolResult(error="Tab ID is required for 'switch_tab' action")
+                            return ToolResult.create_error("Tab ID is required for 'switch_tab' action", tool_name=self.name)
 
                         logger.debug(f"Switching to tab: {tab_id}")
                         await context.switch_to_tab(tab_id)
@@ -641,70 +579,67 @@ class BrowserUseTool(BaseTool):
                         await page.wait_for_load_state()
 
                         logger.info(f"Switched to tab {tab_id}")
-                        return ToolResult(output=f"Switched to tab {tab_id}")
+                        return ToolResult.create_success(f"Switched to tab {tab_id}", tool_name=self.name)
 
                     elif action == "open_tab":
                         if not url:
-                            return ToolResult(error="URL is required for 'open_tab' action")
+                            return ToolResult.create_error("URL is required for 'open_tab' action", tool_name=self.name)
 
                         logger.debug(f"Opening new tab with URL: {url}")
                         await context.create_new_tab(url)
 
                         logger.info(f"Opened new tab with URL: {url}")
-                        return ToolResult(output=f"Opened new tab with {url}")
+                        return ToolResult.create_success(f"Opened new tab with {url}", tool_name=self.name)
 
                     elif action == "close_tab":
                         logger.debug("Closing current tab")
                         await context.close_current_tab()
 
                         logger.info("Closed current tab")
-                        return ToolResult(output="Closed current tab")
+                        return ToolResult.create_success("Closed current tab", tool_name=self.name)
 
-                    # Utility actions
                     elif action == "wait":
                         seconds_to_wait = seconds if seconds is not None else 3
                         logger.debug(f"Waiting for {seconds_to_wait} seconds")
                         await asyncio.sleep(seconds_to_wait)
 
                         logger.info(f"Waited for {seconds_to_wait} seconds")
-                        return ToolResult(output=f"Waited for {seconds_to_wait} seconds")
+                        return ToolResult.create_success(f"Waited for {seconds_to_wait} seconds", tool_name=self.name)
+
+                    elif action == "get_current_state":
+                        return await self.get_current_state()
 
                     else:
                         logger.warning(f"Unknown action: {action}")
-                        return ToolResult(error=f"Unknown action: {action}")
+                        return ToolResult.create_error(f"Unknown action: {action}", tool_name=self.name)
 
             except ToolError as e:
                 # If it's an explicit tool error, don't retry
                 logger.error(f"Tool error in action '{action}': {str(e)}")
-                return ToolResult(error=str(e))
+                return ToolResult.create_error(str(e), tool_name=self.name)
 
             except Exception as e:
                 retry_count += 1
-                logger.warning(
-                    f"Error in browser action '{action}' (attempt {retry_count}/{max_retries + 1}): {str(e)}"
-                )
+                logger.warning(f"Error in browser action '{action}' (attempt {retry_count}/{max_retries + 1}): {str(e)}")
 
                 # If we've hit max retries, return the error
                 if retry_count > max_retries:
                     logger.error(f"Max retries reached for action '{action}': {str(e)}")
-                    return ToolResult(
-                        error=f"Browser action '{action}' failed after {max_retries} retries: {str(e)}"
+                    return ToolResult.create_error(
+                        f"Browser action '{action}' failed after {max_retries} retries: {str(e)}",
+                        tool_name=self.name
                     )
 
                 # Wait before retrying (exponential backoff)
-                backoff_time = 2 ** (retry_count - 1)  # 1, 2, 4, 8...
+                backoff_time = 2 ** (retry_count - 1)
                 await asyncio.sleep(backoff_time)
 
-        # This return is needed to satisfy the type checker, though it should never be reached
-        # because the while loop will always either return or raise an exception
-        return ToolResult(error=f"Unexpected end of execution for action '{action}'")
+        # This should never be reached due to the while loop logic
+        return ToolResult.create_error(f"Unexpected end of execution for action '{action}'", tool_name=self.name)
 
     async def get_current_state(self) -> ToolResult:
         """
         Get the current browser state as a ToolResult.
-
-        Returns:
-            ToolResult containing the browser state and screenshot
         """
         try:
             # Ensure browser is initialized
@@ -712,41 +647,42 @@ class BrowserUseTool(BaseTool):
             if not ctx:
                 ctx = await self._ensure_browser_initialized()
 
-            # Add the required parameter cache_clickable_elements_hashes
+            # Get state with required parameter
             state = await ctx.get_state(cache_clickable_elements_hashes=True)
 
-            # Create a viewport_info dictionary
+            # Create viewport info
             viewport_height = 0
             if hasattr(state, "viewport_info") and state.viewport_info:
                 viewport_height = state.viewport_info.height
             elif hasattr(ctx, "config") and hasattr(ctx.config, "browser_window_size"):
                 viewport_height = ctx.config.browser_window_size.get("height", 0)
 
-            # Take a screenshot for the state
+            # Take screenshot
             page = await ctx.get_current_page()
-
             await page.bring_to_front()
             await page.wait_for_load_state()
 
-            # Use lower quality for screenshot to reduce size
             screenshot = await page.screenshot(
-                full_page=True, animations="disabled", type="jpeg", quality=75
+                full_page=True, 
+                animations="disabled", 
+                type="jpeg", 
+                quality=75
             )
+            screenshot_b64 = base64.b64encode(screenshot).decode("utf-8")
 
-            screenshot = base64.b64encode(screenshot).decode("utf-8")
-
-            # Get pixel values with proper null handling
+            # Get scroll info
             pixels_above = getattr(state, "pixels_above", 0) or 0
             pixels_below = getattr(state, "pixels_below", 0) or 0
 
-            # Build the state info with all required fields
+            # Build state info
             state_info = {
                 "url": state.url,
                 "title": state.title,
-                "tabs": [tab.dict() for tab in state.tabs],
+                "tabs": [tab.dict() for tab in state.tabs] if hasattr(state, 'tabs') else [],
                 "help": "[0], [1], [2], etc., represent clickable indices corresponding to the elements listed. Clicking on these indices will navigate to or interact with the respective content behind them.",
                 "interactive_elements": (
-                    state.element_tree.clickable_elements_to_string() if state.element_tree else ""
+                    state.element_tree.clickable_elements_to_string() 
+                    if state.element_tree else "No interactive elements found"
                 ),
                 "scroll_info": {
                     "pixels_above": pixels_above,
@@ -757,19 +693,23 @@ class BrowserUseTool(BaseTool):
             }
 
             logger.info("Retrieved current browser state")
-            return ToolResult(
-                output=json.dumps(state_info, indent=4, ensure_ascii=False),
-                base64_image=screenshot,
+            
+            # Create result with both text output and image
+            result = ToolResult.create_success(
+                json.dumps(state_info, indent=2, ensure_ascii=False),
+                tool_name=self.name
             )
+            result.base64_image = screenshot_b64
+            
+            return result
+            
         except Exception as e:
             logger.error(f"Failed to get browser state: {e}")
-            return ToolResult(error=f"Failed to get browser state: {str(e)}")
+            return ToolResult.create_error(f"Failed to get browser state: {str(e)}", tool_name=self.name)
 
     async def cleanup(self) -> None:
         """
         Clean up browser resources.
-
-        This method closes the browser context and browser instance.
         """
         logger.info("Cleaning up browser resources")
 
@@ -797,17 +737,24 @@ class BrowserUseTool(BaseTool):
 
     def __del__(self) -> None:
         """Ensure cleanup when object is destroyed."""
-        # Safe attribute access with hasattr checks
         if (
-            hasattr(self, "browser")
-            and self.browser is not None
-            or hasattr(self, "context")
-            and self.context is not None
+            hasattr(self, "browser") and self.browser is not None
+            or hasattr(self, "context") and self.context is not None
         ):
             try:
-                asyncio.run(self.cleanup())
+                # Try to run cleanup in the current event loop
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    # If we're in a running loop, schedule cleanup
+                    loop.create_task(self.cleanup())
+                else:
+                    # If no loop is running, run cleanup synchronously
+                    loop.run_until_complete(self.cleanup())
             except RuntimeError:
-                # If already in an event loop, create a new one
-                loop = asyncio.new_event_loop()
-                loop.run_until_complete(self.cleanup())
-                loop.close()
+                # If we can't access the event loop, create a new one
+                try:
+                    loop = asyncio.new_event_loop()
+                    loop.run_until_complete(self.cleanup())
+                    loop.close()
+                except Exception as e:
+                    logger.warning(f"Could not cleanup browser in destructor: {e}")

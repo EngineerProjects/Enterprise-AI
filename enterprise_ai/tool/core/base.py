@@ -91,6 +91,7 @@ class BaseTool(ABC, BaseModel):
     Base class for all tools in Enterprise AI.
 
     Enhanced with capabilities, versioning, and lifecycle management.
+    Uses unified result system to eliminate redundancy.
     """
 
     name: str = Field(description="Unique name of the tool")
@@ -185,6 +186,8 @@ class BaseTool(ABC, BaseModel):
 
     async def __call__(self, **kwargs: Any) -> Any:
         """Execute the tool with given parameters."""
+        from enterprise_ai.tool.core.result import ToolResult, ToolFailure
+        
         self._update_state(ToolState.RUNNING)
         try:
             self._execution_count += 1
@@ -193,12 +196,19 @@ class BaseTool(ABC, BaseModel):
             self._last_execution_time = time.time()
             result = await self.execute(**kwargs)
             self._update_state(ToolState.IDLE)
+            
+            # Ensure we return a ToolResult
+            if not isinstance(result, ToolResult):
+                return ToolResult.create_success(
+                    result=result,
+                    tool_name=self.name
+                )
             return result
         except Exception as e:
             self._update_state(ToolState.ERROR)
             if isinstance(e, ToolError):
-                raise
-            raise ToolError(str(e))
+                return ToolFailure.create(error=str(e), tool_name=self.name)
+            return ToolFailure.create(error=str(e), tool_name=self.name)
 
     @abstractmethod
     async def execute(self, **kwargs: Any) -> Any:

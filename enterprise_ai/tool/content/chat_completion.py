@@ -351,6 +351,20 @@ class CreateChatCompletion(BaseTool):
             # Extract the required fields parameter if provided
             required_fields = kwargs.pop("required", None) or self.required_fields
 
+            # Get the response parameter directly - this is the main fix
+            response_text = kwargs.get("response", "")
+            
+            if not response_text:
+                # Try alternative parameter names for compatibility
+                response_text = kwargs.get("text", kwargs.get("content", ""))
+            
+            if not response_text:
+                logger.warning("No response data provided")
+                return ToolResult.create_error(
+                    error="No response data provided. Please use 'response' parameter with your text.",
+                    tool_name=self.name
+                )
+
             # Special handling for Pydantic models
             if isinstance(self.response_type_internal, type) and issubclass(
                 self.response_type_internal, BaseModel
@@ -358,12 +372,13 @@ class CreateChatCompletion(BaseTool):
                 logger.debug("Converting to Pydantic model")
                 try:
                     # First, check if we received a "response" parameter containing a dict
-                    response_value = kwargs.get("response")
-
-                    if isinstance(response_value, dict):
+                    if isinstance(response_text, dict):
                         # Use the nested dict directly
-                        converted = self.response_type_internal(**response_value)
-                        return ToolResult(output=str(converted))
+                        converted = self.response_type_internal(**response_text)
+                        return ToolResult.create_success(
+                            result=str(converted),
+                            tool_name=self.name
+                        )
 
                     # Second, check if we have all required fields at the root level
                     model_fields = self.response_type_internal.model_fields
@@ -374,63 +389,73 @@ class CreateChatCompletion(BaseTool):
                     if has_required_fields:
                         # The model fields are passed directly at root level
                         converted = self.response_type_internal(**kwargs)
-                        return ToolResult(output=str(converted))
+                        return ToolResult.create_success(
+                            result=str(converted),
+                            tool_name=self.name
+                        )
 
                     # If we reach here, we don't have valid input for the model
                     logger.warning("No response data provided for Pydantic model")
-                    return ToolResult(error="No response data provided for Pydantic model")
+                    return ToolResult.create_error(
+                        error="No response data provided for Pydantic model",
+                        tool_name=self.name
+                    )
 
                 except Exception as e:
                     logger.error(f"Type conversion error (Pydantic): {e}")
-                    return ToolResult(error=f"Type conversion error: {str(e)}")
+                    return ToolResult.create_error(
+                        error=f"Type conversion error: {str(e)}",
+                        tool_name=self.name
+                    )
 
             # Handle regular (non-Pydantic-model) case
-            # Get the response data from required field(s)
-            if isinstance(required_fields, list) and len(required_fields) > 0:
-                if len(required_fields) == 1:
-                    required_field = required_fields[0]
-                    result = kwargs.get(required_field, "")
-                else:
-                    # Return multiple fields as a dictionary
-                    result = {field: kwargs.get(field, "") for field in required_fields}
-            else:
-                required_field = "response"
-                result = kwargs.get(required_field, "")
-
-            # Validate that we have the required data
-            if result == "" and required_field == "response":
-                logger.warning("No response data provided")
-                return ToolResult(error="No response data provided")
-
-            # Type conversion logic for non-Pydantic types
+            # For most cases, we want to return the response_text directly
             logger.debug(f"Converting result to type: {self.response_type_internal}")
 
             # Convert based on response type
             if self.response_type_internal is str or self.response_type_internal is None:
-                logger.debug("Converting to string")
-                return ToolResult(output=str(result))
-
-            if get_origin(self.response_type_internal) in (list, dict):
-                logger.debug(
-                    f"Converting to container type: {get_origin(self.response_type_internal)}"
+                logger.debug("Returning string response")
+                return ToolResult.create_success(
+                    result=str(response_text),
+                    tool_name=self.name
                 )
-                return ToolResult(output=str(result))  # Convert to string for output
 
+            # Handle container types (list, dict)
+            if get_origin(self.response_type_internal) in (list, dict):
+                logger.debug(f"Converting to container type: {get_origin(self.response_type_internal)}")
+                return ToolResult.create_success(
+                    result=str(response_text),
+                    tool_name=self.name
+                )
+
+            # Handle other specific types
             try:
                 if self.response_type_internal is not None:
                     logger.debug(f"Converting to specific type: {self.response_type_internal}")
-                    converted = self.response_type_internal(result)
-                    return ToolResult(output=str(converted))
+                    converted = self.response_type_internal(response_text)
+                    return ToolResult.create_success(
+                        result=str(converted),
+                        tool_name=self.name
+                    )
             except (ValueError, TypeError) as e:
                 logger.error(f"Type conversion error: {e}")
-                return ToolResult(error=f"Type conversion error: {str(e)}")
+                return ToolResult.create_error(
+                    error=f"Type conversion error: {str(e)}",
+                    tool_name=self.name
+                )
 
             # Default fallback - return as string
-            return ToolResult(output=str(result))
+            return ToolResult.create_success(
+                result=str(response_text),
+                tool_name=self.name
+            )
 
         except Exception as e:
             logger.error(f"Unexpected error in chat completion: {e}")
-            return ToolResult(error=f"Error executing chat completion: {str(e)}")
+            return ToolResult.create_error(
+                error=f"Error executing chat completion: {str(e)}",
+                tool_name=self.name
+            )
 
     async def cleanup(self) -> None:
         """Clean up any resources used by the tool."""

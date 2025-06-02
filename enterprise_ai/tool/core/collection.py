@@ -1,367 +1,313 @@
-"""Collection classes for managing multiple tools."""
+"""
+Enhanced tool collection management for Enterprise AI.
 
-from typing import Any, Dict, Iterator, List, Optional, Tuple, Union, cast
+This module provides optimized collection and management of multiple tools
+with better integration with the LLM system.
+"""
+
 import asyncio
+from typing import Any, Dict, List, Optional, Set, Union, Type
 
-from enterprise_ai.exceptions import EnterpriseAIError
-from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolState
-from enterprise_ai.tool.core.result import ToolResult, ToolResultMetadata
 from enterprise_ai.logger import get_logger
+from enterprise_ai.tool.core.base import BaseTool, ToolCapability, ToolConfig
+from enterprise_ai.tool.core.registry import get_registry
+from enterprise_ai.tool.core.llm_adapter import LLMToolAdapter
 
-
-# Create a ToolFailure class inheriting from ToolResult
-class ToolFailure(ToolResult):
-    """A ToolResult that represents a failure."""
-
-    error_code: Optional[str] = None
-    retryable: bool = False
-    suggestions: List[str] = []
-
-    def add_suggestion(self, suggestion: str) -> None:
-        """Add a suggestion for resolving the failure."""
-        if not hasattr(self, "suggestions") or self.suggestions is None:
-            self.suggestions = []
-        self.suggestions.append(suggestion)
-
-    @classmethod
-    def create(
-        cls, error: str, error_code: Optional[str] = None, retryable: bool = False
-    ) -> "ToolFailure":
-        """Create a new ToolFailure with the given error."""
-        result = cls(error=error, error_code=error_code, retryable=retryable)
-        result.complete()
-        return result
-
-
-logger = get_logger("tool.collection")
+logger = get_logger("tool.core.collection")
 
 
 class ToolCollection:
-    """A collection of defined tools.
-
-    This class allows for the management and execution of multiple tools.
-    It provides methods to execute tools by name, execute all tools, and add new tools to the collection.
     """
-
-    class Config:
-        arbitrary_types_allowed = True
-
-    def __init__(self, *tools: BaseTool):
-        """Initialize a tool collection with optional initial tools."""
-        self.tools = tools
-        self.tool_map = {tool.name: tool for tool in tools}
-        self._locks = {}  # Tool-specific locks for concurrent execution
-
-        # Create locks for each tool
-        for tool in tools:
-            self._locks[tool.name] = asyncio.Lock()
-
-    def __iter__(self) -> Iterator[BaseTool]:
-        """Allow iteration over tools in the collection."""
-        return iter(self.tools)
-
-    def __len__(self) -> int:
-        """Get the number of tools in the collection."""
-        return len(self.tools)
-
-    def to_params(self) -> List[Dict[str, Any]]:
-        """Convert all tools to function call format."""
-        return [tool.to_param() for tool in self.tools]
-
-    def get_tool_names(self) -> List[str]:
-        """Get a list of all tool names in the collection."""
-        return list(self.tool_map.keys())
-
-    def get_tool_by_capability(self, capability: str) -> Optional[BaseTool]:
-        """Find a tool with the specified capability.
-
-        Args:
-            capability: Capability to search for
-
-        Returns:
-            First tool with matching capability or None
+    Enhanced collection of tools with optimized LLM integration.
+    
+    Provides efficient management of multiple tools and seamless
+    integration with the LLM system.
+    """
+    
+    def __init__(self, name: str = "default"):
         """
-        for tool in self.tools:
-            if hasattr(tool, "capabilities") and capability in tool.capabilities:
-                return tool
-        return None
-
-    def filter_by_capabilities(
-        self, capabilities: List[str], match_all: bool = False
-    ) -> List[BaseTool]:
-        """Filter tools by capabilities.
-
+        Initialize a new tool collection.
+        
         Args:
-            capabilities: List of capabilities to filter by
-            match_all: If True, tools must have all capabilities;
-                     If False, tools must have at least one capability
-
-        Returns:
-            List of tools matching the capability criteria
+            name: Name of the collection
         """
-        result = []
-
-        for tool in self.tools:
-            if not hasattr(tool, "capabilities"):
-                continue
-
-            tool_capabilities = tool.capabilities
-
-            # Convert to string values if needed
-            tool_cap_values = {
-                cap.value if hasattr(cap, "value") else str(cap) for cap in tool_capabilities
-            }
-
-            if match_all:
-                # Tool must have all capabilities
-                if all(cap in tool_cap_values for cap in capabilities):
-                    result.append(tool)
-            else:
-                # Tool must have at least one capability
-                if any(cap in tool_cap_values for cap in capabilities):
-                    result.append(tool)
-
-        return result
-
-    async def execute(
-        self, *, name: str, tool_input: Optional[Dict[str, Any]] = None
-    ) -> ToolResult:
-        """Execute a specific tool by name with provided input."""
-        tool = self.tool_map.get(name)
-        if not tool:
-            return ToolFailure(
-                error=f"Tool {name} is invalid", metadata=ToolResultMetadata(tool_name=name)
-            )
-
-        # Get or create a lock for this tool
-        lock = self._locks.get(name)
-        if not lock:
-            lock = asyncio.Lock()
-            self._locks[name] = lock
-
-        # Start tracking execution
-        metadata = ToolResultMetadata(tool_name=name)
-
-        try:
-            # Execute with the tool-specific lock
-            async with lock:
-                # Update tool state if possible
-                if hasattr(tool, "_update_state"):
-                    try:
-                        tool._update_state(ToolState.RUNNING)
-                    except Exception as e:
-                        logger.warning(f"Error updating tool state: {e}")
-
-                # Execute tool with timeout if specified
+        self.name = name
+        self._tools: Dict[str, BaseTool] = {}
+        self._llm_adapter: Optional[LLMToolAdapter] = None
+        self._initialized = False
+    
+    async def add_tool(
+        self, 
+        tool: Union[BaseTool, Type[BaseTool]], 
+        initialize: bool = True,
+        **init_kwargs: Any
+    ) -> str:
+        """
+        Add a tool to the collection.
+        
+        Args:
+            tool: Tool instance or tool class
+            initialize: Whether to initialize the tool
+            **init_kwargs: Initialization arguments for tool classes
+            
+        Returns:
+            Name of the added tool
+        """
+        if isinstance(tool, type) and issubclass(tool, BaseTool):
+            # It's a tool class, instantiate it
+            tool_instance = tool(**init_kwargs)
+        else:
+            # It's already an instance
+            tool_instance = tool
+        
+        # Initialize if required
+        if initialize and tool_instance.requires_initialization:
+            success = await tool_instance.initialize()
+            if not success:
+                raise RuntimeError(f"Failed to initialize tool: {tool_instance.name}")
+        
+        # Add to collection
+        self._tools[tool_instance.name] = tool_instance
+        
+        # Update LLM adapter if it exists
+        if self._llm_adapter:
+            await self._llm_adapter.register_tool_class(type(tool_instance), initialize=False)
+        
+        logger.info(f"Added tool '{tool_instance.name}' to collection '{self.name}'")
+        return tool_instance.name
+    
+    async def add_tools_by_category(
+        self, 
+        categories: List[str],
+        initialize: bool = True
+    ) -> List[str]:
+        """
+        Add all tools from specified categories.
+        
+        Args:
+            categories: List of category names
+            initialize: Whether to initialize the tools
+            
+        Returns:
+            List of tool names that were added
+        """
+        registry = get_registry()
+        added_tools = []
+        
+        for category in categories:
+            tool_classes = registry.get_tools_by_category(category)
+            for tool_class in tool_classes:
                 try:
-                    result: Any = await tool(**(tool_input or {}))
+                    tool_name = await self.add_tool(tool_class, initialize=initialize)
+                    added_tools.append(tool_name)
                 except Exception as e:
-                    logger.error(f"Error executing tool {name}: {e}")
-                    return ToolFailure(error=f"Error executing tool: {str(e)}", metadata=metadata)
-
-                # Ensure result has metadata with tool info
-                if isinstance(result, ToolResult):
-                    if result.metadata is None:
-                        result.metadata = metadata
-                    elif result.metadata.tool_name is None:
-                        result.metadata.tool_name = name
-
-                    # Safely handle result completion
-                    try:
-                        if hasattr(result, "complete"):
-                            return cast(ToolResult, result.complete())
-                        return cast(ToolResult, result)
-                    except Exception as e:
-                        logger.warning(f"Error completing result: {e}")
-                        return cast(ToolResult, result)
-                else:
-                    # Convert non-ToolResult to ToolResult
-                    try:
-                        new_result = ToolResult(output=result, metadata=metadata)
-                        if hasattr(new_result, "complete"):
-                            return new_result.complete()
-                        return new_result
-                    except Exception as e:
-                        logger.warning(f"Error creating result object: {e}")
-                        return ToolResult(output=str(result), metadata=metadata)
-
-        except ToolError as e:
-            # Update tool state
-            if hasattr(tool, "_update_state"):
-                try:
-                    tool._update_state(ToolState.ERROR)
-                except Exception:
-                    pass
-
-            return ToolFailure(error=e.message, metadata=metadata)
-        except EnterpriseAIError as e:
-            # Update tool state
-            if hasattr(tool, "_update_state"):
-                try:
-                    tool._update_state(ToolState.ERROR)
-                except Exception:
-                    pass
-
-            return ToolFailure(error=str(e), metadata=metadata)
-        except Exception as e:
-            # Update tool state
-            if hasattr(tool, "_update_state"):
-                try:
-                    tool._update_state(ToolState.ERROR)
-                except Exception:
-                    pass
-
-            logger.error(f"Unexpected error in tool {name}: {str(e)}")
-            return ToolFailure(error=f"Unexpected error: {str(e)}", metadata=metadata)
-        finally:
-            # Reset tool state if needed
-            if hasattr(tool, "_update_state"):
-                try:
-                    tool._update_state(ToolState.IDLE)
-                except Exception:
-                    pass
-
-    async def execute_all(self) -> List[ToolResult]:
-        """Execute all tools in the collection sequentially."""
-        results = []
-        for tool in self.tools:
-            metadata = ToolResultMetadata(tool_name=tool.name)
+                    logger.warning(f"Failed to add tool {tool_class.__name__}: {e}")
+        
+        return added_tools
+    
+    async def add_tools_by_capability(
+        self,
+        capabilities: List[Union[str, ToolCapability]],
+        match_all: bool = False,
+        initialize: bool = True
+    ) -> List[str]:
+        """
+        Add tools that have specified capabilities.
+        
+        Args:
+            capabilities: List of required capabilities
+            match_all: If True, tools must have all capabilities
+            initialize: Whether to initialize the tools
+            
+        Returns:
+            List of tool names that were added
+        """
+        registry = get_registry()
+        added_tools = []
+        
+        # Convert capabilities to strings
+        cap_strings = [
+            cap.value if isinstance(cap, ToolCapability) else cap 
+            for cap in capabilities
+        ]
+        
+        if match_all:
+            # Find tools that have all capabilities
+            tool_sets = [
+                set(registry.get_tools_by_capability(cap)) 
+                for cap in cap_strings
+            ]
+            if tool_sets:
+                tool_classes = set.intersection(*tool_sets)
+            else:
+                tool_classes = set()
+        else:
+            # Find tools that have at least one capability
+            tool_classes = set()
+            for cap in cap_strings:
+                tool_classes.update(registry.get_tools_by_capability(cap))
+        
+        for tool_class in tool_classes:
             try:
-                # Update tool state
-                if hasattr(tool, "_update_state"):
-                    tool._update_state(ToolState.RUNNING)
-
-                result: Any = await tool()
-
-                # Ensure result has metadata
-                if isinstance(result, ToolResult):
-                    if result.metadata is None:
-                        result.metadata = metadata
-                    elif result.metadata.tool_name is None:
-                        result.metadata.tool_name = tool.name
-
-                    results.append(cast(ToolResult, result))
-                else:
-                    # Convert non-ToolResult to ToolResult
-                    results.append(ToolResult(output=result, metadata=metadata))
-
-            except ToolError as e:
-                # Update tool state
-                if hasattr(tool, "_update_state"):
-                    tool._update_state(ToolState.ERROR)
-
-                results.append(ToolFailure(error=e.message, metadata=metadata))
+                tool_name = await self.add_tool(tool_class, initialize=initialize)
+                added_tools.append(tool_name)
             except Exception as e:
-                # Update tool state
-                if hasattr(tool, "_update_state"):
-                    tool._update_state(ToolState.ERROR)
-
-                results.append(ToolFailure(error=f"Error: {str(e)}", metadata=metadata))
-            finally:
-                # Reset tool state
-                if hasattr(tool, "_update_state"):
-                    tool._update_state(ToolState.IDLE)
-
-        return results
-
-    async def execute_parallel(
-        self, executions: Dict[str, Dict[str, Any]]
-    ) -> Dict[str, ToolResult]:
-        """Execute multiple tools in parallel.
-
-        Args:
-            executions: Dictionary mapping tool names to their input parameters
-
-        Returns:
-            Dictionary mapping tool names to their results
-        """
-        tasks: Dict[str, Union[ToolResult, asyncio.Task[ToolResult]]] = {}
-        results: Dict[str, ToolResult] = {}
-
-        # Create a task for each execution
-        for tool_name, params in executions.items():
-            if tool_name not in self.tool_map:
-                tasks[tool_name] = ToolFailure(
-                    error=f"Tool {tool_name} is invalid",
-                    metadata=ToolResultMetadata(tool_name=tool_name),
-                )
-                continue
-
-            # Create a task for this execution
-            tasks[tool_name] = asyncio.create_task(self.execute(name=tool_name, tool_input=params))
-
-        # Wait for all tasks to complete
-        for tool_name, task in tasks.items():
-            if isinstance(task, ToolResult):
-                # Already completed task (error case)
-                results[tool_name] = task
-            else:
-                try:
-                    results[tool_name] = await task
-                except Exception as e:
-                    results[tool_name] = ToolFailure(
-                        error=f"Execution error: {str(e)}",
-                        metadata=ToolResultMetadata(tool_name=tool_name),
-                    )
-
-        return results
-
+                logger.warning(f"Failed to add tool {tool_class.__name__}: {e}")
+        
+        return added_tools
+    
     def get_tool(self, name: str) -> Optional[BaseTool]:
         """Get a tool by name."""
-        return self.tool_map.get(name)
-
-    def add_tool(self, tool: BaseTool) -> "ToolCollection":
-        """Add a single tool to the collection."""
-        if tool.name in self.tool_map:
-            # Replace existing tool
-            self.tools = tuple(t for t in self.tools if t.name != tool.name) + (tool,)
-        else:
-            # Add new tool
-            self.tools = (*self.tools, tool)
-
-        # Update tool map
-        self.tool_map[tool.name] = tool
-
-        # Create a lock for this tool
-        self._locks[tool.name] = asyncio.Lock()
-
-        return self
-
-    def add_tools(self, *tools: BaseTool) -> "ToolCollection":
-        """Add multiple tools to the collection."""
-        for tool in tools:
-            self.add_tool(tool)
-        return self
-
+        return self._tools.get(name)
+    
+    def get_all_tools(self) -> Dict[str, BaseTool]:
+        """Get all tools in the collection."""
+        return self._tools.copy()
+    
+    def get_tool_names(self) -> List[str]:
+        """Get names of all tools in the collection."""
+        return list(self._tools.keys())
+    
+    def has_tool(self, name: str) -> bool:
+        """Check if collection has a tool with the given name."""
+        return name in self._tools
+    
     def remove_tool(self, name: str) -> bool:
-        """Remove a tool from the collection.
-
+        """
+        Remove a tool from the collection.
+        
         Args:
             name: Name of the tool to remove
-
+            
         Returns:
-            True if the tool was removed, False if not found
+            True if tool was removed, False if not found
         """
-        if name not in self.tool_map:
-            return False
-
-        # Remove from tools tuple
-        self.tools = tuple(tool for tool in self.tools if tool.name != name)
-
-        # Remove from tool map
-        del self.tool_map[name]
-
-        # Remove lock
-        if name in self._locks:
-            del self._locks[name]
-
-        return True
-
+        if name in self._tools:
+            del self._tools[name]
+            logger.info(f"Removed tool '{name}' from collection '{self.name}'")
+            return True
+        return False
+    
+    async def get_llm_integration(self) -> LLMToolAdapter:
+        """
+        Get LLM adapter for this collection.
+        
+        Returns:
+            LLM tool adapter configured with collection tools
+        """
+        if self._llm_adapter is None:
+            self._llm_adapter = LLMToolAdapter()
+            
+            # Register all tools in the collection
+            for tool_instance in self._tools.values():
+                await self._llm_adapter.register_tool_class(
+                    type(tool_instance), 
+                    initialize=False  # Already initialized
+                )
+        
+        return self._llm_adapter
+    
+    async def get_llm_tools(self) -> Dict[str, Any]:
+        """Get tool functions for LLM use."""
+        adapter = await self.get_llm_integration()
+        return adapter.get_tool_functions()
+    
+    async def get_llm_tool_definitions(self) -> List[Any]:
+        """Get tool definitions for LLM providers."""
+        adapter = await self.get_llm_integration()
+        return adapter.get_tool_definitions()
+    
+    async def execute_tool(self, name: str, **kwargs: Any) -> Any:
+        """
+        Execute a tool by name.
+        
+        Args:
+            name: Name of the tool to execute
+            **kwargs: Arguments for the tool
+            
+        Returns:
+            Tool execution result
+        """
+        tool = self.get_tool(name)
+        if not tool:
+            raise ValueError(f"Tool '{name}' not found in collection '{self.name}'")
+        
+        return await tool(**kwargs)
+    
+    def get_tools_by_capability(
+        self, 
+        capability: Union[str, ToolCapability]
+    ) -> List[BaseTool]:
+        """Get tools in this collection that have a specific capability."""
+        if isinstance(capability, ToolCapability):
+            capability = capability.value
+        
+        return [
+            tool for tool in self._tools.values()
+            if tool.has_capability(capability)
+        ]
+    
+    def get_collection_stats(self) -> Dict[str, Any]:
+        """Get statistics about the collection."""
+        capabilities_count = {}
+        total_executions = 0
+        
+        for tool in self._tools.values():
+            # Count capabilities
+            for cap in tool.capabilities:
+                cap_str = cap.value if isinstance(cap, ToolCapability) else cap
+                capabilities_count[cap_str] = capabilities_count.get(cap_str, 0) + 1
+            
+            # Sum executions
+            total_executions += getattr(tool, '_execution_count', 0)
+        
+        return {
+            "name": self.name,
+            "tool_count": len(self._tools),
+            "tool_names": list(self._tools.keys()),
+            "capabilities": capabilities_count,
+            "total_executions": total_executions,
+            "has_llm_integration": self._llm_adapter is not None
+        }
+    
     async def cleanup(self) -> None:
         """Clean up all tools in the collection."""
-        for tool in self.tools:
-            if hasattr(tool, "cleanup") and callable(getattr(tool, "cleanup")):
-                try:
-                    await tool.cleanup()
-                except Exception as e:
-                    logger.warning(f"Error during cleanup of tool {tool.name}: {e}")
+        cleanup_tasks = []
+        
+        for tool in self._tools.values():
+            if hasattr(tool, 'cleanup'):
+                cleanup_tasks.append(self._safe_cleanup_tool(tool))
+        
+        if cleanup_tasks:
+            await asyncio.gather(*cleanup_tasks, return_exceptions=True)
+        
+        if self._llm_adapter:
+            await self._llm_adapter.cleanup()
+        
+        self._tools.clear()
+        self._llm_adapter = None
+        
+        logger.info(f"Cleaned up tool collection '{self.name}'")
+    
+    async def _safe_cleanup_tool(self, tool: BaseTool) -> None:
+        """Safely cleanup a single tool."""
+        try:
+            await tool.cleanup()
+        except Exception as e:
+            logger.warning(f"Error cleaning up tool {tool.name}: {e}")
+    
+    def __len__(self) -> int:
+        """Return number of tools in collection."""
+        return len(self._tools)
+    
+    def __contains__(self, item: Union[str, BaseTool]) -> bool:
+        """Check if collection contains a tool."""
+        if isinstance(item, str):
+            return item in self._tools
+        elif isinstance(item, BaseTool):
+            return item.name in self._tools
+        return False
+    
+    def __iter__(self):
+        """Iterate over tools in collection."""
+        return iter(self._tools.values())
