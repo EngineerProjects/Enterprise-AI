@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from enterprise_ai.config import get_config
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, ToolResultMetadata  # Using unified ToolResult
 from enterprise_ai.tool.research.search import (
@@ -24,7 +24,7 @@ from enterprise_ai.tool.research.search import (
 )
 from enterprise_ai.tool.core.registry import register_tool
 
-logger = get_logger("tool.research.web_search")
+logger = get_optimized_logger("tool.research.web_search")
 
 # Rate limiting settings
 DEFAULT_RATE_LIMIT = 2  # requests per second
@@ -171,7 +171,7 @@ class RateLimiter:
                 oldest = min(self.request_times)
                 wait_time = self.period - (now - oldest)
                 if wait_time > 0:
-                    logger.debug(f"Rate limit reached, waiting {wait_time:.2f} seconds")
+                    logger.debug("Rate limit reached, waiting %s seconds", wait_time:.2f)
                     await asyncio.sleep(wait_time)
 
             self.request_times.append(time.time())
@@ -195,27 +195,27 @@ class WebContentFetcher:
         try:
             parsed = urlparse(url)
             if not parsed.scheme or not parsed.netloc:
-                logger.warning(f"Invalid URL: {url}")
+                logger.warning("Invalid URL: %s", url)
                 return None
         except Exception:
-            logger.warning(f"Could not parse URL: {url}")
+            logger.warning("Could not parse URL: %s", url)
             return None
 
         try:
             await self.rate_limiter.acquire()
-            logger.debug(f"Fetching content from: {url}")
+            logger.debug("Fetching content from: %s", url)
 
             response = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.session.get(url, timeout=timeout)
             )
 
             if response.status_code != 200:
-                logger.warning(f"Failed to fetch content from {url}: HTTP {response.status_code}")
+                logger.warning("Failed to fetch content from %s: HTTP %s", url, response.status_code)
                 return None
 
             content_type = response.headers.get("Content-Type", "").lower()
             if "text/html" not in content_type and "text/" not in content_type:
-                logger.debug(f"Skipping non-text content: {content_type} for {url}")
+                logger.debug("Skipping non-text content: %s for %s", content_type, url)
                 return None
 
             # Try different parsers in case of failure
@@ -235,18 +235,18 @@ class WebContentFetcher:
                     if extracted_text:
                         break
                 except Exception as e:
-                    logger.debug(f"Parser {parser} failed: {e}")
+                    logger.debug("Parser %s failed: %s", parser, e)
                     continue
 
             if not extracted_text:
-                logger.warning(f"Could not extract text from {url}")
+                logger.warning("Could not extract text from %s", url)
                 return None
 
-            logger.debug(f"Successfully extracted content from {url} ({len(extracted_text)} chars)")
+            logger.debug("Successfully extracted content from %s (%s chars)", url, len(extracted_text))
             return extracted_text[:100000]  # Limit to 100KB
 
         except Exception as e:
-            logger.warning(f"Error fetching content from {url}: {e}")
+            logger.warning("Error fetching content from %s: %s", url, e)
             return None
 
 
@@ -379,7 +379,7 @@ class WebSearch(BaseTool):
             logger.info("WebSearch tool successfully initialized")
             return True
         except Exception as e:
-            logger.error(f"Failed to initialize WebSearch tool: {e}")
+            logger.error("Failed to initialize WebSearch tool: %s", e)
             return False
 
     def _initialize_search_engines(self) -> None:
@@ -394,9 +394,9 @@ class WebSearch(BaseTool):
         for name, engine_class in engines_to_init:
             try:
                 self.search_engines[name] = engine_class()
-                logger.debug(f"Initialized search engine: {name}")
+                logger.debug("Initialized search engine: %s", name)
             except Exception as e:
-                logger.warning(f"Failed to initialize {name} search engine: {e}")
+                logger.warning("Failed to initialize %s search engine: %s", name, e)
 
     async def execute(self, **kwargs: Any) -> SearchResponse:
         """Execute a Web search and return detailed search results."""
@@ -421,8 +421,8 @@ class WebSearch(BaseTool):
             fetch_content = kwargs.get("fetch_content", False)
             search_engine = kwargs.get("search_engine", "auto")
 
-            logger.info(f"Executing web search for query: {query}")
-            logger.debug(f"Parameters: num_results={num_results}, lang={lang}, country={country}")
+            logger.info("Executing web search for query: %s", query)
+            logger.debug("Parameters: num_results=%s, lang=%s, country=%s", num_results, lang, country)
 
             # Initialize engines if needed
             if not self.search_engines:
@@ -435,7 +435,7 @@ class WebSearch(BaseTool):
             cache_key = f"{query}:{num_results}:{lang}:{country}:{fetch_content}"
             cached_result = self._check_cache(cache_key)
             if cached_result:
-                logger.info(f"Using cached results for query: {query}")
+                logger.info("Using cached results for query: %s", query)
                 return cached_result
 
             # Determine engines to try
@@ -444,7 +444,7 @@ class WebSearch(BaseTool):
                 if search_engine in self.search_engines:
                     engines_to_try = [search_engine]
                 else:
-                    logger.warning(f"Specified search engine '{search_engine}' is not available")
+                    logger.warning("Specified search engine '%s' is not available", search_engine)
                     return SearchResponse(
                         query=query,
                         results=[],
@@ -462,10 +462,10 @@ class WebSearch(BaseTool):
             for engine_name in engines_to_try:
                 engines_tried.append(engine_name)
                 if engine_name not in self.search_engines:
-                    logger.warning(f"Search engine {engine_name} not available, skipping.")
+                    logger.warning("Search engine %s not available, skipping.", engine_name)
                     continue
 
-                logger.info(f"Attempting search with {engine_name.capitalize()}")
+                logger.info("Attempting search with %s", engine_name.capitalize())
 
                 try:
                     engine = self.search_engines[engine_name]
@@ -484,14 +484,14 @@ class WebSearch(BaseTool):
                             )
                             for i, item in enumerate(search_items)
                         ]
-                        logger.info(f"Search with {engine_name} successful, found {len(results)} results")
+                        logger.info("Search with %s successful, found %s results", engine_name, len(results))
                         break
                 except Exception as e:
-                    logger.error(f"Error with {engine_name} search engine: {str(e)}")
+                    logger.error("Error with %s search engine: %s", engine_name, str(e))
                     continue
 
             if not results:
-                logger.warning(f"No results found with any search engine. Tried: {', '.join(engines_tried)}")
+                logger.warning("No results found with any search engine. Tried: %s", ', '.join(engines_tried))
                 return SearchResponse(
                     query=query,
                     results=[],
@@ -509,9 +509,9 @@ class WebSearch(BaseTool):
 
             # Fetch content if requested
             if fetch_content:
-                logger.debug(f"Fetching content for {len(results)} results")
+                logger.debug("Fetching content for %s results", len(results))
                 results = await self._fetch_content_for_results(results)
-                logger.info(f"Content fetched for {len(results)} results")
+                logger.info("Content fetched for %s results", len(results))
 
             # Create response
             response = SearchResponse(
@@ -532,12 +532,12 @@ class WebSearch(BaseTool):
             # Cache results
             if getattr(self.config, "cache_results", True):
                 self._update_cache(cache_key, response)
-                logger.debug(f"Cached search results for: {query}")
+                logger.debug("Cached search results for: %s", query)
 
             return response
 
         except ToolError as e:
-            logger.error(f"Tool error during search: {e}")
+            logger.error("Tool error during search: %s", e)
             return SearchResponse(
                 query=kwargs.get("query", ""),
                 results=[],
@@ -563,7 +563,7 @@ class WebSearch(BaseTool):
                 return cast(SearchResponse, entry["response"])
             else:
                 del self.results_cache[cache_key]
-                logger.debug(f"Removed expired cache entry: {cache_key}")
+                logger.debug("Removed expired cache entry: %s", cache_key)
         return None
 
     def _update_cache(self, cache_key: str, response: SearchResponse) -> None:
@@ -581,17 +581,17 @@ class WebSearch(BaseTool):
             return results
 
         tasks = [self._fetch_single_result_content(result) for result in results]
-        logger.debug(f"Created {len(tasks)} content fetch tasks")
+        logger.debug("Created %s content fetch tasks", len(tasks))
         fetched_results = await asyncio.gather(*tasks)
         return list(fetched_results)
 
     async def _fetch_single_result_content(self, result: SearchResult) -> SearchResult:
         """Fetch content for a single search result."""
         if result.url and self.content_fetcher is not None:
-            logger.debug(f"Fetching content for URL: {result.url}")
+            logger.debug("Fetching content for URL: %s", result.url)
             content = await self.content_fetcher.fetch_content(result.url)
             if content:
-                logger.debug(f"Content fetched successfully for: {result.url}")
+                logger.debug("Content fetched successfully for: %s", result.url)
                 return SearchResult(
                     position=result.position,
                     url=result.url,
@@ -614,7 +614,7 @@ class WebSearch(BaseTool):
         engine_order.extend([fb for fb in fallbacks if fb in self.search_engines and fb not in engine_order])
         engine_order.extend([e for e in self.search_engines if e not in engine_order])
 
-        logger.debug(f"Search engine order: {engine_order}")
+        logger.debug("Search engine order: %s", engine_order)
         return engine_order
 
     @retry(
@@ -632,7 +632,7 @@ class WebSearch(BaseTool):
         """Execute search with the given engine and parameters."""
         try:
             loop = asyncio.get_event_loop()
-            logger.debug(f"Executing search for: {query}")
+            logger.debug("Executing search for: %s", query)
             return await loop.run_in_executor(
                 None,
                 lambda: list(
@@ -645,7 +645,7 @@ class WebSearch(BaseTool):
                 ),
             )
         except Exception as e:
-            logger.error(f"Error performing search with engine: {e}")
+            logger.error("Error performing search with engine: %s", e)
             raise
 
     async def cleanup(self) -> None:
@@ -659,4 +659,4 @@ class WebSearch(BaseTool):
                 self.content_fetcher.session.close()
                 logger.debug("Content fetcher session closed")
             except Exception as e:
-                logger.warning(f"Error closing content fetcher session: {e}")
+                logger.warning("Error closing content fetcher session: %s", e)

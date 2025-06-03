@@ -8,14 +8,14 @@ local execution and sandbox environments based on tool capabilities and configur
 import asyncio
 from typing import Any, Dict, List, Optional, Set, Callable, Union
 
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.llm.tool_executor import ToolExecutor
 from enterprise_ai.schema import ToolCall, ToolResult
 from enterprise_ai.tool.core.base import ToolCapability, SandboxMode, ExecutionMode
 from enterprise_ai.sandbox.client import SandboxClient
 from enterprise_ai.config.sandbox import SandboxSettings
 
-logger = get_logger("sandbox.executor")
+logger = get_optimized_logger("sandbox.executor")
 
 
 class SandboxToolExecutor:
@@ -99,7 +99,7 @@ class SandboxToolExecutor:
         self._sandbox_executions = 0
         self._routing_decisions = []
         
-        logger.info(f"Initialized sandbox tool executor | Routing: {enable_sandbox_routing} | Default mode: {default_sandbox_mode}")
+        logger.info("Initialized sandbox tool executor | Routing: %s | Default mode: %s", enable_sandbox_routing, default_sandbox_mode)
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool for execution."""
@@ -107,7 +107,7 @@ class SandboxToolExecutor:
         self._local_executor.register_tool(name, func)
         
         if self.verbose:
-            logger.info(f"Registered tool: {name}")
+            logger.info("Registered tool: %s", name)
 
     def register_tools(self, tools: Dict[str, Callable]) -> None:
         """Register multiple tools at once."""
@@ -115,7 +115,7 @@ class SandboxToolExecutor:
         self._local_executor.register_tools(tools)
         
         if self.verbose:
-            logger.info(f"Registered {len(tools)} tools")
+            logger.info("Registered %s tools", len(tools))
 
     def _should_use_sandbox(self, tool_call: ToolCall) -> bool:
         """Determine if a tool should be executed in sandbox."""
@@ -186,7 +186,7 @@ class SandboxToolExecutor:
                 await self._individual_sandboxes[tool_name].start()
                 
                 if self.verbose:
-                    logger.info(f"Created individual sandbox for {tool_name}")
+                    logger.info("Created individual sandbox for %s", tool_name)
             
             return self._individual_sandboxes[tool_name]
         
@@ -205,7 +205,7 @@ class SandboxToolExecutor:
         
         try:
             if self.verbose:
-                logger.info(f"Executing {tool_name} in sandbox")
+                logger.info("Executing %s in sandbox", tool_name)
             
             # For now, we'll serialize the tool call and execute it in the sandbox
             # This is a simplified approach - in practice, you might want to
@@ -230,7 +230,7 @@ class SandboxToolExecutor:
             )
             
         except Exception as e:
-            logger.error(f"Sandbox execution failed for {tool_name}: {str(e)}")
+            logger.error("Sandbox execution failed for %s: %s", tool_name, str(e))
             return ToolResult.create_error(
                 error=f"Sandbox execution failed: {str(e)}",
                 tool_name=tool_name,
@@ -291,7 +291,7 @@ class SandboxToolExecutor:
         results = []
         
         if self.verbose:
-            logger.info(f"Routing {len(tool_calls)} tool calls")
+            logger.info("Routing %s tool calls", len(tool_calls))
         
         for tool_call in tool_calls:
             tool_name = tool_call.function.name
@@ -306,7 +306,7 @@ class SandboxToolExecutor:
             })
             
             if self.verbose:
-                logger.info(f"Tool {tool_name} will execute in {'sandbox' if use_sandbox else 'local'} environment")
+                logger.info("Tool %s will execute in %s environment", tool_name, 'sandbox' if use_sandbox else 'local')
             
             if use_sandbox:
                 # Execute in sandbox
@@ -379,7 +379,7 @@ class SandboxToolExecutor:
         self.default_sandbox_mode = mode
         
         if self.verbose:
-            logger.info(f"Default sandbox mode changed from {old_mode} to {mode}")
+            logger.info("Default sandbox mode changed from %s to %s", old_mode, mode)
 
     def enable_sandbox_routing(self, enable: bool = True) -> None:
         """Enable or disable sandbox routing."""
@@ -387,7 +387,7 @@ class SandboxToolExecutor:
         self.enable_sandbox_routing = enable
         
         if self.verbose:
-            logger.info(f"Sandbox routing {'enabled' if enable else 'disabled'} (was {'enabled' if old_state else 'disabled'})")
+            logger.info("Sandbox routing %s (was %s)", 'enabled' if enable else 'disabled', 'enabled' if old_state else 'disabled')
 
     # Delegate methods to local executor for consistency
     def set_execution_mode(self, mode: ExecutionMode) -> None:
@@ -407,7 +407,7 @@ class SandboxToolExecutor:
         self._local_executor.set_verbose(verbose)
         
         if old_verbose != verbose:
-            logger.info(f"Verbose logging {'enabled' if verbose else 'disabled'}")
+            logger.info("Verbose logging %s", 'enabled' if verbose else 'disabled')
 
     def reset_stats(self) -> None:
         """Reset execution statistics."""

@@ -69,7 +69,7 @@ class LLMToolAdapter:
         # Clear cache since we added a new tool
         self._tool_definitions_cache = None
         
-        logger.info(f"Registered tool class {tool_class.__name__} as function {tool_instance.name}")
+        logger.info("Registered tool class %s as function %s", tool_class.__name__, tool_instance.name)
         return tool_instance.name
     
     def _create_function_wrapper(self, tool_instance: BaseTool) -> Callable:
@@ -146,7 +146,7 @@ class LLMToolAdapter:
                     return str(result)
                     
             except Exception as e:
-                logger.error(f"Error executing tool {tool_instance.name}: {e}")
+                logger.error("Error executing tool %s: %s", tool_instance.name, e)
                 return {"error": str(e)}
         
         # Set function metadata for LLM discovery
@@ -177,7 +177,7 @@ class LLMToolAdapter:
                 
                 tool_function.__annotations__ = annotations
             except Exception as e:
-                logger.debug(f"Could not create annotations for {tool_instance.name}: {e}")
+                logger.debug("Could not create annotations for %s: %s", tool_instance.name, e)
         
         return tool_function
     
@@ -216,7 +216,7 @@ class LLMToolAdapter:
                     self._tool_definitions_cache.append(definition)
                     
                 except Exception as e:
-                    logger.warning(f"Failed to create definition for tool {name}: {e}")
+                    logger.warning("Failed to create definition for tool %s: %s", name, e)
                     # Create minimal definition
                     fallback_definition = ToolDefinition.create_function_tool(
                         name=name,
@@ -259,9 +259,9 @@ class LLMToolAdapter:
                 name = await self.register_tool_class(tool_class)
                 registered[tool_class.__name__] = name
             except Exception as e:
-                logger.warning(f"Failed to register tool {tool_class.__name__}: {e}")
+                logger.warning("Failed to register tool %s: %s", tool_class.__name__, e)
         
-        logger.info(f"Registered {len(registered)} tools for LLM use")
+        logger.info("Registered %s tools for LLM use", len(registered))
         return registered
     
     def get_tool_instance(self, name: str) -> Optional[BaseTool]:
@@ -292,7 +292,7 @@ class LLMToolAdapter:
         try:
             await tool_instance.cleanup()
         except Exception as e:
-            logger.warning(f"Error cleaning up tool {name}: {e}")
+            logger.warning("Error cleaning up tool %s: %s", name, e)
 
 
 # Global adapter instance

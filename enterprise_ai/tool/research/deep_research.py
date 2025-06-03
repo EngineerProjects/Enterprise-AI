@@ -9,13 +9,13 @@ from typing import Any, Dict, List, Optional, Set, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from enterprise_ai.exceptions import EnterpriseAIError
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult  # Using unified ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import SearchResult, WebSearch
 
-logger = get_logger("tool.research.deep_research")
+logger = get_optimized_logger("tool.research.deep_research")
 
 # Prompts for LLM interactions
 OPTIMIZE_QUERY_PROMPT = """
@@ -88,7 +88,7 @@ def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs)
         timeout = kwargs.get('timeout') or get_config("llm.timeout", 120.0)
         
         # Log what we're using for debugging
-        logger.debug(f"Using LLM provider: {provider}, model: {model}")
+        logger.debug("Using LLM provider: %s, model: %s", provider, model)
         
         return complete(
             messages=messages,
@@ -101,10 +101,10 @@ def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs)
             )
         )
     except ImportError as e:
-        logger.error(f"Failed to import LLM completion: {e}")
+        logger.error("Failed to import LLM completion: %s", e)
         raise ToolError("LLM completion not available for research analysis")
     except Exception as e:
-        logger.error(f"LLM completion failed: {e}")
+        logger.error("LLM completion failed: %s", e)
         # Return a fallback response instead of crashing
         class FallbackResponse:
             def __init__(self, content):
@@ -341,7 +341,7 @@ class DeepResearch(BaseTool):
             logger.info("DeepResearch tool successfully initialized")
             return True
         except Exception as e:
-            logger.error(f"Failed to initialize DeepResearch tool: {e}")
+            logger.error("Failed to initialize DeepResearch tool: %s", e)
             return False
 
     async def execute(self, **kwargs: Any) -> ResearchSummary:
@@ -366,8 +366,8 @@ class DeepResearch(BaseTool):
         config_timeout = getattr(self.config, "timeout", 120)
         time_limit_seconds = kwargs.get("time_limit_seconds", config_timeout)
 
-        logger.info(f"Starting deep research on query: {query}")
-        logger.debug(f"Parameters: max_depth={max_depth}, results_per_search={results_per_search}")
+        logger.info("Starting deep research on query: %s", query)
+        logger.debug("Parameters: max_depth=%s, results_per_search=%s", max_depth, results_per_search)
 
         # Initialize research context
         context = ResearchContext(query=query, max_depth=max_depth)
@@ -381,7 +381,7 @@ class DeepResearch(BaseTool):
 
             # Start research process
             optimized_query = await self._generate_optimized_query(query)
-            logger.info(f"Optimized query: {optimized_query}")
+            logger.info("Optimized query: %s", optimized_query)
 
             await self._research_graph(
                 context=context,
@@ -390,14 +390,14 @@ class DeepResearch(BaseTool):
                 deadline=deadline,
             )
 
-            logger.info(f"Research completed: {len(context.insights)} insights, depth {context.current_depth}")
+            logger.info("Research completed: %s insights, depth %s", len(context.insights), context.current_depth)
 
         except ToolError as e:
-            logger.error(f"Research error: {str(e)}")
+            logger.error("Research error: %s", str(e))
         except EnterpriseAIError as e:
-            logger.error(f"Enterprise AI error during research: {str(e)}")
+            logger.error("Enterprise AI error during research: %s", str(e))
         except Exception as e:
-            logger.error(f"Unexpected error during research: {str(e)}")
+            logger.error("Unexpected error during research: %s", str(e))
 
         # Prepare final summary
         summary = ResearchSummary(
@@ -414,7 +414,7 @@ class DeepResearch(BaseTool):
     async def _generate_optimized_query(self, query: str) -> str:
         """Generate an optimized search query using the configured LLM."""
         try:
-            logger.debug(f"Optimizing query: {query}")
+            logger.debug("Optimizing query: %s", query)
             prompt = OPTIMIZE_QUERY_PROMPT.format(query=query)
 
             # Use lazy import pattern with our helper function
@@ -432,13 +432,13 @@ class DeepResearch(BaseTool):
             if hasattr(response, 'content') and response.content:
                 optimized_query = response.content.strip()
                 if optimized_query:
-                    logger.info(f"Optimized query: '{optimized_query}'")
+                    logger.info("Optimized query: '%s'", optimized_query)
                     return optimized_query
 
             logger.warning("Generated empty optimized query, using original")
             return query
         except Exception as e:
-            logger.warning(f"Failed to optimize query: {str(e)}")
+            logger.warning("Failed to optimize query: %s", str(e))
             return query
 
     async def _research_graph(
@@ -454,37 +454,37 @@ class DeepResearch(BaseTool):
             if time.time() >= deadline:
                 logger.info("Research cycle terminated: time limit reached")
             elif context.current_depth >= context.max_depth:
-                logger.info(f"Research cycle terminated: max depth {context.max_depth} reached")
+                logger.info("Research cycle terminated: max depth %s reached", context.max_depth)
             return
 
-        logger.info(f"Research cycle at depth {context.current_depth + 1} for query: {query}")
+        logger.info("Research cycle at depth %s for query: %s", context.current_depth + 1, query)
 
         # 1. Web search
         search_results = await self._search_web(query, results_count)
         if not search_results:
-            logger.warning(f"No search results found for query: {query}")
+            logger.warning("No search results found for query: %s", query)
             return
 
         # 2. Extract insights
-        logger.debug(f"Analyzing {len(search_results)} search results")
+        logger.debug("Analyzing %s search results", len(search_results))
         new_insights = await self._extract_insights(context, search_results, context.query, deadline)
         if not new_insights:
             logger.warning("No insights extracted from search results")
             return
 
-        logger.info(f"Extracted {len(new_insights)} insights from search results")
+        logger.info("Extracted %s insights from search results", len(new_insights))
 
         # 3. Generate follow-up queries
         follow_up_queries = await self._generate_follow_ups(new_insights, query, context.query)
         context.follow_up_queries.extend(follow_up_queries)
-        logger.info(f"Generated {len(follow_up_queries)} follow-up queries")
+        logger.info("Generated %s follow-up queries", len(follow_up_queries))
 
         # Update depth
         context.current_depth += 1
 
         # 4. Continue research with follow-up queries
         if follow_up_queries and context.current_depth < context.max_depth:
-            logger.debug(f"Processing follow-up queries at depth {context.current_depth}")
+            logger.debug("Processing follow-up queries at depth %s", context.current_depth)
 
             tasks = []
             for follow_up in follow_up_queries[:2]:  # Limit branching factor
@@ -492,7 +492,7 @@ class DeepResearch(BaseTool):
                     logger.info("Follow-up processing terminated: time limit reached")
                     break
 
-                logger.debug(f"Scheduling follow-up query: {follow_up}")
+                logger.debug("Scheduling follow-up query: %s", follow_up)
                 task = self._research_graph(
                     context=context,
                     query=follow_up,
@@ -502,12 +502,12 @@ class DeepResearch(BaseTool):
                 tasks.append(task)
 
             if tasks:
-                logger.debug(f"Running {len(tasks)} follow-up queries in parallel")
+                logger.debug("Running %s follow-up queries in parallel", len(tasks))
                 await asyncio.gather(*tasks)
 
     async def _search_web(self, query: str, results_count: int) -> List[SearchResult]:
         """Perform web search for the given query."""
-        logger.debug(f"Searching web for: {query}")
+        logger.debug("Searching web for: %s", query)
 
         if self.search_tool is None:
             self.search_tool = WebSearch()
@@ -518,7 +518,7 @@ class DeepResearch(BaseTool):
         )
 
         results = getattr(search_response, "results", [])
-        logger.debug(f"Retrieved {len(results)} search results")
+        logger.debug("Retrieved %s search results", len(results))
         return results
 
     async def _extract_insights(
@@ -534,16 +534,16 @@ class DeepResearch(BaseTool):
         for result_index, result in enumerate(results):
             if result.url in context.visited_urls or time.time() >= deadline:
                 if result.url in context.visited_urls:
-                    logger.debug(f"Skipping already visited URL: {result.url}")
+                    logger.debug("Skipping already visited URL: %s", result.url)
                 else:
                     logger.debug("Analysis terminated: time limit reached")
                 continue
 
-            logger.debug(f"Analyzing result {result_index + 1}/{len(results)}: {result.url}")
+            logger.debug("Analyzing result %s/%s: %s", result_index + 1, len(results), result.url)
             context.visited_urls.add(result.url)
 
             if not result.raw_content:
-                logger.debug(f"Skipping result with no content: {result.url}")
+                logger.debug("Skipping result with no content: %s", result.url)
                 continue
 
             insights = await self._analyze_content(
@@ -555,7 +555,7 @@ class DeepResearch(BaseTool):
 
             all_insights.extend(insights)
             context.insights.extend(insights)
-            logger.info(f"Extracted {len(insights)} insights from {result.url}")
+            logger.info("Extracted %s insights from %s", len(insights), result.url)
 
         return all_insights
 
@@ -601,17 +601,17 @@ class DeepResearch(BaseTool):
                         queries.append(query_text)
 
             result = queries[:3]
-            logger.info(f"Generated {len(result)} follow-up queries")
+            logger.info("Generated %s follow-up queries", len(result))
             return result
         except Exception as e:
-            logger.error(f"Error generating follow-up queries: {str(e)}")
+            logger.error("Error generating follow-up queries: %s", str(e))
             return []
 
     async def _analyze_content(
         self, content: str, url: str, title: str, query: str
     ) -> List[ResearchInsight]:
         """Extract insights from content based on relevance to query."""
-        logger.debug(f"Analyzing content from: {url}")
+        logger.debug("Analyzing content from: %s", url)
 
         prompt = EXTRACT_INSIGHTS_PROMPT.format(
             query=query,
@@ -633,7 +633,7 @@ class DeepResearch(BaseTool):
             insights = []
             
             if not (hasattr(response, 'content') and response.content):
-                logger.warning(f"No response content for {url}")
+                logger.warning("No response content for %s", url)
                 return [self._create_fallback_insight(url, title)]
 
             response_content = response.content.strip()
@@ -673,13 +673,13 @@ class DeepResearch(BaseTool):
 
             # Use fallback if no insights found
             if not insights:
-                logger.warning(f"Could not parse insights from LLM response for {url}. Using fallback.")
+                logger.warning("Could not parse insights from LLM response for %s. Using fallback.", url)
                 insights.append(self._create_fallback_insight(url, title))
 
-            logger.debug(f"Extracted {len(insights)} insights from {url}")
+            logger.debug("Extracted %s insights from %s", len(insights), url)
             return insights
         except Exception as e:
-            logger.error(f"Error analyzing content from {url}: {str(e)}")
+            logger.error("Error analyzing content from %s: %s", url, str(e))
             return [self._create_fallback_insight(url, title)]
 
     def _create_insight_from_dict(self, insight_dict: Dict[str, Any], url: str, title: str) -> ResearchInsight:
@@ -712,6 +712,6 @@ class DeepResearch(BaseTool):
                 await self.search_tool.cleanup()
                 logger.debug("WebSearch tool cleaned up")
             except Exception as e:
-                logger.warning(f"Error cleaning up WebSearch tool: {e}")
+                logger.warning("Error cleaning up WebSearch tool: %s", e)
 
             self.search_tool = None

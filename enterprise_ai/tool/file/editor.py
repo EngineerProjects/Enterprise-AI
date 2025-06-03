@@ -20,9 +20,9 @@ from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCa
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 
-logger = get_logger("tool.file.editor")
+logger = get_optimized_logger("tool.file.editor")
 
 # Constants
 SNIPPET_LINES: int = 4

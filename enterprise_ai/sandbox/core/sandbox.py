@@ -18,12 +18,12 @@ import docker
 from docker.errors import NotFound
 from docker.models.containers import Container
 
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.config.sandbox import SandboxSettings
 from enterprise_ai.sandbox.core.exceptions import SandboxTimeoutError
 from enterprise_ai.sandbox.core.terminal import AsyncDockerizedTerminal
 
-logger = get_logger("sandbox.core")
+logger = get_optimized_logger("sandbox.core")
 
 
 class DockerSandbox:
@@ -106,12 +106,12 @@ class DockerSandbox:
             )
             await self.terminal.init()
 
-            logger.info(f"Created sandbox container: {container_name}")
+            logger.info("Created sandbox container: %s", container_name)
             return self
 
         except Exception as e:
             await self.cleanup()  # Ensure resources are cleaned up
-            logger.error(f"Failed to create sandbox: {e}")
+            logger.error("Failed to create sandbox: %s", e)
             raise RuntimeError(f"Failed to create sandbox: {e}") from e
 
     def _prepare_volume_bindings(self) -> Dict[str, Dict[str, str]]:
@@ -168,10 +168,10 @@ class DockerSandbox:
 
         try:
             result = await self.terminal.run_command(cmd, timeout=timeout or self.config.timeout)
-            logger.debug(f"Command executed: {cmd[:50]}...")
+            logger.debug("Command executed: %s...", cmd[:50])
             return result
         except TimeoutError:
-            logger.warning(f"Command timed out: {cmd[:50]}...")
+            logger.warning("Command timed out: %s...", cmd[:50])
             raise SandboxTimeoutError(
                 f"Command execution timed out after {timeout or self.config.timeout} seconds"
             )
@@ -200,16 +200,16 @@ class DockerSandbox:
 
                 # Read file content from tar stream
                 content = await self._read_from_tar(tar_stream)
-                logger.debug(f"Read file: {path}")
+                logger.debug("Read file: %s", path)
                 return content.decode("utf-8")
             else:
                 raise RuntimeError("Container not available")
 
         except NotFound:
-            logger.warning(f"File not found: {path}")
+            logger.warning("File not found: %s", path)
             raise FileNotFoundError(f"File not found: {path}")
         except Exception as e:
-            logger.error(f"Failed to read file {path}: {e}")
+            logger.error("Failed to read file %s: %s", path, e)
             raise RuntimeError(f"Failed to read file: {e}")
 
     async def write_file(self, path: str, content: str) -> None:
@@ -241,12 +241,12 @@ class DockerSandbox:
             # Write file
             if self.container:  # Add null check
                 await asyncio.to_thread(self.container.put_archive, parent_dir or "/", tar_stream)
-                logger.debug(f"Wrote file: {path}")
+                logger.debug("Wrote file: %s", path)
             else:
                 raise RuntimeError("Container not available")
 
         except Exception as e:
-            logger.error(f"Failed to write file {path}: {e}")
+            logger.error("Failed to write file %s: %s", path, e)
             raise RuntimeError(f"Failed to write file: {e}")
 
     def _safe_resolve_path(self, path: str) -> str:
@@ -322,13 +322,13 @@ class DockerSandbox:
                                 raise RuntimeError(f"Failed to extract file: {src_path}")
                             dst.write(src_file.read())
 
-            logger.debug(f"Copied file from container: {src_path} -> {dst_path}")
+            logger.debug("Copied file from container: %s -> %s", src_path, dst_path)
 
         except docker.errors.NotFound:
-            logger.warning(f"Source file not found: {src_path}")
+            logger.warning("Source file not found: %s", src_path)
             raise FileNotFoundError(f"Source file not found: {src_path}")
         except Exception as e:
-            logger.error(f"Failed to copy file from container: {e}")
+            logger.error("Failed to copy file from container: %s", e)
             raise RuntimeError(f"Failed to copy file: {e}")
 
     async def copy_to(self, src_path: str, dst_path: str) -> None:
@@ -391,13 +391,13 @@ class DockerSandbox:
                 except Exception:
                     raise RuntimeError(f"Failed to verify file creation: {dst_path}")
 
-            logger.debug(f"Copied file to container: {src_path} -> {dst_path}")
+            logger.debug("Copied file to container: %s -> %s", src_path, dst_path)
 
         except FileNotFoundError:
-            logger.warning(f"Source file not found: {src_path}")
+            logger.warning("Source file not found: %s", src_path)
             raise
         except Exception as e:
-            logger.error(f"Failed to copy file to container: {e}")
+            logger.error("Failed to copy file to container: %s", e)
             raise RuntimeError(f"Failed to copy file: {e}")
 
     @staticmethod
@@ -473,13 +473,13 @@ class DockerSandbox:
                     errors.append(f"Container remove error: {e}")
                 finally:
                     self.container = None
-                    logger.info(f"Cleaned up sandbox container: {container_id}")
+                    logger.info("Cleaned up sandbox container: %s", container_id)
 
         except Exception as e:
             errors.append(f"General cleanup error: {e}")
 
         if errors:
-            logger.warning(f"Errors during cleanup: {', '.join(errors)}")
+            logger.warning("Errors during cleanup: %s", ', '.join(errors))
 
     async def __aenter__(self) -> "DockerSandbox":
         """Async context manager entry."""

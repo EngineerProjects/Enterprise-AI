@@ -18,9 +18,9 @@ from enterprise_ai.tool.core.base import (
 )
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 
-logger = get_logger("tool.execution.bash")
+logger = get_optimized_logger("tool.execution.bash")
 
 
 class _BashSession:

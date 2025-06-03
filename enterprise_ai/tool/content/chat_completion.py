@@ -108,7 +108,7 @@ class CreateChatCompletion(BaseTool):
         # Store config
         self.config = config or ToolConfig()
 
-        logger.debug(f"CreateChatCompletion initialized with response_type: {response_type}")
+        logger.debug("CreateChatCompletion initialized with response_type: %s", response_type)
 
     @classmethod
     def _build_parameters_static(cls, response_type: Type) -> dict:
@@ -345,7 +345,7 @@ class CreateChatCompletion(BaseTool):
             Converted response based on response_type
         """
         # Start with basic validation of input
-        logger.debug(f"Executing chat completion with params: {kwargs}")
+        logger.debug("Executing chat completion with params: %s", kwargs)
 
         try:
             # Extract the required fields parameter if provided
@@ -402,7 +402,7 @@ class CreateChatCompletion(BaseTool):
                     )
 
                 except Exception as e:
-                    logger.error(f"Type conversion error (Pydantic): {e}")
+                    logger.error("Type conversion error (Pydantic): %s", e)
                     return ToolResult.create_error(
                         error=f"Type conversion error: {str(e)}",
                         tool_name=self.name
@@ -410,7 +410,7 @@ class CreateChatCompletion(BaseTool):
 
             # Handle regular (non-Pydantic-model) case
             # For most cases, we want to return the response_text directly
-            logger.debug(f"Converting result to type: {self.response_type_internal}")
+            logger.debug("Converting result to type: %s", self.response_type_internal)
 
             # Convert based on response type
             if self.response_type_internal is str or self.response_type_internal is None:
@@ -422,7 +422,7 @@ class CreateChatCompletion(BaseTool):
 
             # Handle container types (list, dict)
             if get_origin(self.response_type_internal) in (list, dict):
-                logger.debug(f"Converting to container type: {get_origin(self.response_type_internal)}")
+                logger.debug("Converting to container type: %s", get_origin(self.response_type_internal))
                 return ToolResult.create_success(
                     result=str(response_text),
                     tool_name=self.name
@@ -431,14 +431,14 @@ class CreateChatCompletion(BaseTool):
             # Handle other specific types
             try:
                 if self.response_type_internal is not None:
-                    logger.debug(f"Converting to specific type: {self.response_type_internal}")
+                    logger.debug("Converting to specific type: %s", self.response_type_internal)
                     converted = self.response_type_internal(response_text)
                     return ToolResult.create_success(
                         result=str(converted),
                         tool_name=self.name
                     )
             except (ValueError, TypeError) as e:
-                logger.error(f"Type conversion error: {e}")
+                logger.error("Type conversion error: %s", e)
                 return ToolResult.create_error(
                     error=f"Type conversion error: {str(e)}",
                     tool_name=self.name
@@ -451,7 +451,7 @@ class CreateChatCompletion(BaseTool):
             )
 
         except Exception as e:
-            logger.error(f"Unexpected error in chat completion: {e}")
+            logger.error("Unexpected error in chat completion: %s", e)
             return ToolResult.create_error(
                 error=f"Error executing chat completion: {str(e)}",
                 tool_name=self.name

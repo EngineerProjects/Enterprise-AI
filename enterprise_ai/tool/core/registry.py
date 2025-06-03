@@ -11,12 +11,12 @@ import re
 import semver
 import warnings
 
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 
 # This will be imported by annotation only to avoid circular imports
 from enterprise_ai.tool.core.base import BaseTool, ToolCapability, ToolConfig
 
-logger = get_logger("tool.registry")
+logger = get_optimized_logger("tool.registry")
 
 
 class ToolRegistry:

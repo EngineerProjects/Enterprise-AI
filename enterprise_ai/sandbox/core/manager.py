@@ -14,11 +14,11 @@ from typing import AsyncGenerator, Dict, Optional, Set, Any, Type
 import docker
 from docker.errors import APIError, ImageNotFound
 
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.config.sandbox import SandboxSettings
 from enterprise_ai.sandbox.core.sandbox import DockerSandbox
 
-logger = get_logger("sandbox.manager")
+logger = get_optimized_logger("sandbox.manager")
 
 
 class SandboxManager:

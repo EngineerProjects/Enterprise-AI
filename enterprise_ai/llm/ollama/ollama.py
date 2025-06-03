@@ -21,7 +21,7 @@ from enterprise_ai.constants import (
     ModelFeature,
 )
 from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.schema import Message, ModelInfo, LLMResponse, ProviderInfo, ToolCall, ToolResult
 from enterprise_ai.types import MessageProtocol
 from enterprise_ai.tool.core.base import ExecutionMode
@@ -38,7 +38,7 @@ from enterprise_ai.llm.ollama.helpers import (
 )
 from enterprise_ai.llm.tool_executor import ToolExecutor
 
-logger = get_logger("llm.ollama")
+logger = get_optimized_logger("llm.ollama")
 
 
 class OllamaProvider(LLMProvider):
@@ -116,7 +116,7 @@ class OllamaProvider(LLMProvider):
         self._client: Optional[httpx.Client] = None
         self._async_client: Optional[httpx.AsyncClient] = None
 
-        logger.info(f"Initialized Ollama provider: {model} @ {self._base_url} | Execution mode: {execution_mode}")
+        logger.info("Initialized Ollama provider: %s @ %s | Execution mode: %s", model, self._base_url, execution_mode)
 
     def _get_client(self) -> httpx.Client:
         """Get or create sync HTTP client."""
@@ -139,13 +139,13 @@ class OllamaProvider(LLMProvider):
         """Register a tool for execution."""
         self._tool_executor.register_tool(name, func)
         if self.verbose:
-            logger.info(f"Registered tool: {name}")
+            logger.info("Registered tool: %s", name)
 
     def register_tools(self, tools: Dict[str, Callable]) -> None:
         """Register multiple tools for execution."""
         self._tool_executor.register_tools(tools)
         if self.verbose:
-            logger.info(f"Registered {len(tools)} tools")
+            logger.info("Registered %s tools", len(tools))
 
     # Enhanced completion methods
     def complete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
@@ -215,7 +215,7 @@ class OllamaProvider(LLMProvider):
         request_id = generate_request_id()
         
         if self.verbose:
-            logger.info(f"Making Ollama completion request {request_id} with {len(messages)} messages")
+            logger.info("Making Ollama completion request %s with %s messages", request_id, len(messages))
         
         # Prepare request
         has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
@@ -223,7 +223,7 @@ class OllamaProvider(LLMProvider):
         timeout = OllamaConfigHelper.determine_timeout_for_request(self._timeout, self.model_name, has_images, has_tools)
 
         if self.verbose:
-            logger.info(f"Request config: has_images={has_images}, has_tools={has_tools}, timeout={timeout}s")
+            logger.info("Request config: has_images=%s, has_tools=%s, timeout=%ss", has_images, has_tools, timeout)
 
         # Process tools
         if has_tools:
@@ -241,7 +241,7 @@ class OllamaProvider(LLMProvider):
         use_chat = has_tools or any(msg.role != "user" for msg in messages[1:] if messages)
         
         if self.verbose:
-            logger.info(f"Using {'chat' if use_chat else 'generate'} endpoint")
+            logger.info("Using %s endpoint", 'chat' if use_chat else 'generate')
         
         try:
             if use_chat:
@@ -253,19 +253,19 @@ class OllamaProvider(LLMProvider):
             result = self._llm_response_to_message(llm_response)
             
             if self.verbose:
-                logger.info(f"Ollama request {request_id} completed successfully")
+                logger.info("Ollama request %s completed successfully", request_id)
             
             return result
         except Exception as e:
             self.track_request(False)
             if self.verbose:
-                logger.error(f"Ollama request {request_id} failed: {str(e)}")
+                logger.error("Ollama request %s failed: %s", request_id, str(e))
             raise
 
     async def _acomplete_standard(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
         """Standard async completion without auto tool execution."""
         if self.verbose:
-            logger.info(f"Making async Ollama completion request with {len(messages)} messages")
+            logger.info("Making async Ollama completion request with %s messages", len(messages))
         
         # Prepare request (same logic as sync)
         has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
@@ -300,7 +300,7 @@ class OllamaProvider(LLMProvider):
         except Exception as e:
             self.track_request(False)
             if self.verbose:
-                logger.error(f"Async Ollama request failed: {str(e)}")
+                logger.error("Async Ollama request failed: %s", str(e))
             raise
 
     # Auto Tool Execution Methods
@@ -310,7 +310,7 @@ class OllamaProvider(LLMProvider):
         iteration = 0
         
         if self.verbose:
-            logger.info(f"Starting auto tool execution loop with {len(messages)} initial messages")
+            logger.info("Starting auto tool execution loop with %s initial messages", len(messages))
         
         while iteration < self.max_tool_iterations:
             # Get response from model
@@ -319,14 +319,14 @@ class OllamaProvider(LLMProvider):
             # Check if model made tool calls
             if not self._has_tool_calls(response):
                 if self.verbose:
-                    logger.info(f"No tool calls found, returning response (iteration {iteration + 1})")
+                    logger.info("No tool calls found, returning response (iteration %s)", iteration + 1)
                 return response
             
             tool_calls_data = response.metadata["tool_calls"]
             tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
             
             if self.verbose:
-                logger.info(f"Auto-executing {len(tool_calls)} tool calls (iteration {iteration + 1})")
+                logger.info("Auto-executing %s tool calls (iteration %s)", len(tool_calls), iteration + 1)
             
             # Execute tools with current executor settings
             tool_results = self._tool_executor.execute_tool_calls(tool_calls)
@@ -338,7 +338,7 @@ class OllamaProvider(LLMProvider):
             
             iteration += 1
         
-        logger.warning(f"Reached maximum tool iterations ({self.max_tool_iterations})")
+        logger.warning("Reached maximum tool iterations (%s)", self.max_tool_iterations)
         return response
 
     async def _acomplete_with_auto_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
@@ -347,7 +347,7 @@ class OllamaProvider(LLMProvider):
         iteration = 0
         
         if self.verbose:
-            logger.info(f"Starting async auto tool execution loop with {len(messages)} initial messages")
+            logger.info("Starting async auto tool execution loop with %s initial messages", len(messages))
         
         while iteration < self.max_tool_iterations:
             # Get response from model
@@ -356,14 +356,14 @@ class OllamaProvider(LLMProvider):
             # Check for tool calls
             if not self._has_tool_calls(response):
                 if self.verbose:
-                    logger.info(f"No tool calls found, returning response (async iteration {iteration + 1})")
+                    logger.info("No tool calls found, returning response (async iteration %s)", iteration + 1)
                 return response
             
             tool_calls_data = response.metadata["tool_calls"]
             tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
             
             if self.verbose:
-                logger.info(f"Auto-executing {len(tool_calls)} tool calls async (iteration {iteration + 1})")
+                logger.info("Auto-executing %s tool calls async (iteration %s)", len(tool_calls), iteration + 1)
             
             # Execute tools asynchronously
             tool_results = await self._tool_executor.aexecute_tool_calls(tool_calls)
@@ -375,7 +375,7 @@ class OllamaProvider(LLMProvider):
             
             iteration += 1
         
-        logger.warning(f"Reached maximum async tool iterations ({self.max_tool_iterations})")
+        logger.warning("Reached maximum async tool iterations (%s)", self.max_tool_iterations)
         return response
 
     # Controlled tool execution (manual/hybrid with approval)
@@ -385,7 +385,7 @@ class OllamaProvider(LLMProvider):
         iteration = 0
         
         if self.verbose:
-            logger.info(f"Starting controlled tool execution with {self.execution_mode} mode")
+            logger.info("Starting controlled tool execution with %s mode", self.execution_mode)
         
         while iteration < self.max_tool_iterations:
             # Get response from model
@@ -394,14 +394,14 @@ class OllamaProvider(LLMProvider):
             # Check if model made tool calls
             if not self._has_tool_calls(response):
                 if self.verbose:
-                    logger.info(f"No tool calls found, returning response (iteration {iteration + 1})")
+                    logger.info("No tool calls found, returning response (iteration %s)", iteration + 1)
                 return response
             
             tool_calls_data = response.metadata["tool_calls"]
             tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
             
             if self.verbose:
-                logger.info(f"Processing {len(tool_calls)} tool calls with {self.execution_mode} mode (iteration {iteration + 1})")
+                logger.info("Processing %s tool calls with %s mode (iteration %s)", len(tool_calls), self.execution_mode, iteration + 1)
             
             # Execute tools with approval control
             tool_results = self._tool_executor.execute_tool_calls(tool_calls)
@@ -413,7 +413,7 @@ class OllamaProvider(LLMProvider):
             
             iteration += 1
         
-        logger.warning(f"Reached maximum tool iterations ({self.max_tool_iterations})")
+        logger.warning("Reached maximum tool iterations (%s)", self.max_tool_iterations)
         return response
 
     async def _acomplete_with_controlled_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
@@ -422,7 +422,7 @@ class OllamaProvider(LLMProvider):
         iteration = 0
         
         if self.verbose:
-            logger.info(f"Starting async controlled tool execution with {self.execution_mode} mode")
+            logger.info("Starting async controlled tool execution with %s mode", self.execution_mode)
         
         while iteration < self.max_tool_iterations:
             # Get response from model
@@ -431,14 +431,14 @@ class OllamaProvider(LLMProvider):
             # Check if model made tool calls
             if not self._has_tool_calls(response):
                 if self.verbose:
-                    logger.info(f"No tool calls found, returning response (async iteration {iteration + 1})")
+                    logger.info("No tool calls found, returning response (async iteration %s)", iteration + 1)
                 return response
             
             tool_calls_data = response.metadata["tool_calls"]
             tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
             
             if self.verbose:
-                logger.info(f"Processing {len(tool_calls)} tool calls with {self.execution_mode} mode (async iteration {iteration + 1})")
+                logger.info("Processing %s tool calls with %s mode (async iteration %s)", len(tool_calls), self.execution_mode, iteration + 1)
             
             # Execute tools with approval control
             tool_results = await self._tool_executor.aexecute_tool_calls(tool_calls)
@@ -450,7 +450,7 @@ class OllamaProvider(LLMProvider):
             
             iteration += 1
         
-        logger.warning(f"Reached maximum async tool iterations ({self.max_tool_iterations})")
+        logger.warning("Reached maximum async tool iterations (%s)", self.max_tool_iterations)
         return response
 
     def _has_tool_calls(self, response: MessageProtocol) -> bool:
@@ -666,19 +666,19 @@ class OllamaProvider(LLMProvider):
             if response.status_code == 200:
                 model_data = response.json()
                 if self.verbose:
-                    logger.info(f"Retrieved model data for {self.model_name}")
+                    logger.info("Retrieved model data for %s", self.model_name)
                 else:
-                    logger.debug(f"Retrieved model data for {self.model_name}")
+                    logger.debug("Retrieved model data for %s", self.model_name)
                 return model_data
             elif response.status_code == 404:
-                logger.warning(f"Model {self.model_name} not found in Ollama")
+                logger.warning("Model %s not found in Ollama", self.model_name)
                 return None
             else:
-                logger.warning(f"Unexpected response {response.status_code} for model {self.model_name}")
+                logger.warning("Unexpected response %s for model %s", response.status_code, self.model_name)
                 return None
                 
         except Exception as e:
-            logger.warning(f"Failed to fetch model data for {self.model_name}: {e}")
+            logger.warning("Failed to fetch model data for %s: %s", self.model_name, e)
             return None
 
     def _build_model_description(self, specs: Dict[str, Any], model_data: Optional[Dict]) -> str:

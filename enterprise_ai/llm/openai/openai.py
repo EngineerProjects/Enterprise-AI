@@ -37,7 +37,7 @@ from enterprise_ai.constants import (
 from enterprise_ai.exceptions import APIError as EnterpriseAPIError, TokenLimitExceeded
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.llm.tool_executor import ToolExecutor
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.schema import Message, ModelInfo, LLMResponse, ProviderInfo, ToolCall, ToolResult
 from enterprise_ai.types import MessageProtocol
 from enterprise_ai.tool.core.base import ExecutionMode
@@ -51,7 +51,7 @@ from enterprise_ai.llm.openai.helpers import (
 )
 from enterprise_ai.llm.openai.constants import REASONING_MODELS, MULTIMODAL_MODELS
 
-logger = get_logger("llm.openai")
+logger = get_optimized_logger("llm.openai")
 
 
 class OpenAIProvider(LLMProvider):

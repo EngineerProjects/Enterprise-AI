@@ -14,13 +14,13 @@ from pydantic_core.core_schema import ValidationInfo
 
 from enterprise_ai.config import get_config
 from enterprise_ai.schema import Message
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import WebSearch
 
-logger = get_logger("tool.browser.browser_use")
+logger = get_optimized_logger("tool.browser.browser_use")
 
 
 def llm_prompt(goal: str, content: str, max_content_length: int) -> str:
@@ -60,7 +60,7 @@ def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs)
         timeout = kwargs.get('timeout') or get_config("llm.timeout", 120.0)
         
         # Log what we're using for debugging
-        logger.debug(f"Using LLM provider: {provider}, model: {model}")
+        logger.debug("Using LLM provider: %s, model: %s", provider, model)
         
         return complete(
             messages=messages,
@@ -73,10 +73,10 @@ def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs)
             )
         )
     except ImportError as e:
-        logger.error(f"Failed to import LLM completion: {e}")
+        logger.error("Failed to import LLM completion: %s", e)
         raise ToolError("LLM completion not available for content extraction")
     except Exception as e:
-        logger.error(f"LLM completion failed: {e}")
+        logger.error("LLM completion failed: %s", e)
         # Return a fallback response instead of crashing
         class FallbackResponse:
             def __init__(self, content):
@@ -270,7 +270,7 @@ class BrowserUseTool(BaseTool):
             logger.info("BrowserUseTool initialization completed")
             return True
         except Exception as e:
-            logger.error(f"Browser initialization error: {e}")
+            logger.error("Browser initialization error: %s", e)
             return False
 
     async def _ensure_browser_initialized(self) -> BrowserContext:
@@ -299,7 +299,7 @@ class BrowserUseTool(BaseTool):
                 self.browser = BrowserUseBrowser(BrowserConfig(**browser_config_kwargs))
                 logger.debug("Browser instance created successfully")
             except Exception as e:
-                logger.error(f"Browser creation failed: {e}")
+                logger.error("Browser creation failed: %s", e)
                 raise ToolError(f"Failed to create browser: {str(e)}")
 
         if self.context is None:
@@ -310,7 +310,7 @@ class BrowserUseTool(BaseTool):
                 self.dom_service = DomService(await self.context.get_current_page())
                 logger.debug("Browser context created successfully")
             except Exception as e:
-                logger.error(f"Browser context creation failed: {e}")
+                logger.error("Browser context creation failed: %s", e)
                 raise ToolError(f"Failed to create browser context: {str(e)}")
 
         return self.context
@@ -359,7 +359,7 @@ class BrowserUseTool(BaseTool):
             return "No content extracted."
             
         except Exception as e:
-            logger.error(f"Content extraction failed: {e}")
+            logger.error("Content extraction failed: %s", e)
             return f"Content extraction failed: {str(e)}"
 
     async def _ensure_web_search_tool(self):
@@ -398,7 +398,7 @@ class BrowserUseTool(BaseTool):
         keys = kwargs.get("keys")
         seconds = kwargs.get("seconds", 3)
 
-        logger.info(f"Executing browser action: {action}")
+        logger.info("Executing browser action: %s", action)
 
         # Execution with retries
         while retry_count <= max_retries:
@@ -412,17 +412,17 @@ class BrowserUseTool(BaseTool):
                         if not url:
                             return ToolResult.create_error("URL is required for 'go_to_url' action", tool_name=self.name)
 
-                        logger.debug(f"Navigating to URL: {url}")
+                        logger.debug("Navigating to URL: %s", url)
                         page = await context.get_current_page()
                         page_timeout = execution_timeout * 1000 if execution_timeout else 60000
 
                         try:
                             await page.goto(url, timeout=page_timeout)
                             await page.wait_for_load_state()
-                            logger.info(f"Successfully navigated to: {url}")
+                            logger.info("Successfully navigated to: %s", url)
                             return ToolResult.create_success(f"Navigated to {url}", tool_name=self.name)
                         except Exception as e:
-                            logger.error(f"Navigation error: {e}")
+                            logger.error("Navigation error: %s", e)
                             return ToolResult.create_error(f"Failed to navigate to {url}: {str(e)}", tool_name=self.name)
 
                     elif action == "go_back":
@@ -439,7 +439,7 @@ class BrowserUseTool(BaseTool):
                         if not query:
                             return ToolResult.create_error("Query is required for 'web_search' action", tool_name=self.name)
 
-                        logger.debug(f"Performing web search for: {query}")
+                        logger.debug("Performing web search for: %s", query)
 
                         # Initialize web search tool if not already done
                         await self._ensure_web_search_tool()
@@ -460,7 +460,7 @@ class BrowserUseTool(BaseTool):
                                     page = await context.get_current_page()
                                     await page.goto(url_to_navigate)
                                     await page.wait_for_load_state()
-                                    logger.info(f"Navigated to search result: {url_to_navigate}")
+                                    logger.info("Navigated to search result: %s", url_to_navigate)
 
                                     # Return the search results and navigation info
                                     return ToolResult.create_success(
@@ -477,7 +477,7 @@ class BrowserUseTool(BaseTool):
                         if index is None:
                             return ToolResult.create_error("Index is required for 'click_element' action", tool_name=self.name)
 
-                        logger.debug(f"Clicking element at index: {index}")
+                        logger.debug("Clicking element at index: %s", index)
                         element = await context.get_dom_element_by_index(index)
                         if not element:
                             return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
@@ -494,20 +494,20 @@ class BrowserUseTool(BaseTool):
                         if index is None or not text:
                             return ToolResult.create_error("Index and text are required for 'input_text' action", tool_name=self.name)
 
-                        logger.debug(f"Inputting text at element index {index}: {text}")
+                        logger.debug("Inputting text at element index %s: %s", index, text)
                         element = await context.get_dom_element_by_index(index)
                         if not element:
                             return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
 
                         await context._input_text_element_node(element, text)
-                        logger.info(f"Text input successful at index {index}")
+                        logger.info("Text input successful at index %s", index)
                         return ToolResult.create_success(f"Input '{text}' into element at index {index}", tool_name=self.name)
 
                     elif action in ["scroll_down", "scroll_up"]:
                         direction = 1 if action == "scroll_down" else -1
                         amount = scroll_amount if scroll_amount is not None else context.config.browser_window_size["height"]
 
-                        logger.debug(f"Scrolling {'down' if direction > 0 else 'up'} by {amount} pixels")
+                        logger.debug("Scrolling %s by %s pixels", 'down' if direction > 0 else 'up', amount)
                         await context.execute_javascript(f"window.scrollBy(0, {direction * amount});")
 
                         result_msg = f"Scrolled {'down' if direction > 0 else 'up'} by {amount} pixels"
@@ -518,33 +518,33 @@ class BrowserUseTool(BaseTool):
                         if not text:
                             return ToolResult.create_error("Text is required for 'scroll_to_text' action", tool_name=self.name)
 
-                        logger.debug(f"Scrolling to text: '{text}'")
+                        logger.debug("Scrolling to text: '%s'", text)
                         page = await context.get_current_page()
                         try:
                             locator = page.get_by_text(text, exact=False)
                             await locator.scroll_into_view_if_needed()
-                            logger.info(f"Successfully scrolled to text: '{text}'")
+                            logger.info("Successfully scrolled to text: '%s'", text)
                             return ToolResult.create_success(f"Scrolled to text: '{text}'", tool_name=self.name)
                         except Exception as e:
-                            logger.error(f"Failed to scroll to text: {e}")
+                            logger.error("Failed to scroll to text: %s", e)
                             return ToolResult.create_error(f"Failed to scroll to text: {str(e)}", tool_name=self.name)
 
                     elif action == "send_keys":
                         if not keys:
                             return ToolResult.create_error("Keys are required for 'send_keys' action", tool_name=self.name)
 
-                        logger.debug(f"Sending keys: {keys}")
+                        logger.debug("Sending keys: %s", keys)
                         page = await context.get_current_page()
                         await page.keyboard.press(keys)
 
-                        logger.info(f"Successfully sent keys: {keys}")
+                        logger.info("Successfully sent keys: %s", keys)
                         return ToolResult.create_success(f"Sent keys: {keys}", tool_name=self.name)
 
                     elif action == "get_dropdown_options":
                         if index is None:
                             return ToolResult.create_error("Index is required for 'get_dropdown_options' action", tool_name=self.name)
 
-                        logger.debug(f"Getting dropdown options for element at index {index}")
+                        logger.debug("Getting dropdown options for element at index %s", index)
                         element = await context.get_dom_element_by_index(index)
                         if not element:
                             return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
@@ -566,14 +566,14 @@ class BrowserUseTool(BaseTool):
                             element.xpath,
                         )
 
-                        logger.info(f"Retrieved {len(options) if options else 0} dropdown options")
+                        logger.info("Retrieved %s dropdown options", len(options) if options else 0)
                         return ToolResult.create_success(f"Dropdown options: {options}", tool_name=self.name)
 
                     elif action == "select_dropdown_option":
                         if index is None or not text:
                             return ToolResult.create_error("Index and text are required for 'select_dropdown_option' action", tool_name=self.name)
 
-                        logger.debug(f"Selecting option '{text}' from dropdown at index {index}")
+                        logger.debug("Selecting option '%s' from dropdown at index %s", text, index)
                         element = await context.get_dom_element_by_index(index)
                         if not element:
                             return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
@@ -589,7 +589,7 @@ class BrowserUseTool(BaseTool):
                         if not goal:
                             return ToolResult.create_error("Goal is required for 'extract_content' action", tool_name=self.name)
 
-                        logger.debug(f"Extracting content with goal: {goal}")
+                        logger.debug("Extracting content with goal: %s", goal)
                         
                         # FIXED: Use the correct method name
                         extracted_data = await self._extract_content(goal, max_content_length=4000)
@@ -601,22 +601,22 @@ class BrowserUseTool(BaseTool):
                         if tab_id is None:
                             return ToolResult.create_error("Tab ID is required for 'switch_tab' action", tool_name=self.name)
 
-                        logger.debug(f"Switching to tab: {tab_id}")
+                        logger.debug("Switching to tab: %s", tab_id)
                         await context.switch_to_tab(tab_id)
                         page = await context.get_current_page()
                         await page.wait_for_load_state()
 
-                        logger.info(f"Switched to tab {tab_id}")
+                        logger.info("Switched to tab %s", tab_id)
                         return ToolResult.create_success(f"Switched to tab {tab_id}", tool_name=self.name)
 
                     elif action == "open_tab":
                         if not url:
                             return ToolResult.create_error("URL is required for 'open_tab' action", tool_name=self.name)
 
-                        logger.debug(f"Opening new tab with URL: {url}")
+                        logger.debug("Opening new tab with URL: %s", url)
                         await context.create_new_tab(url)
 
-                        logger.info(f"Opened new tab with URL: {url}")
+                        logger.info("Opened new tab with URL: %s", url)
                         return ToolResult.create_success(f"Opened new tab with {url}", tool_name=self.name)
 
                     elif action == "close_tab":
@@ -628,31 +628,31 @@ class BrowserUseTool(BaseTool):
 
                     elif action == "wait":
                         seconds_to_wait = seconds if seconds is not None else 3
-                        logger.debug(f"Waiting for {seconds_to_wait} seconds")
+                        logger.debug("Waiting for %s seconds", seconds_to_wait)
                         await asyncio.sleep(seconds_to_wait)
 
-                        logger.info(f"Waited for {seconds_to_wait} seconds")
+                        logger.info("Waited for %s seconds", seconds_to_wait)
                         return ToolResult.create_success(f"Waited for {seconds_to_wait} seconds", tool_name=self.name)
 
                     elif action == "get_current_state":
                         return await self.get_current_state()
 
                     else:
-                        logger.warning(f"Unknown action: {action}")
+                        logger.warning("Unknown action: %s", action)
                         return ToolResult.create_error(f"Unknown action: {action}", tool_name=self.name)
 
             except ToolError as e:
                 # If it's an explicit tool error, don't retry
-                logger.error(f"Tool error in action '{action}': {str(e)}")
+                logger.error("Tool error in action '%s': %s", action, str(e))
                 return ToolResult.create_error(str(e), tool_name=self.name)
 
             except Exception as e:
                 retry_count += 1
-                logger.warning(f"Error in browser action '{action}' (attempt {retry_count}/{max_retries + 1}): {str(e)}")
+                logger.warning("Error in browser action '%s' (attempt %s/%s): %s", action, retry_count, max_retries + 1, str(e))
 
                 # If we've hit max retries, return the error
                 if retry_count > max_retries:
-                    logger.error(f"Max retries reached for action '{action}': {str(e)}")
+                    logger.error("Max retries reached for action '%s': %s", action, str(e))
                     return ToolResult.create_error(
                         f"Browser action '{action}' failed after {max_retries} retries: {str(e)}",
                         tool_name=self.name
@@ -732,7 +732,7 @@ class BrowserUseTool(BaseTool):
             return result
             
         except Exception as e:
-            logger.error(f"Failed to get browser state: {e}")
+            logger.error("Failed to get browser state: %s", e)
             return ToolResult.create_error(f"Failed to get browser state: {str(e)}", tool_name=self.name)
 
     async def cleanup(self) -> None:
@@ -747,7 +747,7 @@ class BrowserUseTool(BaseTool):
                     await self.context.close()
                     logger.debug("Browser context closed")
                 except Exception as e:
-                    logger.warning(f"Error closing browser context: {e}")
+                    logger.warning("Error closing browser context: %s", e)
                 finally:
                     self.context = None
                     self.dom_service = None
@@ -757,7 +757,7 @@ class BrowserUseTool(BaseTool):
                     await self.browser.close()
                     logger.debug("Browser closed")
                 except Exception as e:
-                    logger.warning(f"Error closing browser: {e}")
+                    logger.warning("Error closing browser: %s", e)
                 finally:
                     self.browser = None
 
@@ -785,4 +785,4 @@ class BrowserUseTool(BaseTool):
                     loop.run_until_complete(self.cleanup())
                     loop.close()
                 except Exception as e:
-                    logger.warning(f"Could not cleanup browser in destructor: {e}")
+                    logger.warning("Could not cleanup browser in destructor: %s", e)

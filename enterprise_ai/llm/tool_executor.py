@@ -11,12 +11,12 @@ import time
 import json
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
-from enterprise_ai.logger import get_logger
+from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.schema import ToolCall, ToolResult, Message
 from enterprise_ai.types import MessageProtocol
 from enterprise_ai.tool.core.base import ExecutionMode, ToolCapability
 
-logger = get_logger("llm.tool_executor")
+logger = get_optimized_logger("llm.tool_executor")
 
 
 class ToolExecutor:
@@ -73,23 +73,24 @@ class ToolExecutor:
         self._approved_executions = 0
         self._denied_executions = 0
         
-        logger.info(f"Initialized tool executor with {len(self.tools)} tools | Mode: {execution_mode} | Verbose: {verbose}")
+        logger.info("Initialized tool executor with %d tools | Mode: %s | Verbose: %s", 
+                   len(self.tools), execution_mode, verbose)
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool function for execution."""
         self.tools[name] = func
         if self.verbose:
-            logger.info(f"Registered tool: {name}")
+            logger.info("Registered tool: %s", name)
         else:
-            logger.debug(f"Registered tool: {name}")
+            logger.debug("Registered tool: %s", name)
 
     def register_tools(self, tools: Dict[str, Callable]) -> None:
         """Register multiple tools at once."""
         self.tools.update(tools)
         if self.verbose:
-            logger.info(f"Registered {len(tools)} tools: {list(tools.keys())}")
+            logger.info("Registered %d tools: %s", len(tools), list(tools.keys()))
         else:
-            logger.debug(f"Registered {len(tools)} tools")
+            logger.debug("Registered %d tools", len(tools))
 
     def can_execute_tool(self, tool_name: str) -> bool:
         """Check if a tool can be executed based on policies."""
@@ -133,13 +134,14 @@ class ToolExecutor:
     def _request_approval(self, tool_call: ToolCall) -> bool:
         """Request human approval for tool execution with enhanced UI."""
         if not self.approval_callback:
-            logger.warning(f"No approval callback set, defaulting to deny for {tool_call.function.name}")
+            logger.warning("No approval callback set, defaulting to deny for %s", tool_call.function.name)
             return False
         
         # Terminal colors for approval UI
         class Colors:
             RESET = '\033[0m'
             BOLD = '\033[1m'
+            BLACK = '\033[30m'  # Added missing BLACK color
             RED = '\033[91m'
             GREEN = '\033[92m'
             YELLOW = '\033[93m'
@@ -180,7 +182,7 @@ class ToolExecutor:
             return approved
             
         except Exception as e:
-            logger.error(f"Error in approval callback: {e}")
+            logger.error("Error in approval callback: %s", e)
             if self.verbose:
                 print(f"{Colors.RED}❌ APPROVAL ERROR{Colors.RESET} - Defaulting to deny: {str(e)}")
             return False
@@ -228,11 +230,11 @@ class ToolExecutor:
         results = []
         
         if self.verbose:
-            logger.info(f"Executing {len(tool_calls)} tool calls in sync mode")
+            logger.info("Executing %s tool calls in sync mode", len(tool_calls))
         
         for i, tool_call in enumerate(tool_calls):
             if self.verbose:
-                logger.info(f"Processing tool call {i+1}/{len(tool_calls)}: {tool_call.function.name}")
+                logger.info("Processing tool call %s/%s: %s", i+1, len(tool_calls), tool_call.function.name)
             
             result = self._execute_single_tool(tool_call, context)
             results.append(result)
@@ -255,13 +257,13 @@ class ToolExecutor:
             List of tool execution results
         """
         if self.verbose:
-            logger.info(f"Executing {len(tool_calls)} tool calls in async mode")
+            logger.info("Executing %s tool calls in async mode", len(tool_calls))
         
         tasks = []
         
         for i, tool_call in enumerate(tool_calls):
             if self.verbose:
-                logger.info(f"Queuing tool call {i+1}/{len(tool_calls)}: {tool_call.function.name}")
+                logger.info("Queuing tool call %s/%s: %s", i+1, len(tool_calls), tool_call.function.name)
             
             task = self._aexecute_single_tool(tool_call, context)
             tasks.append(task)
@@ -273,7 +275,7 @@ class ToolExecutor:
         for i, result in enumerate(results):
             if isinstance(result, Exception):
                 tool_call = tool_calls[i]
-                logger.error(f"Async tool execution failed for {tool_call.function.name}: {str(result)}")
+                logger.error("Async tool execution failed for %s: %s", tool_call.function.name, str(result))
                 error_result = self._create_error_result(
                     tool_call_id=tool_call.id,
                     name=tool_call.function.name,
@@ -301,6 +303,7 @@ class ToolExecutor:
             DIM = '\033[2m'
             
             # Standard colors
+            BLACK = '\033[30m'  # Added missing BLACK color
             RED = '\033[91m'
             GREEN = '\033[92m'
             YELLOW = '\033[93m'
@@ -354,7 +357,7 @@ class ToolExecutor:
                 print(f"      {Colors.DIM}(no arguments){Colors.RESET}")
             
             print(f"\n{Colors.ROCKET} {Colors.BOLD}Starting Execution...{Colors.RESET}")
-            logger.info(f"Starting execution of tool: {tool_name}")
+            logger.info("Starting execution of tool: %s", tool_name)
         
         try:
             # Check execution permissions
@@ -454,7 +457,7 @@ class ToolExecutor:
                 
                 print(f"{Colors.CYAN}{'='*80}{Colors.RESET}\n")
             
-            logger.info(f"Tool {tool_name} completed successfully in {execution_time:.3f}s")
+            logger.info("Tool %s completed successfully in %.3fs", tool_name, execution_time)
             
             # Process the result safely and create ToolResult directly
             return self._create_success_result_safe(
@@ -485,7 +488,7 @@ class ToolExecutor:
                 
                 print(f"{Colors.CYAN}{'='*80}{Colors.RESET}\n")
             
-            logger.error(f"Tool execution failed for {tool_name}: {error_msg}")
+            logger.error("Tool execution failed for %s: %s", tool_name, error_msg)
             
             return self._create_error_result(
                 tool_call_id=tool_call.id,
@@ -523,7 +526,7 @@ class ToolExecutor:
             )
         except Exception as e:
             # If even the direct creation fails, create a minimal error result
-            logger.error(f"Failed to create success result for {name}: {str(e)}")
+            logger.error("Failed to create success result for %s: %s", name, str(e))
             return ToolResult(
                 tool_call_id=tool_call_id,
                 name=name,
@@ -571,7 +574,7 @@ class ToolExecutor:
                 # Convert other types to string
                 return str(result)
         except Exception as e:
-            logger.warning(f"Error making result safe: {e}")
+            logger.warning("Error making result safe: %s", e)
             return f"Result: {str(result)}"
 
     def _format_error_message(self, error: Exception) -> str:
@@ -595,7 +598,7 @@ class ToolExecutor:
         tool_name = tool_call.function.name
         
         if self.verbose:
-            logger.info(f"Starting async execution of tool: {tool_name}")
+            logger.info("Starting async execution of tool: %s", tool_name)
         
         try:
             if not self.can_execute_tool(tool_name):
@@ -628,7 +631,7 @@ class ToolExecutor:
                 args.update(context)
             
             if self.verbose:
-                logger.info(f"Async executing {tool_name} with arguments: {json.dumps(args, default=str)}")
+                logger.info("Async executing %s with arguments: %s", tool_name, json.dumps(args, default=str))
             
             # Handle both sync and async functions
             if inspect.iscoroutinefunction(tool_func):
@@ -648,7 +651,7 @@ class ToolExecutor:
             self._track_execution(execution_time, success=True)
             
             if self.verbose:
-                logger.info(f"Async tool {tool_name} completed successfully in {execution_time:.2f}s")
+                logger.info("Async tool %s completed successfully in %.2fs", tool_name, execution_time)
             
             return self._create_success_result_safe(
                 tool_call_id=tool_call.id,
@@ -662,7 +665,7 @@ class ToolExecutor:
             self._track_execution(execution_time, success=False)
             error_msg = f"Tool execution timed out after {self.execution_timeout}s"
             if self.verbose:
-                logger.warning(f"Timeout for {tool_name}: {error_msg}")
+                logger.warning("Timeout for %s: %s", tool_name, error_msg)
             return self._create_error_result(
                 tool_call_id=tool_call.id,
                 name=tool_name,
@@ -674,7 +677,7 @@ class ToolExecutor:
             self._track_execution(execution_time, success=False)
             
             error_msg = self._format_error_message(e)
-            logger.error(f"Async tool execution failed for {tool_name}: {error_msg}")
+            logger.error("Async tool execution failed for %s: %s", tool_name, error_msg)
             
             return self._create_error_result(
                 tool_call_id=tool_call.id,
@@ -762,10 +765,10 @@ class ToolExecutor:
                 messages.append(tool_message)
                 
                 if self.verbose:
-                    logger.info(f"Created tool message for {result.name}: success={result.success}")
+                    logger.info("Created tool message for %s: success=%s", result.name, result.success)
                 
             except Exception as e:
-                logger.error(f"Failed to create tool message for {result.name}: {e}")
+                logger.error("Failed to create tool message for %s: %s", result.name, e)
                 # Create a fallback error message
                 error_message = Message.tool_message(
                     content=f"Error creating tool message: {str(e)}",
@@ -800,7 +803,7 @@ class ToolExecutor:
                 return str(result.result)
                 
         except Exception as e:
-            logger.warning(f"Error converting result to content: {e}")
+            logger.warning("Error converting result to content: %s", e)
             return f"Tool executed but result formatting failed: {str(e)}"
 
     def reset_stats(self) -> None:
@@ -821,17 +824,17 @@ class ToolExecutor:
         old_mode = self.execution_mode
         self.execution_mode = mode
         if self.verbose or old_mode != mode:
-            logger.info(f"Execution mode changed from {old_mode} to {mode}")
+            logger.info("Execution mode changed from %s to %s", old_mode, mode)
 
     def set_approval_callback(self, callback: Optional[Callable[[ToolCall, str], bool]]) -> None:
         """Set or update the approval callback."""
         self.approval_callback = callback
         if self.verbose:
-            logger.info(f"Approval callback {'set' if callback else 'removed'}")
+            logger.info("Approval callback %s", 'set' if callback else 'removed')
 
     def set_verbose(self, verbose: bool) -> None:
         """Enable or disable verbose logging."""
         old_verbose = self.verbose
         self.verbose = verbose
         if old_verbose != verbose:
-            logger.info(f"Verbose logging {'enabled' if verbose else 'disabled'}")
+            logger.info("Verbose logging %s", 'enabled' if verbose else 'disabled')

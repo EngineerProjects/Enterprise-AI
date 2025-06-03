@@ -73,7 +73,7 @@ class ToolCollection:
         if self._llm_adapter:
             await self._llm_adapter.register_tool_class(type(tool_instance), initialize=False)
         
-        logger.info(f"Added tool '{tool_instance.name}' to collection '{self.name}'")
+        logger.info("Added tool '%s' to collection '%s'", tool_instance.name, self.name)
         return tool_instance.name
     
     async def add_tools_by_category(
@@ -101,7 +101,7 @@ class ToolCollection:
                     tool_name = await self.add_tool(tool_class, initialize=initialize)
                     added_tools.append(tool_name)
                 except Exception as e:
-                    logger.warning(f"Failed to add tool {tool_class.__name__}: {e}")
+                    logger.warning("Failed to add tool %s: %s", tool_class.__name__, e)
         
         return added_tools
     
@@ -152,7 +152,7 @@ class ToolCollection:
                 tool_name = await self.add_tool(tool_class, initialize=initialize)
                 added_tools.append(tool_name)
             except Exception as e:
-                logger.warning(f"Failed to add tool {tool_class.__name__}: {e}")
+                logger.warning("Failed to add tool %s: %s", tool_class.__name__, e)
         
         return added_tools
     
@@ -184,7 +184,7 @@ class ToolCollection:
         """
         if name in self._tools:
             del self._tools[name]
-            logger.info(f"Removed tool '{name}' from collection '{self.name}'")
+            logger.info("Removed tool '%s' from collection '%s'", name, self.name)
             return True
         return False
     
@@ -287,14 +287,14 @@ class ToolCollection:
         self._tools.clear()
         self._llm_adapter = None
         
-        logger.info(f"Cleaned up tool collection '{self.name}'")
+        logger.info("Cleaned up tool collection '%s'", self.name)
     
     async def _safe_cleanup_tool(self, tool: BaseTool) -> None:
         """Safely cleanup a single tool."""
         try:
             await tool.cleanup()
         except Exception as e:
-            logger.warning(f"Error cleaning up tool {tool.name}: {e}")
+            logger.warning("Error cleaning up tool %s: %s", tool.name, e)
     
     def __len__(self) -> int:
         """Return number of tools in collection."""
