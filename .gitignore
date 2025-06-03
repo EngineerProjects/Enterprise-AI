@@ -139,3 +139,6 @@ logs/
 
 # Ignore uv.lock
 uv.lock
+
+# browser screenshots
+browser_test_screenshots/

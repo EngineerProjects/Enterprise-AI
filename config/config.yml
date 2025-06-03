@@ -1,0 +1,48 @@
+# Enterprise AI Configuration
+
+llm:
+  # Default LLM provider for tools
+  default_provider: "ollama"
+  
+  # Default model for content extraction and analysis
+  default_model: "llama3.2"
+  
+  # Timeout for LLM completion (important for CPU-based Ollama)
+  timeout: 1200.0
+  
+  # Alternative configurations for different providers
+  providers:
+    ollama:
+      default_model: "llama3.2"
+      base_url: "http://localhost:11434"
+      timeout: 1200.0  
+    
+    openai:
+      default_model: "gpt-4o-mini"
+      api_key: "${OPENAI_API_KEY}"
+      timeout: 30.0 
+
+browser_config:
+  headless: false
+  disable_security: true
+  extra_chromium_args: []
+
+execution:
+  mode: "auto"
+  max_iterations: 5
+  timeout: 30.0
+  verbose: false
+  hybrid_threshold: 2
+
+sandbox:
+  mode: "none"
+  routing_enabled: false
+  image: "python:3.12-slim"
+  memory_limit: "512m"
+  cpu_limit: 0.5
+  network_enabled: false
+
+security:
+  allowed_tools: null
+  forbidden_tools: []
+  require_approval: true

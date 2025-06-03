@@ -47,22 +47,42 @@ Please extract the relevant information and format it as JSON with the following
 """
 
 
-def _get_llm_completion(messages, **kwargs):
-    """Lazy import and execute LLM completion to avoid circular imports."""
+def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs):
+    """Lazy import and execute LLM completion with configurable model."""
     try:
         from enterprise_ai.llm import complete, CompletionOptions
+        from enterprise_ai.config import get_config
+        
+        # Use provided model/provider or fall back to config defaults
+        provider = provider_name or get_config("llm.default_provider", "ollama")
+        model = model_name or get_config("llm.default_model", "llama3.2")
+
+        timeout = kwargs.get('timeout') or get_config("llm.timeout", 120.0)
+        
+        # Log what we're using for debugging
+        logger.debug(f"Using LLM provider: {provider}, model: {model}")
         
         return complete(
             messages=messages,
-            provider_name="ollama",
+            provider_name=provider,
+            model_name=model,
             options=CompletionOptions(
                 temperature=kwargs.get('temperature', 0.1),
-                max_tokens=kwargs.get('max_tokens', 2000)
+                max_tokens=kwargs.get('max_tokens', 2000),
+                timeout=timeout
             )
         )
     except ImportError as e:
         logger.error(f"Failed to import LLM completion: {e}")
         raise ToolError("LLM completion not available for content extraction")
+    except Exception as e:
+        logger.error(f"LLM completion failed: {e}")
+        # Return a fallback response instead of crashing
+        class FallbackResponse:
+            def __init__(self, content):
+                self.content = content
+        
+        return FallbackResponse('{"extracted_content": {"text": "Content extraction temporarily unavailable", "metadata": {"source": "fallback", "relevance": "extraction failed"}}}')
 
 
 @register_tool(category="browser")
@@ -180,6 +200,10 @@ class BrowserUseTool(BaseTool):
     # Tool requires initialization
     requires_initialization: bool = True
 
+    # LLM Configuration fields (NEW)
+    llm_provider: Optional[str] = Field(default=None, description="LLM provider for content extraction")
+    llm_model: Optional[str] = Field(default=None, description="LLM model for content extraction")
+
     # Tool fields
     lock: asyncio.Lock = Field(default_factory=asyncio.Lock, exclude=True)
     browser: Optional[BrowserUseBrowser] = Field(default=None, exclude=True)
@@ -193,10 +217,16 @@ class BrowserUseTool(BaseTool):
         description: Optional[str] = None,
         parameters: Optional[dict] = None,
         config: Optional[ToolConfig] = None,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         """
-        Initialize the browser automation tool with standard parameters.
+        Initialize the browser automation tool with configurable LLM.
+        
+        Args:
+            llm_provider: LLM provider to use for content extraction (e.g., "ollama", "openai")
+            llm_model: Model name to use for content extraction (e.g., "llama3.2:3b", "gpt-4")
         """
         model_fields = self.__class__.model_fields
 
@@ -210,10 +240,12 @@ class BrowserUseTool(BaseTool):
                 cache_results=False, 
                 sandbox_enabled=True
             ),
+            llm_provider=llm_provider,  # Now this will work
+            llm_model=llm_model,        # Now this will work
             **kwargs,
         )
         
-        # Initialize tool fields
+        # Initialize tool fields that can't be set in super().__init__
         self.lock = asyncio.Lock()
         self.browser = None
         self.context = None
@@ -299,7 +331,7 @@ class BrowserUseTool(BaseTool):
         return content
 
     async def _extract_content(self, goal: str, max_content_length: int = 4000) -> str:
-        """Extract content from current page using LLM."""
+        """Extract content from current page using configured LLM."""
         try:
             content = await self._get_page_content()
             if not content:
@@ -308,9 +340,11 @@ class BrowserUseTool(BaseTool):
             prompt = llm_prompt(goal, content, max_content_length)
             messages = [Message.user_message(prompt)]
             
-            # Use lazy import for LLM functionality
+            # Use instance-specific LLM configuration
             response = _get_llm_completion(
                 messages=messages,
+                model_name=self.llm_model,
+                provider_name=self.llm_provider,
                 temperature=0.1,
                 max_tokens=2000
             )
