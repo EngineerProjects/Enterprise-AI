@@ -46,7 +46,7 @@ from enterprise_ai.tool.execution.python import PythonExecute
 from enterprise_ai.tool.execution.bash import Bash
 from enterprise_ai.tool.file.editor import FileEditor
 from enterprise_ai.tool.content.chat_completion import CreateChatCompletion
-from enterprise_ai.tool.utility.terminate import Terminate
+from enterprise_ai.tool.utility.terminate import TerminateTool
 
 __all__ = [
     # Core components (unified)
@@ -89,5 +89,5 @@ __all__ = [
     "Bash",
     "FileEditor",
     "CreateChatCompletion",
-    "Terminate",
+    "TerminateTool",
 ]

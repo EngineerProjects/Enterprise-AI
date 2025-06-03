@@ -1,10 +1,8 @@
 """Terminate tool for Enterprise AI."""
 
-from typing import Any, Dict, Literal, Optional, Set, Union
+from typing import Any, Dict, Optional, Set, Union
 
-from pydantic import Field
-
-from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
+from enterprise_ai.tool.core.base import BaseTool, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.logger import get_logger
@@ -13,7 +11,7 @@ logger = get_logger("tool.utility.terminate")
 
 
 @register_tool(category="utility")
-class Terminate(BaseTool):
+class TerminateTool(BaseTool):
     """
     Tool to signal the completion or termination of a task or conversation.
 
@@ -64,82 +62,54 @@ class Terminate(BaseTool):
             },
         },
         "required": ["status"],
+        "additionalProperties": False,
     }
 
-    # Define capabilities
     capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.UTILITY}
 
-    def __init__(
-        self,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        parameters: Optional[dict] = None,
-        config: Optional[ToolConfig] = None,
-        **kwargs: Any,
-    ) -> None:
-        """
-        Initialize the Terminate tool with standard parameters.
-
-        Args:
-            name: Override for tool name
-            description: Override for tool description
-            parameters: Override for tool parameters schema
-            config: Tool configuration settings
-            **kwargs: Additional keyword arguments
-        """
-        model_fields = self.__class__.model_fields
-
-        super().__init__(
-            name=name or model_fields["name"].default,
-            description=description or model_fields["description"].default,
-            parameters=parameters or model_fields["parameters"].default,
-            **kwargs,
-        )
-
-        # Store tool configuration
+    def __init__(self, config: Optional[ToolConfig] = None, **kwargs: Any) -> None:
+        """Initialize the Terminate tool."""
+        super().__init__(**kwargs)
         self.config = config or ToolConfig()
-
-        logger.debug("Terminate tool initialized")
+        logger.debug("TerminateTool initialized")
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        """
-        Execute the termination with the specified status and message.
-
-        Args:
-            **kwargs: Keyword arguments including:
-                status: The termination status ('success' or 'failure')
-                message: Optional explanation message
-
-        Returns:
-            ToolResult with termination status and message
-        """
+        """Execute the termination with the specified status and message."""
         status = kwargs.get("status")
         if not status:
             logger.error("Missing required 'status' parameter")
-            return ToolResult(error="Status parameter is required")
+            return ToolResult(
+                tool_call_id="", 
+                name=self.name, 
+                result="", 
+                error="Status parameter is required"
+            )
 
         message = kwargs.get("message")
 
         if status not in ["success", "failure"]:
             logger.error(f"Invalid status value: {status}")
-            return ToolResult(error=f"Invalid status: {status}. Must be 'success' or 'failure'")
+            return ToolResult(
+                tool_call_id="", 
+                name=self.name, 
+                result="", 
+                error=f"Invalid status: {status}. Must be 'success' or 'failure'"
+            )
 
         # Log the termination
+        log_message = message or "No message provided"
         if status == "success":
-            logger.info(f"Interaction terminated successfully: {message or 'No message provided'}")
+            logger.info(f"Interaction terminated successfully: {log_message}")
         else:
-            logger.warning(
-                f"Interaction terminated with failure: {message or 'No message provided'}"
-            )
+            logger.warning(f"Interaction terminated with failure: {log_message}")
 
         # Format the response
         response = f"The interaction has been completed with status: {status}"
         if message:
             response += f"\nMessage: {message}"
 
-        return ToolResult(output=response)
+        return ToolResult(tool_call_id="", name=self.name, result=response)
 
     async def cleanup(self) -> None:
         """Clean up resources used by the terminate tool."""
-        # No resources to clean up for this tool
-        logger.debug("Terminate tool cleanup completed")
+        logger.debug("TerminateTool cleanup completed")
