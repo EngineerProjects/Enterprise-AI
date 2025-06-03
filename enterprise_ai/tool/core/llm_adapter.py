@@ -78,6 +78,10 @@ class LLMToolAdapter:
         def tool_function(**kwargs: Any) -> Union[str, Dict[str, Any]]:
             """Synchronous function wrapper for the tool."""
             try:
+                # Import config dynamically to get current timeout setting
+                from enterprise_ai.config import get_config
+                execution_timeout = get_config("execution.timeout", 120.0)
+                
                 # Simple and reliable execution approach
                 if asyncio.iscoroutinefunction(tool_instance.execute):
                     # Handle async execute method
@@ -110,10 +114,10 @@ class LLMToolAdapter:
                         # Run in separate thread to avoid event loop conflicts
                         thread = threading.Thread(target=run_async_tool, daemon=True)
                         thread.start()
-                        thread.join(timeout=30)  # 30 second timeout
+                        thread.join(timeout=execution_timeout)  # USE CONFIG TIMEOUT
                         
                         if thread.is_alive():
-                            raise TimeoutError("Tool execution timed out after 30 seconds")
+                            raise TimeoutError(f"Tool execution timed out after {execution_timeout} seconds")
                         
                         if not exception_queue.empty():
                             raise exception_queue.get()

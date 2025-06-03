@@ -79,25 +79,19 @@ class PerformantLogger:
         # Clear existing handlers
         self.logger.handlers.clear()
         
-        # 1. Clean Terminal Handler (errors and essential info only)
+        # 1. Clean Terminal Handler (only ERROR level and above)
         if self.clean_terminal:
             terminal_handler = logging.StreamHandler(sys.stdout)
-            terminal_handler.setLevel(logging.ERROR)
+            terminal_handler.setLevel(logging.ERROR)  # Only errors to terminal
             terminal_formatter = logging.Formatter(
-                f'{Colors.RED}%(levelname)s{Colors.RESET}: %(message)s'
+                f'{Colors.RED}ERROR{Colors.RESET}: %(message)s'
             )
             terminal_handler.setFormatter(terminal_formatter)
             self.logger.addHandler(terminal_handler)
         
-        # 2. Tool Verbose Handler (colorful tool execution)
-        if self.tool_verbose:
-            verbose_handler = logging.StreamHandler(sys.stdout)
-            verbose_handler.setLevel(logging.INFO)
-            verbose_formatter = logging.Formatter(
-                f'{Colors.CYAN}[%(name)s]{Colors.RESET} %(message)s'
-            )
-            verbose_handler.setFormatter(verbose_formatter)
-            self.logger.addHandler(verbose_handler)
+        # 2. Tool Verbose Handler - DISABLED for INFO logs, only for explicit tool calls
+        # This was the problem - it was sending ALL info logs to terminal
+        # Now tool verbose is handled via explicit method calls, not log handlers
         
         # 3. Debug File Handler (complete logging)
         if self.debug_file:
@@ -109,6 +103,9 @@ class PerformantLogger:
             )
             file_handler.setFormatter(file_formatter)
             self.logger.addHandler(file_handler)
+        
+        # Set logger level to DEBUG to capture everything in file
+        self.logger.setLevel(logging.DEBUG)
     
     def debug(self, msg: str, *args, **kwargs):
         """Optimized debug logging with lazy evaluation."""
@@ -116,7 +113,7 @@ class PerformantLogger:
             self.logger.debug(msg, *args, **kwargs)
     
     def info(self, msg: str, *args, **kwargs):
-        """Optimized info logging."""
+        """Optimized info logging - goes to file only."""
         if self._info_enabled:
             self.logger.info(msg, *args, **kwargs)
     
@@ -158,7 +155,7 @@ class PerformantLogger:
         print(f"{Colors.YELLOW}•{Colors.RESET} {msg}")
     
     def tool_execution(self, tool_name: str, args: Dict[str, Any]):
-        """Formatted tool execution display."""
+        """Formatted tool execution display - only shown if tool_verbose enabled."""
         if self.tool_verbose:
             print(f"\n{Colors.BG_BLUE}{Colors.WHITE} 🔧 TOOL EXECUTION {Colors.RESET}")
             print(f"{Colors.BOLD}Tool:{Colors.RESET} {Colors.CYAN}{tool_name}{Colors.RESET}")
@@ -174,7 +171,7 @@ class PerformantLogger:
             print(f"{Colors.BLUE}{'─' * 50}{Colors.RESET}\n")
     
     def tool_result(self, result: Any, success: bool = True):
-        """Formatted tool result display."""
+        """Formatted tool result display - only shown if tool_verbose enabled."""
         if self.tool_verbose:
             status_icon = "✓" if success else "✗"
             status_color = Colors.GREEN if success else Colors.RED
@@ -234,7 +231,7 @@ def setup_enterprise_logging(
     
     Args:
         debug_file: Path to debug log file (None disables file logging)
-        tool_verbose: Enable verbose tool execution display
+        tool_verbose: Enable verbose tool execution display in terminal
         clean_terminal: Enable clean terminal output
     
     Returns:

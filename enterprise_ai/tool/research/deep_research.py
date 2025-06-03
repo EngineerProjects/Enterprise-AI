@@ -313,12 +313,16 @@ class DeepResearch(BaseTool):
         """
         model_fields = self.__class__.model_fields
 
+        # Load execution timeout from config for tool config
+        from enterprise_ai.config import get_config
+        default_timeout = get_config("execution.timeout", 180.0)
+
         super().__init__(
             name=name or model_fields["name"].default,
             description=description or model_fields["description"].default,
             parameters=parameters or model_fields["parameters"].default,
             config=config or ToolConfig(
-                timeout=180.0,
+                timeout=default_timeout,  # Use config timeout
                 max_retries=2,
                 cache_results=True,
             ),
@@ -330,7 +334,7 @@ class DeepResearch(BaseTool):
         # Initialize dependent tools
         self.search_tool = None
 
-        logger.debug("DeepResearch tool initialized")
+        logger.debug("DeepResearch tool initialized with timeout: %.1fs", self.config.timeout)
 
     async def initialize(self, **kwargs: Any) -> bool:
         """Initialize the research tool and its dependencies."""
@@ -346,7 +350,7 @@ class DeepResearch(BaseTool):
 
     async def execute(self, **kwargs: Any) -> ResearchSummary:
         """Execute deep research on the given query."""
-        # Extract parameters
+        # Extract parameters with proper type conversion
         query = kwargs.get("query")
         if not query:
             logger.error("Missing required 'query' parameter")
@@ -360,11 +364,24 @@ class DeepResearch(BaseTool):
                 name=self.name
             )
 
-        max_depth = max(1, min(kwargs.get("max_depth", 2), 5))
-        results_per_search = max(1, min(kwargs.get("results_per_search", 5), 20))
-        max_insights = kwargs.get("max_insights", 20)
-        config_timeout = getattr(self.config, "timeout", 120)
-        time_limit_seconds = kwargs.get("time_limit_seconds", config_timeout)
+        # FIX: Convert string parameters to integers safely
+        try:
+            max_depth = max(1, min(int(kwargs.get("max_depth", 2)), 5))
+            results_per_search = max(1, min(int(kwargs.get("results_per_search", 5)), 20))
+            max_insights = int(kwargs.get("max_insights", 20))
+            config_timeout = getattr(self.config, "timeout", 120)
+            time_limit_seconds = int(kwargs.get("time_limit_seconds", config_timeout))
+        except (ValueError, TypeError) as e:
+            logger.error("Invalid parameter types: %s", e)
+            return ResearchSummary(
+                query=query,
+                insights=[],
+                visited_urls=set(),
+                depth_reached=0,
+                error=f"Invalid parameter types: {e}",
+                tool_call_id="",
+                name=self.name
+            )
 
         logger.info("Starting deep research on query: %s", query)
         logger.debug("Parameters: max_depth=%s, results_per_search=%s", max_depth, results_per_search)

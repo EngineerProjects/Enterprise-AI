@@ -171,7 +171,7 @@ class RateLimiter:
                 oldest = min(self.request_times)
                 wait_time = self.period - (now - oldest)
                 if wait_time > 0:
-                    logger.debug("Rate limit reached, waiting %s seconds", wait_time:.2f)
+                    logger.debug("Rate limit reached, waiting %.2fs seconds", wait_time)
                     await asyncio.sleep(wait_time)
 
             self.request_times.append(time.time())

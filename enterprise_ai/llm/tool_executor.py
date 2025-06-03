@@ -31,7 +31,7 @@ class ToolExecutor:
         self,
         tools: Optional[Dict[str, Callable]] = None,
         max_iterations: int = 5,
-        execution_timeout: float = 30.0,
+        execution_timeout: Optional[float] = None,  # Changed to Optional
         allowed_tools: Optional[Set[str]] = None,
         forbidden_tools: Optional[Set[str]] = None,
         # Enhanced options
@@ -46,7 +46,7 @@ class ToolExecutor:
         Args:
             tools: Dictionary mapping tool names to callable functions
             max_iterations: Maximum number of tool execution rounds
-            execution_timeout: Timeout for individual tool execution
+            execution_timeout: Timeout for individual tool execution (uses config if None)
             allowed_tools: Set of allowed tool names (None = all allowed)
             forbidden_tools: Set of forbidden tool names
             execution_mode: Default execution mode for tools
@@ -56,6 +56,12 @@ class ToolExecutor:
         """
         self.tools = tools or {}
         self.max_iterations = max_iterations
+        
+        # Load execution timeout from config if not provided
+        if execution_timeout is None:
+            from enterprise_ai.config import get_config
+            execution_timeout = get_config("execution.timeout", 30.0)
+        
         self.execution_timeout = execution_timeout
         self.allowed_tools = allowed_tools
         self.forbidden_tools = forbidden_tools or set()
@@ -73,8 +79,8 @@ class ToolExecutor:
         self._approved_executions = 0
         self._denied_executions = 0
         
-        logger.info("Initialized tool executor with %d tools | Mode: %s | Verbose: %s", 
-                   len(self.tools), execution_mode, verbose)
+        logger.info("Initialized tool executor with %d tools | Mode: %s | Timeout: %.1fs | Verbose: %s", 
+                len(self.tools), execution_mode, self.execution_timeout, verbose)
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool function for execution."""
