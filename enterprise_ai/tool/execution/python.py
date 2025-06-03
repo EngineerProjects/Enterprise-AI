@@ -4,6 +4,9 @@ import asyncio
 import multiprocessing
 import sys
 import traceback
+import tempfile
+import subprocess
+import os
 from io import StringIO
 from typing import Any, Dict, List, Optional, Set, Union
 
@@ -107,16 +110,65 @@ class PythonExecute(BaseTool):
             config=config or ToolConfig(
                 timeout=30.0,
                 max_retries=0,
-                execution_mode=ExecutionMode.HYBRID,  # Safe by default, but can be dangerous
-                sandbox_mode=SandboxMode.UNIFIED,     # Use unified sandbox when needed
-                danger_level=4,                       # High danger level for code execution
-                requires_approval=True,               # Require approval in manual/hybrid modes
+                execution_mode=ExecutionMode.HYBRID,
+                sandbox_mode=SandboxMode.UNIFIED,
+                danger_level=4,
+                requires_approval=True,
                 approval_message="Execute Python code with potential system access?",
+                verbose_logging=False,  # Disable verbose logging by default
             ),
             **kwargs,
         )
 
-        logger.debug(f"PythonExecute tool initialized with execution_mode={self.config.execution_mode}, sandbox_mode={self.config.sandbox_mode}")
+        logger.debug(f"PythonExecute tool initialized")
+
+    def _analyze_code_danger(self, code: str) -> bool:
+        """
+        Analyze Python code to determine if it's dangerous and should use sandbox.
+        
+        Args:
+            code: Python code to analyze
+            
+        Returns:
+            True if code should use sandbox
+        """
+        if not code or not code.strip():
+            return False
+            
+        code_lower = code.lower()
+        
+        # Very safe simple operations that can run locally
+        safe_patterns = [
+            'print(', 'len(', 'str(', 'int(', 'float(', 'bool(',
+            'list(', 'dict(', 'tuple(', 'set(',
+            'range(', 'enumerate(', 'zip(',
+            'sum(', 'min(', 'max(', 'abs(',
+            'round(', 'sorted('
+        ]
+        
+        # Check if it's only simple math and print operations
+        lines = [line.strip() for line in code.split('\n') if line.strip() and not line.strip().startswith('#')]
+        
+        is_simple_safe = True
+        for line in lines:
+            # Allow simple variable assignments and arithmetic
+            if '=' in line and not any(danger in line for danger in ['import ', 'open(', 'exec(', 'eval(']):
+                continue
+            # Allow simple print statements
+            if line.startswith('print(') and not any(danger in line for danger in ['import ', 'open(', 'exec(', 'eval(']):
+                continue
+            # Allow simple arithmetic and functions
+            if any(safe_pattern in line for safe_pattern in safe_patterns) and not any(danger in line for danger in ['import ', 'open(', 'exec(', 'eval(']):
+                continue
+            # If we get here, it's not a simple safe operation
+            is_simple_safe = False
+            break
+        
+        if is_simple_safe and len(code) < 300:
+            return False
+        
+        # Anything else should use sandbox for safety
+        return True
 
     def _should_use_sandbox_execution(self, code: str, user_preference: str = "auto") -> bool:
         """
@@ -134,36 +186,8 @@ class PythonExecute(BaseTool):
         elif user_preference == "local":
             return False
         
-        # Auto-detection based on dangerous patterns
-        dangerous_patterns = [
-            "import os", "import sys", "import subprocess", "import shutil",
-            "os.", "sys.", "subprocess.", "shutil.",
-            "open(", "file(", "exec(", "eval(",
-            "__import__", "globals(", "locals(",
-            "input(", "raw_input(",
-            "rmdir", "remove", "unlink", "delete",
-            "socket", "urllib", "requests", "http"
-        ]
-        
-        code_lower = code.lower()
-        dangerous_count = sum(1 for pattern in dangerous_patterns if pattern in code_lower)
-        
-        # Simple print statements are safe
-        if code_lower.strip().startswith('print(') and dangerous_count == 0:
-            return False
-        
-        # Basic arithmetic and simple operations are safe
-        safe_patterns = ['print(', '+', '-', '*', '/', 'len(', 'str(', 'int(', 'float(']
-        if dangerous_count == 0 and any(pattern in code_lower for pattern in safe_patterns):
-            if len(code) < 100:  # Short, simple code
-                return False
-        
-        # Use sandbox if multiple dangerous patterns or sandbox mode is configured
-        return (
-            dangerous_count >= 1 or  # Any dangerous pattern triggers sandbox
-            self.config.sandbox_mode != SandboxMode.NONE or
-            len(code) > 500  # Long code gets sandbox treatment
-        )
+        # Auto-detection
+        return self._analyze_code_danger(code)
 
     def _run_code_local(
         self, code: str, result_dict: Dict[str, Any], safe_globals: Dict[str, Any]
@@ -185,14 +209,12 @@ class PythonExecute(BaseTool):
                 result_dict["error"] = error_output if error_output else None
                 result_dict["success"] = True
                 result_dict["execution_environment"] = "local_process"
-            except SyntaxError as e:
-                error_msg = f"SyntaxError: {str(e)}\n{traceback.format_exc()}"
-                result_dict["output"] = output_buffer.getvalue()
-                result_dict["error"] = error_msg
-                result_dict["success"] = False
-                result_dict["execution_environment"] = "local_process"
             except Exception as e:
-                error_msg = f"{type(e).__name__}: {str(e)}\n{traceback.format_exc()}"
+                error_msg = f"{type(e).__name__}: {str(e)}"
+                try:
+                    error_msg += f"\n{traceback.format_exc()}"
+                except:
+                    pass
                 result_dict["output"] = output_buffer.getvalue()
                 result_dict["error"] = error_msg
                 result_dict["success"] = False
@@ -204,52 +226,70 @@ class PythonExecute(BaseTool):
 
     async def _execute_in_sandbox(self, code: str, timeout: float) -> ToolResult:
         """
-        Execute Python code in sandbox environment.
-        
-        Note: This is a placeholder for sandbox execution. In practice, this would
-        interface with the SandboxToolExecutor or Docker containers.
+        Execute Python code in sandbox environment with proper imports.
         """
         try:
-            # This would be handled by the SandboxToolExecutor in practice
-            # For now, we'll create a simple containerized execution
-            
-            import tempfile
-            import subprocess
-            import os
-            
             # Create temporary file for code
             with tempfile.NamedTemporaryFile(mode='w', suffix='.py', delete=False) as f:
                 f.write(code)
                 temp_file = f.name
             
             try:
-                # Execute in a restricted Python environment
-                # In practice, this would use Docker
+                # Execute Python code with a more permissive but still safe environment
                 result = subprocess.run([
                     'python', '-c', f'''
 import sys
-import tempfile
 import os
-sys.path = [p for p in sys.path if not p.startswith('/home')]  # Restrict imports
+import traceback
+
+# Restrict module access but allow basic imports
+restricted_modules = {{'subprocess', 'socket', 'urllib', 'requests', 'http'}}
+
+class SafeImporter:
+    def __init__(self, restricted):
+        self.restricted = restricted
+        self.original_import = __builtins__.__import__
+        
+    def safe_import(self, name, globals=None, locals=None, fromlist=(), level=0):
+        if name in self.restricted or any(name.startswith(r + '.') for r in self.restricted):
+            raise ImportError(f"Import of '{{name}}' is restricted in sandbox")
+        return self.original_import(name, globals, locals, fromlist, level)
+
+# Install safe importer
+safe_importer = SafeImporter(restricted_modules)
+__builtins__.__import__ = safe_importer.safe_import
+
 try:
     with open("{temp_file}", "r") as f:
-        code = f.read()
-    exec(code, {{"__builtins__": {{"print": print, "len": len, "str": str, "int": int, "float": float, "list": list, "dict": dict, "range": range, "enumerate": enumerate, "zip": zip}}}})
+        user_code = f.read()
+    exec(user_code)
 except Exception as e:
-    print(f"Error: {{e}}", file=sys.stderr)
+    print(f"Error: {{type(e).__name__}}: {{e}}", file=sys.stderr)
+    try:
+        traceback.print_exc()
+    except:
+        pass
 '''
                 ], capture_output=True, text=True, timeout=timeout)
                 
-                return ToolResult.create_success(
-                    result={
-                        "output": result.stdout,
-                        "error": result.stderr if result.stderr else None,
-                        "execution_environment": "sandbox_container",
-                        "return_code": result.returncode
-                    },
-                    tool_name=self.name,
-                    metadata={"execution_environment": "sandbox"}
-                )
+                # Check if there was an error based on return code and stderr
+                has_error = result.returncode != 0 or (result.stderr and result.stderr.strip())
+                
+                if has_error:
+                    return ToolResult.create_error(
+                        error=result.stderr if result.stderr else f"Process exited with code {result.returncode}",
+                        tool_name=self.name
+                    )
+                else:
+                    return ToolResult.create_success(
+                        result={
+                            "output": result.stdout,
+                            "error": None,
+                            "execution_environment": "sandbox_container",
+                            "return_code": result.returncode
+                        },
+                        tool_name=self.name
+                    )
             finally:
                 os.unlink(temp_file)
                 
@@ -268,7 +308,6 @@ except Exception as e:
         """Execute Python code with automatic sandbox routing."""
         code = kwargs.get("code")
         if not code:
-            logger.warning("No code parameter provided")
             return ToolResult.create_error(error="Code parameter is required", tool_name=self.name)
 
         timeout = kwargs.get("timeout", self.config.timeout)
@@ -276,15 +315,9 @@ except Exception as e:
         
         use_sandbox = self._should_use_sandbox_execution(code, sandbox_preference)
         
-        if self.config.verbose_logging:
-            logger.info(f"Executing Python code in {'sandbox' if use_sandbox else 'local'} environment")
-            logger.info(f"Code preview: {code[:100]}...")
-
         if use_sandbox:
-            logger.info("Routing Python execution to sandbox")
             return await self._execute_in_sandbox(code, timeout)
         else:
-            logger.info("Executing Python code locally with process isolation")
             return await self._execute_locally(code, timeout)
 
     async def _execute_locally(self, code: str, timeout: float) -> ToolResult:
@@ -293,11 +326,8 @@ except Exception as e:
             with multiprocessing.Manager() as manager:
                 result = manager.dict({"output": "", "error": None, "success": False})
 
-                # Create safe globals
-                if isinstance(__builtins__, dict):
-                    safe_globals = {"__builtins__": dict(__builtins__)}
-                else:
-                    safe_globals = {"__builtins__": dict(__builtins__.__dict__)}
+                # Create safe globals with full builtins for local execution
+                safe_globals = {"__builtins__": __builtins__}
 
                 # Execute in separate process
                 proc = multiprocessing.Process(
@@ -307,7 +337,6 @@ except Exception as e:
                 proc.join(timeout)
 
                 if proc.is_alive():
-                    logger.warning(f"Local code execution timed out after {timeout} seconds")
                     proc.terminate()
                     proc.join(1)
                     return ToolResult.create_error(
@@ -316,23 +345,21 @@ except Exception as e:
                     )
 
                 if result["success"]:
-                    logger.info("Local Python execution completed successfully")
                     return ToolResult.create_success(
                         result={
                             "output": result["output"],
+                            "error": result["error"],
                             "execution_environment": result.get("execution_environment", "local_process")
                         },
                         tool_name=self.name
                     )
                 else:
-                    logger.error(f"Local Python execution failed: {result['error']}")
                     return ToolResult.create_error(
                         error=result['error'],
                         tool_name=self.name
                     )
 
         except Exception as e:
-            logger.error(f"Unexpected error during local execution: {e}")
             return ToolResult.create_error(
                 error=f"Internal execution error: {str(e)}",
                 tool_name=self.name

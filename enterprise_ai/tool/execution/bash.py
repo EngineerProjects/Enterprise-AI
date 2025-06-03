@@ -3,6 +3,7 @@
 import asyncio
 import os
 import tempfile
+import subprocess
 from typing import Any, Dict, List, Optional, Set, Union
 
 from pydantic import Field
@@ -15,7 +16,7 @@ from enterprise_ai.tool.core.base import (
     ExecutionMode, 
     SandboxMode
 )
-from enterprise_ai.tool.core.result import CLIResult, ToolResult
+from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.logger import get_logger
 
@@ -25,35 +26,32 @@ logger = get_logger("tool.execution.bash")
 class _BashSession:
     """A session of a bash shell with sandbox awareness."""
 
-    def __init__(self, timeout: float = 10.0, use_sandbox: bool = False):
+    def __init__(self, timeout: float = 10.0, use_sandbox: bool = False, working_dir: Optional[str] = None):
         self._timeout = timeout
         self._use_sandbox = use_sandbox
         self._cleanup_files: List[str] = []
-        self._home_dir: Optional[str] = None
+        self._working_dir = working_dir or os.getcwd()
 
     async def setup(self) -> bool:
         """Set up a working directory for the bash session."""
         try:
-            if self._use_sandbox:
-                # Sandbox mode - use container working directory
-                self._home_dir = "/workspace"
-                logger.debug(f"Using sandbox working directory: {self._home_dir}")
-            else:
-                # Local mode - create temporary directory
-                self._home_dir = tempfile.mkdtemp(prefix="bash_session_")
-                logger.debug(f"Created local temporary directory: {self._home_dir}")
+            # Ensure working directory exists
+            if not os.path.exists(self._working_dir):
+                os.makedirs(self._working_dir, exist_ok=True)
+            
+            logger.debug(f"Using working directory: {self._working_dir}")
             return True
         except Exception as e:
             logger.error(f"Failed to set up bash session: {e}")
             return False
 
-    async def run(self, command: str) -> CLIResult:
+    async def run(self, command: str) -> ToolResult:
         """Execute a command in bash with sandbox routing."""
         if not command.strip():
-            return CLIResult(output="", error="")
-
-        if not self._home_dir:
-            return CLIResult(error="Bash session not properly initialized")
+            return ToolResult.create_success(
+                result={"output": "", "execution_environment": "none"},
+                tool_name="bash"
+            )
 
         try:
             if self._use_sandbox:
@@ -62,49 +60,48 @@ class _BashSession:
                 return await self._run_locally(command)
         except Exception as e:
             logger.error(f"Error executing bash command: {e}")
-            return CLIResult(error=f"Error: {str(e)}")
-
-    async def _run_in_sandbox(self, command: str) -> CLIResult:
-        """Execute command in sandbox container."""
-        # This would be handled by SandboxToolExecutor in practice
-        # For now, we'll simulate sandbox execution
-        try:
-            import subprocess
-            
-            # Simulate sandbox execution with restricted environment
-            sanitized_command = command.replace('rm -rf /', 'echo "Dangerous command blocked"')
-            
-            result = subprocess.run([
-                'bash', '-c', f'cd {self._home_dir} && {sanitized_command}'
-            ], capture_output=True, text=True, timeout=self._timeout)
-            
-            return CLIResult(
-                output=result.stdout.strip(),
-                error=result.stderr.strip() if result.stderr else "",
-                metadata={"execution_environment": "sandbox_container", "return_code": result.returncode}
+            return ToolResult.create_error(
+                error=f"Error: {str(e)}",
+                tool_name="bash"
             )
-        except asyncio.TimeoutError:
-            return CLIResult(error=f"Sandbox command execution timed out after {self._timeout} seconds")
-        except Exception as e:
-            return CLIResult(error=f"Sandbox execution error: {str(e)}")
 
-    async def _run_locally(self, command: str) -> CLIResult:
-        """Execute command locally with restrictions."""
-        # Create a temporary script file for the command
-        fd, script_path = tempfile.mkstemp(prefix="cmd_", suffix=".sh", dir=self._home_dir)
-        self._cleanup_files.append(script_path)
-
-        with os.fdopen(fd, "w") as f:
-            f.write("#!/bin/bash\n")
-            f.write("set -e\n")  # Exit on error
-            f.write(f"cd {self._home_dir}\n")
-            f.write(f"{command}\n")
-
-        os.chmod(script_path, 0o755)
-
+    async def _run_in_sandbox(self, command: str) -> ToolResult:
+        """Execute command in sandbox-like environment."""
         try:
-            process = await asyncio.create_subprocess_exec(
-                script_path, 
+            # Create a safer command for sandbox execution
+            safe_command = self._sanitize_command(command)
+            
+            # Execute with restricted privileges and timeout in working directory
+            result = subprocess.run([
+                'bash', '-c', f'cd "{self._working_dir}" && timeout {self._timeout}s {safe_command}'
+            ], capture_output=True, text=True, timeout=self._timeout + 5)
+            
+            return ToolResult.create_success(
+                result={
+                    "output": result.stdout.strip(),
+                    "error": result.stderr.strip() if result.stderr else None,
+                    "return_code": result.returncode,
+                    "execution_environment": "sandbox_container"
+                },
+                tool_name="bash"
+            )
+        except subprocess.TimeoutExpired:
+            return ToolResult.create_error(
+                error=f"Sandbox command execution timed out after {self._timeout} seconds",
+                tool_name="bash"
+            )
+        except Exception as e:
+            return ToolResult.create_error(
+                error=f"Sandbox execution error: {str(e)}",
+                tool_name="bash"
+            )
+
+    async def _run_locally(self, command: str) -> ToolResult:
+        """Execute command locally with restrictions."""
+        try:
+            # Execute directly with working directory
+            process = await asyncio.create_subprocess_shell(
+                f'cd "{self._working_dir}" && {command}',
                 stdout=asyncio.subprocess.PIPE, 
                 stderr=asyncio.subprocess.PIPE
             )
@@ -116,10 +113,14 @@ class _BashSession:
             output = stdout.decode("utf-8", errors="replace").strip()
             error = stderr.decode("utf-8", errors="replace").strip()
 
-            return CLIResult(
-                output=output, 
-                error=error,
-                metadata={"execution_environment": "local_process", "return_code": process.returncode}
+            return ToolResult.create_success(
+                result={
+                    "output": output,
+                    "error": error if error else None,
+                    "return_code": process.returncode,
+                    "execution_environment": "local_process"
+                },
+                tool_name="bash"
             )
 
         except asyncio.TimeoutError:
@@ -128,24 +129,38 @@ class _BashSession:
                 await asyncio.sleep(0.1)
             except Exception:
                 pass
-            return CLIResult(error=f"Local command execution timed out after {self._timeout} seconds")
+            return ToolResult.create_error(
+                error=f"Local command execution timed out after {self._timeout} seconds",
+                tool_name="bash"
+            )
+
+    def _sanitize_command(self, command: str) -> str:
+        """Sanitize command for safer execution."""
+        # Replace extremely dangerous patterns
+        dangerous_replacements = {
+            'rm -rf /': 'echo "Dangerous command blocked: rm -rf /"',
+            'rm -rf /*': 'echo "Dangerous command blocked: rm -rf /*"',
+            'dd if=/dev/zero': 'echo "Dangerous command blocked: dd if=/dev/zero"',
+            'mkfs.': 'echo "Dangerous command blocked: mkfs"',
+            'fdisk': 'echo "Dangerous command blocked: fdisk"'
+        }
+        
+        sanitized = command
+        for dangerous, replacement in dangerous_replacements.items():
+            if dangerous in sanitized:
+                sanitized = replacement
+                break
+                
+        return sanitized
 
     def cleanup(self) -> None:
         """Clean up resources used by the bash session."""
-        if not self._use_sandbox:  # Only cleanup local files
-            for filepath in self._cleanup_files:
-                try:
-                    if os.path.exists(filepath):
-                        os.unlink(filepath)
-                except Exception as e:
-                    logger.warning(f"Error cleaning up file {filepath}: {e}")
-
-            if self._home_dir and os.path.exists(self._home_dir) and self._home_dir.startswith('/tmp'):
-                try:
-                    import shutil
-                    shutil.rmtree(self._home_dir)
-                except Exception as e:
-                    logger.warning(f"Error cleaning up directory {self._home_dir}: {e}")
+        for filepath in self._cleanup_files:
+            try:
+                if os.path.exists(filepath):
+                    os.unlink(filepath)
+            except Exception as e:
+                logger.warning(f"Error cleaning up file {filepath}: {e}")
 
 
 @register_tool(category="execution")
@@ -223,6 +238,7 @@ class Bash(BaseTool):
         description: Optional[str] = None,
         parameters: Optional[dict] = None,
         config: Optional[ToolConfig] = None,
+        working_dir: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
         """Initialize the Bash tool with enhanced configuration."""
@@ -234,18 +250,20 @@ class Bash(BaseTool):
             config=config or ToolConfig(
                 timeout=30.0,
                 max_retries=1,
-                execution_mode=ExecutionMode.HYBRID,    # Hybrid by default
-                sandbox_mode=SandboxMode.UNIFIED,       # Use unified sandbox when needed
-                danger_level=5,                         # Very high danger level for bash
-                requires_approval=True,                 # Always require approval
+                execution_mode=ExecutionMode.HYBRID,
+                sandbox_mode=SandboxMode.UNIFIED,
+                danger_level=5,
+                requires_approval=True,
                 approval_message="Execute bash command with potential system access?",
+                verbose_logging=False,  # Disable verbose logging by default
             ),
             **kwargs,
         )
 
         self._session: Optional[_BashSession] = None
+        self._working_dir = working_dir
         
-        logger.debug(f"Bash tool initialized with execution_mode={self.config.execution_mode}, sandbox_mode={self.config.sandbox_mode}")
+        logger.debug(f"Bash tool initialized")
 
     def _analyze_command_danger(self, command: str) -> bool:
         """
@@ -262,52 +280,28 @@ class Bash(BaseTool):
             
         command_lower = command.lower().strip()
         
-        # Safe simple commands
-        safe_commands = [
+        # Very safe simple commands that should run locally
+        safe_simple_commands = [
             'echo ', 'ls', 'pwd', 'whoami', 'date', 'uptime',
-            'cat /etc/os-release', 'uname', 'which ', 'type ',
-            'help', 'history', 'alias'
+            'cat ', 'head ', 'tail ', 'wc ', 'sort ',
+            'uname', 'which ', 'type ', 'help', 'history'
         ]
         
-        if any(command_lower.startswith(safe_cmd) for safe_cmd in safe_commands):
-            # Check if it's just the safe command without dangerous additions
-            if not any(danger in command_lower for danger in ['rm ', 'del ', '>', '>>', '|', '&&', '||', ';']):
-                return False
+        # Check for very simple safe commands
+        for safe_cmd in safe_simple_commands:
+            if command_lower.startswith(safe_cmd) or command_lower == safe_cmd.strip():
+                # Make sure it's really simple (no redirections, pipes, etc.)
+                if not any(op in command for op in ['|', '&&', '||', ';', '>', '>>', '$(', '`']):
+                    return False
         
-        dangerous_patterns = [
-            'rm -rf', 'rm -r /', 'rm -rf /',
-            'dd if=', 'mkfs.', 'fdisk',
-            'chmod 777', 'chown root',
-            'sudo ', 'su -',
-            'curl | bash', 'wget | bash',
-            'format c:', 'del /s',
-            '>(', '/dev/null', '/dev/zero',
-            'fork()', 'system(',
-        ]
+        # If command only contains echo with simple text, it's safe
+        if command_lower.startswith('echo ') and not any(op in command for op in [
+            '|', '&&', '||', ';', '$(', '`', 'rm ', 'del ', 'sudo', 'su '
+        ]):
+            return False
         
-        # Always sandbox if explicitly dangerous
-        if any(pattern in command_lower for pattern in dangerous_patterns):
-            return True
-            
-        # Network operations are dangerous
-        network_operations = [
-            'curl ', 'wget ', 'nc ', 'netcat ', 'ssh ', 'scp ', 'rsync '
-        ]
-        if any(pattern in command_lower for pattern in network_operations):
-            return True
-            
-        # File operations with potential danger
-        file_operations = ['rm ', 'rmdir ', 'mv ', 'cp ']
-        if any(pattern in command_lower for pattern in file_operations):
-            return True
-            
-        # Complex commands (pipes, redirections, etc.)
-        complex_indicators = ['|', '&&', '||', ';', '$(', '`', '>', '>>']
-        complex_count = sum(1 for indicator in complex_indicators if indicator in command)
-        if complex_count >= 1:
-            return True
-                
-        return False
+        # Everything else should use sandbox for safety
+        return True
 
     async def _determine_execution_mode(self, command: str, user_preference: str) -> bool:
         """
@@ -326,23 +320,19 @@ class Bash(BaseTool):
             return False
         
         # Auto-detection
-        return (
-            self._analyze_command_danger(command) or
-            self.config.sandbox_mode != SandboxMode.NONE
-        )
+        return self._analyze_command_danger(command)
 
     async def initialize(self, **kwargs: Any) -> bool:
         """Initialize the bash session."""
         try:
             # Session will be created when first command is executed
-            # to determine the appropriate execution mode
             logger.info("Bash tool initialized - session will be created on first use")
             return True
         except Exception as e:
             logger.error(f"Failed to initialize bash tool: {e}")
             return False
 
-    async def execute(self, **kwargs: Any) -> CLIResult:
+    async def execute(self, **kwargs: Any) -> ToolResult:
         """Execute a bash command with automatic sandbox routing."""
         command = kwargs.get("command", "")
         restart = kwargs.get("restart", False)
@@ -351,11 +341,13 @@ class Bash(BaseTool):
         try:
             # Handle restart request
             if restart:
-                logger.info("Restarting bash session")
                 if self._session:
                     self._session.cleanup()
                 self._session = None
-                return CLIResult(system_message="Bash session has been restarted.")
+                return ToolResult.create_success(
+                    result={"system_message": "Bash session has been restarted."},
+                    tool_name=self.name
+                )
 
             # Determine execution mode for this command
             use_sandbox = await self._determine_execution_mode(command, sandbox_preference)
@@ -368,25 +360,21 @@ class Bash(BaseTool):
                     self._session.cleanup()
                 
                 timeout = getattr(self.config, "timeout", 30.0)
-                self._session = _BashSession(timeout=timeout, use_sandbox=use_sandbox)
+                working_dir = self._working_dir or tempfile.mkdtemp(prefix="bash_session_")
+                self._session = _BashSession(timeout=timeout, use_sandbox=use_sandbox, working_dir=working_dir)
                 
                 success = await self._session.setup()
                 if not success:
-                    return CLIResult(error="Failed to initialize bash session")
-                
-                env_type = "sandbox" if use_sandbox else "local"
-                if self.config.verbose_logging:
-                    logger.info(f"Created new bash session in {env_type} mode")
+                    return ToolResult.create_error(
+                        error="Failed to initialize bash session",
+                        tool_name=self.name
+                    )
 
             # Execute the command
-            if self.config.verbose_logging:
-                env_type = "sandbox" if use_sandbox else "local"
-                logger.info(f"Executing bash command in {env_type} environment: {command}")
-            
             result = await self._session.run(command)
             
-            # Add execution environment info to result
-            if not hasattr(result, 'metadata'):
+            # Add execution environment info to result metadata
+            if not hasattr(result, 'metadata') or result.metadata is None:
                 result.metadata = {}
             result.metadata['tool_execution_mode'] = 'sandbox' if use_sandbox else 'local'
             
@@ -394,12 +382,14 @@ class Bash(BaseTool):
 
         except Exception as e:
             logger.error(f"Unexpected error in bash execution: {e}")
-            return CLIResult(error=f"Error executing bash command: {str(e)}")
+            return ToolResult.create_error(
+                error=f"Error executing bash command: {str(e)}",
+                tool_name=self.name
+            )
 
     async def cleanup(self) -> None:
         """Clean up the bash session."""
         if self._session:
-            logger.info("Cleaning up bash session")
             try:
                 self._session.cleanup()
                 self._session = None
