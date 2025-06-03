@@ -9,8 +9,6 @@ from typing import Any, Dict, List, Optional, Set, Union
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from enterprise_ai.exceptions import EnterpriseAIError
-from enterprise_ai.llm import complete, CompletionOptions  # Updated import
-from enterprise_ai.schema import Message  # Updated import
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult  # Using unified ToolResult
@@ -74,6 +72,45 @@ FALLBACK_RELEVANCE_SCORE = 0.7
 FALLBACK_CONTENT_LIMIT = 500
 INSIGHT_MARKER_PATTERN = re.compile(r"^\s*(?:\d+\.|-|\*|•)\s*(.*)")
 RELEVANCE_SCORE_PATTERN = re.compile(r"relevance.*?:.*?(\d\.?\d*)", re.IGNORECASE)
+
+
+def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs):
+    """Lazy import and execute LLM completion with configurable model."""
+    try:
+        from enterprise_ai.llm import complete, CompletionOptions
+        from enterprise_ai.schema import Message  # Updated import
+        from enterprise_ai.config import get_config
+        
+        # Use provided model/provider or fall back to config defaults
+        provider = provider_name or get_config("llm.default_provider", "ollama")
+        model = model_name or get_config("llm.default_model", "llama3.2")
+
+        timeout = kwargs.get('timeout') or get_config("llm.timeout", 120.0)
+        
+        # Log what we're using for debugging
+        logger.debug(f"Using LLM provider: {provider}, model: {model}")
+        
+        return complete(
+            messages=messages,
+            provider_name=provider,
+            model_name=model,
+            options=CompletionOptions(
+                temperature=kwargs.get('temperature', 0.2),
+                max_tokens=kwargs.get('max_tokens', 500),
+                timeout=timeout
+            )
+        )
+    except ImportError as e:
+        logger.error(f"Failed to import LLM completion: {e}")
+        raise ToolError("LLM completion not available for research analysis")
+    except Exception as e:
+        logger.error(f"LLM completion failed: {e}")
+        # Return a fallback response instead of crashing
+        class FallbackResponse:
+            def __init__(self, content):
+                self.content = content
+        
+        return FallbackResponse('{"analysis": "LLM analysis temporarily unavailable", "relevance": 0.5}')
 
 
 class ResearchInsight(BaseModel):
@@ -247,6 +284,13 @@ class DeepResearch(BaseTool):
 
     capabilities: Set[Union[str, ToolCapability]] = {ToolCapability.SEARCH}
 
+    # Tool requires initialization
+    requires_initialization: bool = True
+
+    # LLM Configuration fields (ADDED)
+    llm_provider: Optional[str] = Field(default=None, description="LLM provider for content analysis")
+    llm_model: Optional[str] = Field(default=None, description="LLM model for content analysis")
+
     # Tool fields
     search_tool: Optional[WebSearch] = Field(default=None, exclude=True)
 
@@ -256,22 +300,31 @@ class DeepResearch(BaseTool):
         description: Optional[str] = None,
         parameters: Optional[dict] = None,
         config: Optional[ToolConfig] = None,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
         **kwargs: Any,
     ) -> None:
-        """Initialize DeepResearch tool with standard parameters."""
+        """
+        Initialize DeepResearch tool with configurable LLM.
+        
+        Args:
+            llm_provider: LLM provider to use for analysis (e.g., "ollama", "openai")
+            llm_model: Model name to use for analysis (e.g., "llama3.2:3b", "gpt-4")
+        """
         model_fields = self.__class__.model_fields
 
         super().__init__(
             name=name or model_fields["name"].default,
             description=description or model_fields["description"].default,
             parameters=parameters or model_fields["parameters"].default,
+            config=config or ToolConfig(
+                timeout=180.0,
+                max_retries=2,
+                cache_results=True,
+            ),
+            llm_provider=llm_provider,
+            llm_model=llm_model,
             **kwargs,
-        )
-
-        self.config = config or ToolConfig(
-            timeout=180.0,
-            max_retries=2,
-            cache_results=True,
         )
 
         # Initialize dependent tools
@@ -359,17 +412,21 @@ class DeepResearch(BaseTool):
         return summary
 
     async def _generate_optimized_query(self, query: str) -> str:
-        """Generate an optimized search query using the new LLM system."""
+        """Generate an optimized search query using the configured LLM."""
         try:
             logger.debug(f"Optimizing query: {query}")
             prompt = OPTIMIZE_QUERY_PROMPT.format(query=query)
 
+            # Use lazy import pattern with our helper function
+            from enterprise_ai.schema import Message
             messages = [Message.user_message(prompt)]
 
-            response = complete(
+            response = _get_llm_completion(
                 messages=messages,
-                provider_name="ollama",
-                options=CompletionOptions(temperature=0.1, max_tokens=100)
+                model_name=self.llm_model,
+                provider_name=self.llm_provider,
+                temperature=0.1,
+                max_tokens=100
             )
 
             if hasattr(response, 'content') and response.content:
@@ -520,11 +577,15 @@ class DeepResearch(BaseTool):
         try:
             logger.debug("Generating follow-up queries")
 
+            from enterprise_ai.schema import Message
             messages = [Message.user_message(prompt)]
-            response = complete(
+            
+            response = _get_llm_completion(
                 messages=messages,
-                provider_name="ollama",
-                options=CompletionOptions(temperature=0.3, max_tokens=200)
+                model_name=self.llm_model,
+                provider_name=self.llm_provider,
+                temperature=0.3,
+                max_tokens=200
             )
 
             if not (hasattr(response, 'content') and response.content):
@@ -558,11 +619,15 @@ class DeepResearch(BaseTool):
         )
 
         try:
+            from enterprise_ai.schema import Message
             messages = [Message.user_message(prompt)]
-            response = complete(
+            
+            response = _get_llm_completion(
                 messages=messages,
-                provider_name="ollama",
-                options=CompletionOptions(temperature=0.2, max_tokens=500)
+                model_name=self.llm_model,
+                provider_name=self.llm_provider,
+                temperature=0.2,
+                max_tokens=500
             )
 
             insights = []
