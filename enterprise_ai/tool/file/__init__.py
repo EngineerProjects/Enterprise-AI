@@ -1,13 +1,17 @@
 """
-File tools for Enterprise AI.
+File manipulation tools for Enterprise AI.
 
-This module provides tools for interacting with files and directories,
-including file reading, writing, and comprehensive editing functionality.
+This package provides comprehensive file and directory operations including
+enhanced editing with fuzzy matching, advanced filesystem operations with
+URL support, code searching, and metadata retrieval.
 """
 
-from enterprise_ai.tool.file.editor import FileEditor
+from enterprise_ai.tool.file.editor import FileEditor 
+from enterprise_ai.tool.file.filesystem import FileSystemTool  
+from enterprise_ai.tool.file.search import CodeSearchTool
 
 __all__ = [
-    # Comprehensive file editor
-    "FileEditor"
+    "FileEditor",      
+    "FileSystemTool", 
+    "CodeSearchTool",
 ]

@@ -43,6 +43,8 @@ class ToolCapability(str, Enum):
     PLANNING = "planning"
     SEARCH = "search"
     UTILITY = "utility"
+    SYSTEM_CONFIG = "system_config"
+    SHELL_ACCESS = "shell_access"
 
 
 class ToolConfig(BaseModel):
