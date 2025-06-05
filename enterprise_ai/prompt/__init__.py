@@ -1,26 +1,29 @@
 """
-Prompt management for Enterprise AI.
+Enterprise AI Prompt System
 
-This module provides functionality for loading, formatting, and managing
-prompts throughout the Enterprise AI system.
+Simple, clean prompt management following OpenManus approach.
 """
 
-from enterprise_ai.prompt.base import (
-    PromptTemplate,
-    PromptLibrary,
-    get_prompt_library,
-    get_prompt,
-    format_prompt,
-    combine_prompts,
-    create_composite_prompt,
+from enterprise_ai.prompt.manager import (
+    get_system_prompt,
+    get_next_step_prompt, 
+    get_available_agent_types,
+    PromptManager
 )
 
+# Import specific prompts for convenience
+from . import cot, react, swe, browser, planning, reflection, mcp
+
 __all__ = [
-    "PromptTemplate",
-    "PromptLibrary",
-    "get_prompt_library",
-    "get_prompt",
-    "format_prompt",
-    "combine_prompts",
-    "create_composite_prompt",
+    "get_system_prompt",
+    "get_next_step_prompt",
+    "get_available_agent_types", 
+    "PromptManager",
+    "cot",
+    "react", 
+    "swe",
+    "browser",
+    "planning",
+    "reflection",
+    "mcp"
 ]
