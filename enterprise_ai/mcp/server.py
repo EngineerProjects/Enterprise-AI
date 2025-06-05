@@ -14,6 +14,9 @@ from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.registry import ToolRegistry
 from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
 
+# Import tools to trigger registration decorators
+import enterprise_ai.tool  # This will trigger all tool registration decorators
+
 from enterprise_ai.mcp.config import MCPConfig
 from enterprise_ai.mcp.executor import ToolExecutor
 from enterprise_ai.mcp.session_manager import SessionManager

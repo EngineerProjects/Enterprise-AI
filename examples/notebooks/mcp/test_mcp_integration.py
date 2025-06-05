@@ -225,9 +225,19 @@ class MCPTester:
         
         # Find a safe tool to test (prefer utility tools)
         tools = self.server.tool_registry.get_all_tool_classes()
+        
+        # Create a test file for mime type detection
+        test_file_path = "/tmp/mcp_test.txt"
+        try:
+            with open(test_file_path, 'w') as f:
+                f.write("This is a test file for MCP integration testing.")
+        except Exception:
+            test_file_path = "test.txt"  # Fallback to relative path
+        
         safe_tools = [
-            ("MimeTypeTool", {"filename": "test.txt"}),
-            ("ConfigurationTool", {"action": "get_config", "key": "app.name"}),
+            ("mime_type_detector", {"command": "detect_type", "path": test_file_path}),
+            ("configuration", {"action": "get", "key": "app.name"}),
+            ("terminate", {"status": "success", "message": "test"}),
         ]
         
         selected_tool = None

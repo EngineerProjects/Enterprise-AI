@@ -102,8 +102,21 @@ class ToolRegistry:
         # Run pre-register hooks
         self._run_hooks("pre_register", tool_cls, category, capabilities, version)
 
-        # Get tool info with better fallback handling
-        name = getattr(tool_cls, "name", tool_cls.__name__)
+        # Get tool info with better fallback handling for Pydantic models
+        name = tool_cls.__name__  # Start with class name as fallback
+        
+        # Try to get name from Pydantic model fields
+        model_fields = getattr(tool_cls, 'model_fields', {})
+        if 'name' in model_fields:
+            field_default = model_fields['name'].default
+            if field_default and isinstance(field_default, str):
+                name = field_default
+        
+        # If no name from model fields, try class attribute
+        if name == tool_cls.__name__:
+            class_name = getattr(tool_cls, "name", None)
+            if class_name and isinstance(class_name, str):
+                name = class_name
         
         # Get description from class definition with multiple fallbacks
         description = ""
