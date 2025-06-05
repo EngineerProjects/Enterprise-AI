@@ -253,7 +253,7 @@ class MimeTypeDetector:
             return ext in self.IMAGE_EXTENSIONS
 
 
-@register_tool(category="file")
+@register_tool(category="file", capabilities=["file_access", "file_management"])
 class FileSystemTool(BaseTool):
     """
     Comprehensive file system operations tool with Desktop Commander enhancements.

@@ -31,7 +31,7 @@ class SearchResult(BaseModel):
     context_after: Optional[List[str]] = None
 
 
-@register_tool(category="file")
+@register_tool(category="file", capabilities=["file_access", "code_search"])
 class CodeSearchTool(BaseTool):
     """
     Advanced code and text search tool with pattern matching and context support.

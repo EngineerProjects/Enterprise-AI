@@ -43,7 +43,7 @@ class SessionInfo(BaseModel):
     duration: str
 
 
-@register_tool(category="execution")
+@register_tool(category="execution", capabilities=["process_management", "system_monitoring"])
 class ProcessManagerTool(BaseTool):
     """
     Comprehensive process management tool with system monitoring capabilities.

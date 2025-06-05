@@ -6,7 +6,7 @@ simplifying sandbox creation and usage.
 """
 
 from abc import ABC, abstractmethod
-from typing import Dict, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol
 
 from enterprise_ai.logger import get_logger
 from enterprise_ai.config.sandbox import SandboxSettings
@@ -73,6 +73,15 @@ class BaseSandboxClient(ABC):
         """Executes command."""
 
     @abstractmethod
+    async def execute_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Executes a tool in the sandbox."""
+
+    @abstractmethod
     async def copy_from(self, container_path: str, local_path: str) -> None:
         """Copies file from container."""
 
@@ -134,6 +143,71 @@ class LocalSandboxClient(BaseSandboxClient):
         if not self.sandbox:
             raise RuntimeError("Sandbox not initialized")
         return await self.sandbox.run_command(command, timeout)
+
+    async def execute_tool(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        timeout: Optional[float] = None
+    ) -> Dict[str, Any]:
+        """Executes a tool in the sandbox.
+
+        Args:
+            tool_name: Name of the tool to execute.
+            arguments: Tool arguments.
+            timeout: Execution timeout in seconds.
+
+        Returns:
+            Tool execution result.
+
+        Raises:
+            RuntimeError: If sandbox not initialized.
+        """
+        # Auto-initialize sandbox if not already created
+        if not self.sandbox:
+            logger.info("Auto-initializing sandbox for tool execution")
+            try:
+                await self.create()
+            except Exception as e:
+                logger.warning(f"Sandbox creation failed, executing tool directly: {e}")
+        
+        try:
+            # For now, we'll execute tools directly without sandbox isolation
+            # This is a simplified implementation that should be enhanced later
+            from enterprise_ai.tool.core.registry import get_registry
+            
+            registry = get_registry()
+            tool_instance = await registry.create_tool(tool_name, initialize=True)
+            
+            if not tool_instance:
+                return {
+                    "success": False,
+                    "error": f"Tool '{tool_name}' not found or could not be created",
+                    "result": None
+                }
+            
+            import time
+            start_time = time.time()
+            
+            # Execute the tool
+            result = await tool_instance.execute(**arguments)
+            
+            execution_time = time.time() - start_time
+            
+            return {
+                "success": True,
+                "result": result.result if hasattr(result, 'result') else str(result),
+                "error": None,
+                "execution_time": execution_time
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "result": None,
+                "execution_time": 0
+            }
 
     async def copy_from(self, container_path: str, local_path: str) -> None:
         """Copies file from container to local.

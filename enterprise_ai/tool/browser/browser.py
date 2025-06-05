@@ -85,7 +85,7 @@ def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs)
         return FallbackResponse('{"extracted_content": {"text": "Content extraction temporarily unavailable", "metadata": {"source": "fallback", "relevance": "extraction failed"}}}')
 
 
-@register_tool(category="browser")
+@register_tool(category="browser", capabilities=["network_access", "web_automation"])
 class BrowserUseTool(BaseTool):
     """
     Browser automation tool that enables web interaction and content extraction.

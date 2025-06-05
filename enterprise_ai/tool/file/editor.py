@@ -242,7 +242,7 @@ class LineEditParams(BaseModel):
 
 
 # MAIN TOOL CLASS (Significantly simplified and modularized)
-@register_tool(category="file")
+@register_tool(category="file", capabilities=["file_access", "text_editing"])
 class FileEditor(BaseTool):
     """
     Optimized file editor with modular design and improved maintainability.

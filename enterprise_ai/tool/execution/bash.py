@@ -539,7 +539,7 @@ class _EnhancedBashSession:
             logger.warning(f"Sync cleanup completed with warnings: {e}")
 
 
-@register_tool(category="execution")
+@register_tool(category="execution", capabilities=["code_execution", "system_access"])
 class Bash(BaseTool):
     """
     Enhanced bash command execution tool with Desktop Commander session management and safety controls.

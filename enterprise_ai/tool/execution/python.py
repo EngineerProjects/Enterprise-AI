@@ -196,7 +196,7 @@ class EnhancedCodeAnalyzer:
         return imports
 
 
-@register_tool(category="execution")
+@register_tool(category="execution", capabilities=["code_execution", "data_analysis"])
 class PythonExecute(BaseTool):
     """
     Enhanced Python code execution tool with session management, advanced safety analysis, and optimization.

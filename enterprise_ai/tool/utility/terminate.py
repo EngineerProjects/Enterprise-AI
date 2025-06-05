@@ -10,7 +10,7 @@ from enterprise_ai.logger import get_logger
 logger = get_logger("tool.utility.terminate")
 
 
-@register_tool(category="utility")
+@register_tool(category="utility", capabilities=["utility", "task_control"])
 class TerminateTool(BaseTool):
     """
     Tool to signal the completion or termination of a task or conversation.

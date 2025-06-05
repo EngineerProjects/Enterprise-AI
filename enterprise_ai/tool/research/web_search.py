@@ -250,7 +250,7 @@ class WebContentFetcher:
             return None
 
 
-@register_tool(category="research")
+@register_tool(category="research", capabilities=["search", "network_access"])
 class WebSearch(BaseTool):
     """
     Search the web for real-time information using multiple search engines.

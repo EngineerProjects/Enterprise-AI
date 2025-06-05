@@ -12,7 +12,7 @@ from enterprise_ai.logger import get_logger
 logger = get_logger("tool.content.chat_completion")
 
 
-@register_tool(category="content")
+@register_tool(category="content", capabilities=["content_creation", "text_generation"])
 class CreateChatCompletion(BaseTool):
     """
     Tool for creating structured formatted content with specific output types.

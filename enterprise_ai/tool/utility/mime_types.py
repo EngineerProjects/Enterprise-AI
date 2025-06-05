@@ -34,7 +34,7 @@ class FileTypeInfo(BaseModel):
     description: str
 
 
-@register_tool(category="utility")
+@register_tool(category="utility", capabilities=["file_analysis", "utility"])
 class MimeTypeTool(BaseTool):
     """
     MIME type detection and file classification tool.

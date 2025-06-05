@@ -210,7 +210,7 @@ class ResearchSummary(ToolResult):
         return self.result
 
 
-@register_tool(category="research")
+@register_tool(category="research", capabilities=["search", "network_access", "analysis"])
 class DeepResearch(BaseTool):
     """
     Advanced research tool that explores topics through iterative, multi-level research.
