@@ -1,0 +1,18 @@
+{
+    "sourceFile": "enterprise_ai/mcp/handlers/__init__.py",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 0,
+            "patches": [
+                {
+                    "date": 1749123224658,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                }
+            ],
+            "date": 1749123224658,
+            "name": "Commit-0",
+            "content": "\"\"\"\nMCP request handlers for tool execution and management.\n\nThis module provides handlers for different types of MCP requests,\nincluding tool execution, sandbox routing, and agent communication.\n\"\"\"\n\nfrom .tool_handler import ToolHandler\nfrom .sandbox_handler import SandboxHandler\nfrom .agent_handler import AgentHandler\n\n__all__ = [\n    \"ToolHandler\",\n    \"SandboxHandler\", \n    \"AgentHandler\",\n]"
+        }
+    ]
+}

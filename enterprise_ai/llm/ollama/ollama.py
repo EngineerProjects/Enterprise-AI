@@ -1,12 +1,12 @@
 """
-Enhanced Ollama provider implementation with comprehensive execution control.
+Ollama provider implementation focused on text generation and tool call extraction.
 
-This implementation combines the speed of the HTTP-based approach with
-enhanced tool execution control, approval workflows, and verbose logging.
+This implementation handles only text generation and tool call extraction,
+with all tool execution delegated to the MCP module.
 """
 
 import asyncio
-from typing import Any, Dict, List, Optional, Set, Iterator, AsyncIterator, Union, cast, Callable
+from typing import Any, Dict, List, Optional, Set, Iterator, AsyncIterator, Union, cast
 
 import httpx
 
@@ -22,9 +22,8 @@ from enterprise_ai.constants import (
 )
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.schema import Message, ModelInfo, LLMResponse, ProviderInfo, ToolCall, ToolResult
+from enterprise_ai.schema import Message, ModelInfo, LLMResponse, ProviderInfo, ToolCall
 from enterprise_ai.types import MessageProtocol
-from enterprise_ai.tool.core.base import ExecutionMode
 
 from enterprise_ai.llm.ollama.tools import OllamaToolConverter, OllamaToolExtractor
 from enterprise_ai.llm.ollama.capabilities import OllamaCapabilities
@@ -36,13 +35,12 @@ from enterprise_ai.llm.ollama.helpers import (
     OllamaStreamProcessor,
     OllamaResponseProcessor,
 )
-from enterprise_ai.llm.tool_executor import ToolExecutor
 
 logger = get_optimized_logger("llm.ollama")
 
 
 class OllamaProvider(LLMProvider):
-    """Enhanced Ollama LLM provider with comprehensive execution control."""
+    """Ollama LLM provider focused on text generation and tool call extraction."""
 
     def __init__(
         self,
@@ -53,18 +51,10 @@ class OllamaProvider(LLMProvider):
         top_p: Optional[float] = None,
         timeout: Optional[float] = None,
         capabilities: Optional[Set[str]] = None,
-        # Enhanced execution parameters (inherited from base)
-        execution_mode: ExecutionMode = ExecutionMode.AUTO,
-        approval_callback: Optional[Callable] = None,
         verbose: bool = False,
-        max_tool_iterations: int = 5,
-        tool_execution_timeout: float = 30.0,
-        allowed_tools: Optional[Set[str]] = None,
-        forbidden_tools: Optional[Set[str]] = None,
-        hybrid_danger_threshold: int = 2,
         **kwargs: Any,
     ):
-        """Initialize the Ollama provider with enhanced execution control."""
+        """Initialize the Ollama provider for text generation and tool call extraction."""
         # Configuration
         model = model_name or get_config("llm.ollama.model", DEFAULT_OLLAMA_MODEL)
         url = base_url or OllamaConfigHelper.get_base_url_from_env(OLLAMA_API_BASE)
@@ -74,17 +64,10 @@ class OllamaProvider(LLMProvider):
         self._timeout = validate_timeout(timeout or env_timeout)
         self._explicit_capabilities = capabilities
 
-        # Initialize base class with enhanced parameters
+        # Initialize base class
         super().__init__(
             model_name=model,
-            execution_mode=execution_mode,
-            approval_callback=approval_callback,
             verbose=verbose,
-            max_tool_iterations=max_tool_iterations,
-            tool_execution_timeout=tool_execution_timeout,
-            allowed_tools=allowed_tools,
-            forbidden_tools=forbidden_tools,
-            hybrid_danger_threshold=hybrid_danger_threshold,
             base_url=self._base_url,
             temperature=temperature or get_config("llm.ollama.temperature", DEFAULT_TEMPERATURE),
             max_tokens=max_tokens or get_config("llm.ollama.max_tokens", DEFAULT_MAX_TOKENS),
@@ -92,7 +75,7 @@ class OllamaProvider(LLMProvider):
             **kwargs,
         )
 
-        # Initialize components with enhanced capabilities
+        # Initialize components
         self._tool_converter = OllamaToolConverter()
         self._tool_extractor = OllamaToolExtractor()
         self._capabilities = OllamaCapabilities()
@@ -100,23 +83,11 @@ class OllamaProvider(LLMProvider):
         self._error_handler = OllamaErrorHandler()
         self._response_processor = OllamaResponseProcessor()
 
-        # Enhanced tool execution setup
-        self._tool_executor = ToolExecutor(
-            max_iterations=max_tool_iterations,
-            execution_timeout=tool_execution_timeout,
-            allowed_tools=allowed_tools,
-            forbidden_tools=forbidden_tools,
-            execution_mode=execution_mode,
-            approval_callback=approval_callback,
-            verbose=verbose,
-            hybrid_danger_threshold=hybrid_danger_threshold,
-        )
-
         # HTTP clients
         self._client: Optional[httpx.Client] = None
         self._async_client: Optional[httpx.AsyncClient] = None
 
-        logger.info("Initialized Ollama provider: %s @ %s | Execution mode: %s", model, self._base_url, execution_mode)
+        logger.info("Initialized Ollama provider: %s @ %s", model, self._base_url)
 
     def _get_client(self) -> httpx.Client:
         """Get or create sync HTTP client."""
@@ -134,84 +105,9 @@ class OllamaProvider(LLMProvider):
         """Get full API URL for endpoint."""
         return f"{self._base_url}/api/{endpoint.lstrip('/')}"
 
-    # Enhanced Tool Registration Methods
-    def register_tool(self, name: str, func: Callable) -> None:
-        """Register a tool for execution."""
-        self._tool_executor.register_tool(name, func)
-        if self.verbose:
-            logger.info("Registered tool: %s", name)
-
-    def register_tools(self, tools: Dict[str, Callable]) -> None:
-        """Register multiple tools for execution."""
-        self._tool_executor.register_tools(tools)
-        if self.verbose:
-            logger.info("Registered %s tools", len(tools))
-
-    # Enhanced completion methods
+    # Core completion methods (no tool execution)
     def complete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Generate completion with execution mode support."""
-        if self.execution_mode == ExecutionMode.AUTO:
-            return self._complete_with_auto_tools(messages, **kwargs)
-        elif self.execution_mode == ExecutionMode.DISABLED:
-            return self._complete_standard(messages, **kwargs)
-        else:  # MANUAL or HYBRID
-            if self.approval_callback:
-                return self._complete_with_controlled_tools(messages, **kwargs)
-            else:
-                return self._complete_with_auto_tools(messages, **kwargs)
-
-    async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Generate async completion with execution mode support."""
-        if self.execution_mode == ExecutionMode.AUTO:
-            return await self._acomplete_with_auto_tools(messages, **kwargs)
-        elif self.execution_mode == ExecutionMode.DISABLED:
-            return await self._acomplete_standard(messages, **kwargs)
-        else:  # MANUAL or HYBRID
-            if self.approval_callback:
-                return await self._acomplete_with_controlled_tools(messages, **kwargs)
-            else:
-                return await self._acomplete_with_auto_tools(messages, **kwargs)
-
-    # Enhanced tool execution methods
-    def complete_with_tool_calls(
-        self, 
-        messages: List[MessageProtocol],
-        **kwargs: Any
-    ) -> tuple[MessageProtocol, List[ToolCall]]:
-        """Generate completion and extract tool calls without executing them."""
-        response = self._complete_standard(messages, **kwargs)
-        tool_calls = self._extract_tool_calls_from_response(response)
-        return response, tool_calls
-
-    async def acomplete_with_tool_calls(
-        self, 
-        messages: List[MessageProtocol],
-        **kwargs: Any
-    ) -> tuple[MessageProtocol, List[ToolCall]]:
-        """Generate completion and extract tool calls without executing them (async)."""
-        response = await self._acomplete_standard(messages, **kwargs)
-        tool_calls = self._extract_tool_calls_from_response(response)
-        return response, tool_calls
-
-    def execute_tool_calls(
-        self, 
-        tool_calls: List[ToolCall],
-        context: Optional[Dict[str, Any]] = None
-    ) -> List[ToolResult]:
-        """Execute tool calls manually with current execution settings."""
-        return self._tool_executor.execute_tool_calls(tool_calls, context)
-
-    async def aexecute_tool_calls(
-        self, 
-        tool_calls: List[ToolCall],
-        context: Optional[Dict[str, Any]] = None
-    ) -> List[ToolResult]:
-        """Execute tool calls manually with current execution settings (async)."""
-        return await self._tool_executor.aexecute_tool_calls(tool_calls, context)
-
-    # Standard Completion Methods (no auto tool execution)
-    def _complete_standard(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Standard completion without auto tool execution."""
+        """Generate completion without tool execution."""
         request_id = generate_request_id()
         
         if self.verbose:
@@ -262,8 +158,8 @@ class OllamaProvider(LLMProvider):
                 logger.error("Ollama request %s failed: %s", request_id, str(e))
             raise
 
-    async def _acomplete_standard(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Standard async completion without auto tool execution."""
+    async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
+        """Generate async completion without tool execution."""
         if self.verbose:
             logger.info("Making async Ollama completion request with %s messages", len(messages))
         
@@ -303,166 +199,7 @@ class OllamaProvider(LLMProvider):
                 logger.error("Async Ollama request failed: %s", str(e))
             raise
 
-    # Auto Tool Execution Methods
-    def _complete_with_auto_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Complete with automatic tool execution loop."""
-        conversation = list(messages)
-        iteration = 0
-        
-        if self.verbose:
-            logger.info("Starting auto tool execution loop with %s initial messages", len(messages))
-        
-        while iteration < self.max_tool_iterations:
-            # Get response from model
-            response = self._complete_standard(conversation, **kwargs)
-            
-            # Check if model made tool calls
-            if not self._has_tool_calls(response):
-                if self.verbose:
-                    logger.info("No tool calls found, returning response (iteration %s)", iteration + 1)
-                return response
-            
-            tool_calls_data = response.metadata["tool_calls"]
-            tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
-            
-            if self.verbose:
-                logger.info("Auto-executing %s tool calls (iteration %s)", len(tool_calls), iteration + 1)
-            
-            # Execute tools with current executor settings
-            tool_results = self._tool_executor.execute_tool_calls(tool_calls)
-            
-            # Update conversation
-            conversation.append(response)
-            tool_messages = self._tool_executor.create_tool_messages(tool_results)
-            conversation.extend(tool_messages)
-            
-            iteration += 1
-        
-        logger.warning("Reached maximum tool iterations (%s)", self.max_tool_iterations)
-        return response
-
-    async def _acomplete_with_auto_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Async complete with automatic tool execution loop."""
-        conversation = list(messages)
-        iteration = 0
-        
-        if self.verbose:
-            logger.info("Starting async auto tool execution loop with %s initial messages", len(messages))
-        
-        while iteration < self.max_tool_iterations:
-            # Get response from model
-            response = await self._acomplete_standard(conversation, **kwargs)
-            
-            # Check for tool calls
-            if not self._has_tool_calls(response):
-                if self.verbose:
-                    logger.info("No tool calls found, returning response (async iteration %s)", iteration + 1)
-                return response
-            
-            tool_calls_data = response.metadata["tool_calls"]
-            tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
-            
-            if self.verbose:
-                logger.info("Auto-executing %s tool calls async (iteration %s)", len(tool_calls), iteration + 1)
-            
-            # Execute tools asynchronously
-            tool_results = await self._tool_executor.aexecute_tool_calls(tool_calls)
-            
-            # Update conversation
-            conversation.append(response)
-            tool_messages = self._tool_executor.create_tool_messages(tool_results)
-            conversation.extend(tool_messages)
-            
-            iteration += 1
-        
-        logger.warning("Reached maximum async tool iterations (%s)", self.max_tool_iterations)
-        return response
-
-    # Controlled tool execution (manual/hybrid with approval)
-    def _complete_with_controlled_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Complete with controlled tool execution based on execution mode."""
-        conversation = list(messages)
-        iteration = 0
-        
-        if self.verbose:
-            logger.info("Starting controlled tool execution with %s mode", self.execution_mode)
-        
-        while iteration < self.max_tool_iterations:
-            # Get response from model
-            response = self._complete_standard(conversation, **kwargs)
-            
-            # Check if model made tool calls
-            if not self._has_tool_calls(response):
-                if self.verbose:
-                    logger.info("No tool calls found, returning response (iteration %s)", iteration + 1)
-                return response
-            
-            tool_calls_data = response.metadata["tool_calls"]
-            tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
-            
-            if self.verbose:
-                logger.info("Processing %s tool calls with %s mode (iteration %s)", len(tool_calls), self.execution_mode, iteration + 1)
-            
-            # Execute tools with approval control
-            tool_results = self._tool_executor.execute_tool_calls(tool_calls)
-            
-            # Update conversation
-            conversation.append(response)
-            tool_messages = self._tool_executor.create_tool_messages(tool_results)
-            conversation.extend(tool_messages)
-            
-            iteration += 1
-        
-        logger.warning("Reached maximum tool iterations (%s)", self.max_tool_iterations)
-        return response
-
-    async def _acomplete_with_controlled_tools(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Async complete with controlled tool execution based on execution mode."""
-        conversation = list(messages)
-        iteration = 0
-        
-        if self.verbose:
-            logger.info("Starting async controlled tool execution with %s mode", self.execution_mode)
-        
-        while iteration < self.max_tool_iterations:
-            # Get response from model
-            response = await self._acomplete_standard(conversation, **kwargs)
-            
-            # Check if model made tool calls
-            if not self._has_tool_calls(response):
-                if self.verbose:
-                    logger.info("No tool calls found, returning response (async iteration %s)", iteration + 1)
-                return response
-            
-            tool_calls_data = response.metadata["tool_calls"]
-            tool_calls = [ToolCall.from_dict(tc) for tc in tool_calls_data]
-            
-            if self.verbose:
-                logger.info("Processing %s tool calls with %s mode (async iteration %s)", len(tool_calls), self.execution_mode, iteration + 1)
-            
-            # Execute tools with approval control
-            tool_results = await self._tool_executor.aexecute_tool_calls(tool_calls)
-            
-            # Update conversation
-            conversation.append(response)
-            tool_messages = self._tool_executor.create_tool_messages(tool_results)
-            conversation.extend(tool_messages)
-            
-            iteration += 1
-        
-        logger.warning("Reached maximum async tool iterations (%s)", self.max_tool_iterations)
-        return response
-
-    def _has_tool_calls(self, response: MessageProtocol) -> bool:
-        """Check if response contains tool calls."""
-        return (
-            hasattr(response, "metadata") and 
-            response.metadata and 
-            "tool_calls" in response.metadata and 
-            response.metadata["tool_calls"]
-        )
-
-    # HTTP Request Execution Methods (unchanged)
+    # HTTP Request Execution Methods
     def _execute_chat_request(self, messages: List[MessageProtocol], timeout: float, **kwargs: Any) -> LLMResponse:
         """Execute chat request using helpers."""
         payload = OllamaConfigHelper.build_chat_payload(
@@ -545,7 +282,7 @@ class OllamaProvider(LLMProvider):
         except httpx.ReadTimeout as e:
             raise self._error_handler.handle_timeout_error(e, timeout)
 
-    # Streaming Methods (unchanged)
+    # Streaming Methods
     def complete_stream(self, messages: List[MessageProtocol], **kwargs: Any) -> Iterator[MessageProtocol]:
         """Generate a streaming completion."""
         # Prepare request
@@ -607,7 +344,7 @@ class OllamaProvider(LLMProvider):
         ):
             yield msg
 
-    # Model Information Methods (unchanged)
+    # Model Information Methods
     def get_model_info(self) -> ModelInfo:
         """Get model information using enhanced universal capability detection."""
         if self._model_info is not None:
@@ -639,7 +376,6 @@ class OllamaProvider(LLMProvider):
             description=description,
             metadata={
                 "specifications": specs,
-                "execution_mode": self.execution_mode,
                 "capabilities_details": {
                     "supports_streaming": capabilities.supports_streaming,
                     "supports_tools": capabilities.supports_tools,
@@ -707,7 +443,7 @@ class OllamaProvider(LLMProvider):
         """Get provider information using schema class."""
         return ProviderInfo(
             name="ollama",
-            description="High-performance local Ollama inference server with enhanced execution control",
+            description="High-performance local Ollama inference server for text generation",
             base_url=self._base_url,
             supported_models=[self.model_name],
             features={ModelFeature.STREAMING, ModelFeature.FUNCTION_CALLING, ModelFeature.VISION},
@@ -715,34 +451,12 @@ class OllamaProvider(LLMProvider):
                 "base_url": self._base_url, 
                 "timeout": self._timeout, 
                 "model": self.model_name,
-                "execution_mode": self.execution_mode,
-                "max_tool_iterations": self.max_tool_iterations,
                 "verbose": self.verbose,
             },
             is_available=True,
         )
 
-    # Enhanced execution control methods
-    def set_execution_mode(self, mode: ExecutionMode) -> None:
-        """Change the execution mode."""
-        super().set_execution_mode(mode)
-        self._tool_executor.set_execution_mode(mode)
-
-    def set_approval_callback(self, callback: Optional[Callable]) -> None:
-        """Set or update the approval callback."""
-        super().set_approval_callback(callback)
-        self._tool_executor.set_approval_callback(callback)
-
-    def set_verbose(self, verbose: bool) -> None:
-        """Enable or disable verbose logging."""
-        super().set_verbose(verbose)
-        self._tool_executor.set_verbose(verbose)
-
-    def get_tool_execution_stats(self) -> Optional[Dict[str, Any]]:
-        """Get tool execution statistics."""
-        return self._tool_executor.get_execution_stats()
-
-    # Utility Methods (unchanged)
+    # Utility Methods
     def _llm_response_to_message(self, llm_response: LLMResponse) -> MessageProtocol:
         """Convert LLMResponse to Message for backward compatibility."""
         metadata = {
@@ -795,11 +509,9 @@ class OllamaProvider(LLMProvider):
             "languages": capabilities.languages,
             "supported_formats": capabilities.supported_formats,
             "specifications": self._capabilities.get_model_specifications(self.model_name, model_data),
-            "execution_mode": self.execution_mode,
-            "tool_execution_stats": self.get_tool_execution_stats()
         }
 
-    # Cleanup Methods (unchanged)
+    # Cleanup Methods
     def close(self) -> None:
         """Close HTTP clients."""
         if self._client:

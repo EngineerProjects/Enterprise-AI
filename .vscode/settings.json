@@ -1,5 +1,6 @@
 {
     "python.analysis.extraPaths": [
         "./examples/notebooks"
-    ]
+    ],
+    "local-history.browser.descending": true
 }

@@ -1,8 +1,8 @@
 """
-Enhanced base LLM provider interface with tool execution control.
+Enhanced base LLM provider interface focused solely on text generation.
 
 This module defines the essential interface that all LLM providers must implement,
-now with support for manual tool execution and approval workflows.
+now focused exclusively on text generation and tool call extraction.
 """
 
 import abc
@@ -10,62 +10,37 @@ import time
 from typing import Any, Dict, List, Optional, Set, Union, Iterator, AsyncIterator, Callable
 
 from enterprise_ai.logger import get_logger
-from enterprise_ai.schema import ModelInfo, ToolCall, ToolResult
+from enterprise_ai.schema import ModelInfo, ToolCall
 from enterprise_ai.types import MessageProtocol
-from enterprise_ai.tool.core.base import ExecutionMode
 
 logger = get_logger("llm.base")
 
 
 class LLMProvider(abc.ABC):
     """
-    Enhanced base class for LLM providers with manual tool execution support.
+    Base class for LLM providers focused on text generation and tool call extraction.
     
-    Includes methods that ALL providers must have, plus optional enhanced
-    functionality for tool execution control.
+    This class handles only text generation and tool call extraction. All tool execution
+    is delegated to the MCP module for clean separation of concerns.
     """
 
     def __init__(
         self, 
         model_name: str,
-        # Enhanced execution parameters
-        execution_mode: ExecutionMode = ExecutionMode.AUTO,
-        approval_callback: Optional[Callable] = None,
         verbose: bool = False,
-        max_tool_iterations: int = 5,
-        tool_execution_timeout: float = 30.0,
-        allowed_tools: Optional[Set[str]] = None,
-        forbidden_tools: Optional[Set[str]] = None,
-        hybrid_danger_threshold: int = 2,
         **kwargs: Any
     ):
         """
-        Initialize the provider with enhanced execution control.
+        Initialize the provider.
 
         Args:
             model_name: Name of the model to use
-            execution_mode: How tools should be executed
-            approval_callback: Function for human approval of tool calls
             verbose: Whether to enable verbose logging
-            max_tool_iterations: Maximum tool execution rounds
-            tool_execution_timeout: Timeout for individual tool execution
-            allowed_tools: Set of allowed tool names
-            forbidden_tools: Set of forbidden tool names
-            hybrid_danger_threshold: Danger level threshold for hybrid mode
             **kwargs: Provider-specific parameters
         """
         self.model_name = model_name
         self.config = kwargs
-        
-        # Enhanced execution control
-        self.execution_mode = execution_mode
-        self.approval_callback = approval_callback
         self.verbose = verbose
-        self.max_tool_iterations = max_tool_iterations
-        self.tool_execution_timeout = tool_execution_timeout
-        self.allowed_tools = allowed_tools
-        self.forbidden_tools = forbidden_tools
-        self.hybrid_danger_threshold = hybrid_danger_threshold
         
         # Metrics tracking
         self._start_time = time.time()
@@ -138,7 +113,6 @@ class LLMProvider(abc.ABC):
         result = await self.acomplete(messages, **kwargs)
         yield result
 
-    # Enhanced tool execution methods
     def complete_with_tool_calls(
         self, 
         messages: List[MessageProtocol],
@@ -147,7 +121,7 @@ class LLMProvider(abc.ABC):
         """
         Generate completion and extract tool calls without executing them.
         
-        This enables manual tool execution workflows.
+        This enables manual tool execution workflows via MCP.
         
         Args:
             messages: List of messages
@@ -156,7 +130,6 @@ class LLMProvider(abc.ABC):
         Returns:
             Tuple of (response_message, extracted_tool_calls)
         """
-        # Default implementation - providers should override for optimization
         response = self.complete(messages, **kwargs)
         tool_calls = self._extract_tool_calls_from_response(response)
         return response, tool_calls
@@ -176,48 +149,9 @@ class LLMProvider(abc.ABC):
         Returns:
             Tuple of (response_message, extracted_tool_calls)
         """
-        # Default implementation - providers should override for optimization
         response = await self.acomplete(messages, **kwargs)
         tool_calls = self._extract_tool_calls_from_response(response)
         return response, tool_calls
-
-    def execute_tool_calls(
-        self, 
-        tool_calls: List[ToolCall],
-        context: Optional[Dict[str, Any]] = None
-    ) -> List[ToolResult]:
-        """
-        Execute tool calls manually with current execution settings.
-        
-        Args:
-            tool_calls: List of tool calls to execute
-            context: Optional context for tool execution
-            
-        Returns:
-            List of tool execution results
-        """
-        # This method should be implemented by concrete providers
-        # that have tool executors available
-        raise NotImplementedError("Provider does not support manual tool execution")
-
-    async def aexecute_tool_calls(
-        self, 
-        tool_calls: List[ToolCall],
-        context: Optional[Dict[str, Any]] = None
-    ) -> List[ToolResult]:
-        """
-        Execute tool calls manually with current execution settings (async).
-        
-        Args:
-            tool_calls: List of tool calls to execute
-            context: Optional context for tool execution
-            
-        Returns:
-            List of tool execution results
-        """
-        # This method should be implemented by concrete providers
-        # that have tool executors available
-        raise NotImplementedError("Provider does not support async manual tool execution")
 
     def _extract_tool_calls_from_response(self, response: MessageProtocol) -> List[ToolCall]:
         """
@@ -304,23 +238,8 @@ class LLMProvider(abc.ABC):
             "success_count": self._success_count,
             "error_count": self._error_count,
             "success_rate": self._success_count / max(1, self._request_count),
-            "execution_mode": self.execution_mode,
             "verbose_logging": self.verbose,
         }
-
-    # Enhanced execution control methods
-    def set_execution_mode(self, mode: ExecutionMode) -> None:
-        """Change the execution mode for this provider."""
-        old_mode = self.execution_mode
-        self.execution_mode = mode
-        if self.verbose:
-            logger.info(f"Provider execution mode changed from {old_mode} to {mode}")
-
-    def set_approval_callback(self, callback: Optional[Callable]) -> None:
-        """Set or update the approval callback."""
-        self.approval_callback = callback
-        if self.verbose:
-            logger.info(f"Approval callback {'set' if callback else 'removed'}")
 
     def set_verbose(self, verbose: bool) -> None:
         """Enable or disable verbose logging."""
@@ -328,27 +247,3 @@ class LLMProvider(abc.ABC):
         self.verbose = verbose
         if old_verbose != verbose:
             logger.info(f"Verbose logging {'enabled' if verbose else 'disabled'}")
-
-    def get_execution_config(self) -> Dict[str, Any]:
-        """Get current execution configuration."""
-        return {
-            "execution_mode": self.execution_mode,
-            "has_approval_callback": self.approval_callback is not None,
-            "verbose": self.verbose,
-            "max_tool_iterations": self.max_tool_iterations,
-            "tool_execution_timeout": self.tool_execution_timeout,
-            "allowed_tools": list(self.allowed_tools) if self.allowed_tools else None,
-            "forbidden_tools": list(self.forbidden_tools) if self.forbidden_tools else None,
-            "hybrid_danger_threshold": self.hybrid_danger_threshold,
-        }
-
-    # Tool registration methods (optional, for providers that support it)
-    def register_tool(self, name: str, func: Callable) -> None:
-        """Register a tool for execution (if supported by provider)."""
-        if self.verbose:
-            logger.info(f"Tool registration not supported by {self.__class__.__name__}")
-
-    def register_tools(self, tools: Dict[str, Callable]) -> None:
-        """Register multiple tools for execution (if supported by provider)."""
-        if self.verbose:
-            logger.info(f"Tool registration not supported by {self.__class__.__name__}")

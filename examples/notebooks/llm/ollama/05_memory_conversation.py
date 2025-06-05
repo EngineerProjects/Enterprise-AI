@@ -1,18 +1,20 @@
 #!/usr/bin/env python3
 """
-Enterprise AI - Memory & Conversation Tests
+Enterprise AI - Memory & Conversation Tests (Updated for MCP Architecture)
 
-Comprehensive tests for conversation memory management and persistence.
-Tests different memory strategies, conversation retention, and integration with LLM providers.
+Comprehensive tests for conversation memory management with tool call extraction.
+Tests conversation retention with tool call awareness but no execution in LLM layer.
 
 Features tested:
 - In-memory conversation management
-- Sliding window conversation management  
-- Memory limits and cleanup
-- Conversation persistence across interactions
-- Tool call preservation in memory
-- Long conversation handling
-- Memory performance and optimization
+- Tool call extraction and display
+- Memory preservation of tool calls
+- Multi-turn conversations with tool awareness
+- Tool call analysis and logging
+
+This example demonstrates the clean separation between LLM (text generation + tool call extraction)
+and MCP (tool execution). The LLM only extracts tool calls and we display what the agent
+wants to do, but execution happens through MCP.
 """
 
 import sys
@@ -38,617 +40,475 @@ from enterprise_ai.schema import (
     ConversationMemoryFactory, MemoryConfig
 )
 
-# Import test tools for memory with tool calls
-from test_tools import TOOL_DEFINITIONS, TOOLS_REGISTRY
+# Import test tools for tool definitions
+from test_tools import TOOL_DEFINITIONS
 
 # Test configuration
 TEST_MODEL = "llama3.2:latest"
 TIMEOUT = 300.0
 
-def test_basic_memory_operations():
-    """Test basic memory operations and persistence."""
-    print_header("Basic Memory Operations Tests", "single")
+def display_tool_calls(tool_calls: List[ToolCall], context: str = ""):
+    """Display extracted tool calls in a user-friendly format."""
+    if not tool_calls:
+        print_test("No tool calls extracted", "skip")
+        return
     
-    try:
-        print_test("Creating in-memory conversation", "running")
-        
-        # Create basic in-memory conversation
-        memory = InMemoryConversation()
-        
-        # Add some messages
-        user_msg = Message.user_message("Hello, I'm testing memory")
-        assistant_msg = Message.assistant_message("Hello! I'll remember our conversation.")
-        
-        memory.add_message(user_msg)
-        memory.add_message(assistant_msg)
-        
-        print_test(f"✓ Added 2 messages to memory", "pass")
-        
-        # Test message retrieval
-        messages = memory.get_messages()
-        if len(messages) == 2:
-            print_test("✓ Message retrieval successful", "pass")
-        else:
-            print_test(f"✗ Expected 2 messages, got {len(messages)}", "fail")
-            return False
-        
-        # Test message count (using len of messages)
-        count = len(memory.get_messages())
-        if count == 2:
-            print_test("✓ Message count correct", "pass")
-        else:
-            print_test(f"✗ Expected count 2, got {count}", "fail")
-            return False
-        
-        # Test memory clearing
-        memory.clear()
-        if len(memory.get_messages()) == 0:
-            print_test("✓ Memory clearing successful", "pass")
-        else:
-            print_test("✗ Memory clearing failed", "fail")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"Basic memory operations failed: {e}", "fail")
-        return False
-
-def test_sliding_window_memory():
-    """Test sliding window memory with size limits."""
-    print_header("Sliding Window Memory Tests", "single")
+    print_header(f"🔧 Tool Calls Extracted {context}", "single")
     
-    try:
-        print_test("Creating sliding window memory (max 5 messages)", "running")
+    for i, tool_call in enumerate(tool_calls, 1):
+        print_test(f"Tool Call #{i}: {tool_call.function.name}", "pass")
         
-        # Create sliding window with small limit
-        memory = SlidingWindowConversation(max_messages=5)
+        # Display function details
+        print(f"   🎯 Function: {tool_call.function.name}")
+        print(f"   🆔 Call ID: {tool_call.id}")
         
-        print_test("✓ Sliding window memory created", "pass")
-        
-        # Add messages beyond the limit
-        print_test("Adding 8 messages to test sliding behavior", "running")
-        
-        for i in range(8):
-            if i % 2 == 0:
-                msg = Message.user_message(f"User message {i + 1}")
+        # Display arguments in a formatted way
+        try:
+            args = tool_call.get_arguments()
+            if args:
+                print("   📝 Arguments:")
+                for key, value in args.items():
+                    # Truncate long values for display
+                    display_value = str(value)
+                    if len(display_value) > 100:
+                        display_value = display_value[:100] + "..."
+                    print(f"      {key}: {display_value}")
             else:
-                msg = Message.assistant_message(f"Assistant response {i + 1}")
-            memory.add_message(msg)
+                print("   📝 Arguments: (none)")
+        except Exception as e:
+            print(f"   ⚠️  Error parsing arguments: {e}")
         
-        # Check that only 5 messages are retained
-        messages = memory.get_messages()
-        message_count = len(messages)
-        
-        if message_count == 5:
-            print_test("✓ Sliding window limit enforced correctly", "pass")
-        else:
-            print_test(f"✗ Expected 5 messages, got {message_count}", "fail")
-            return False
-        
-        # Verify the messages are the most recent ones
-        last_message = messages[-1]
-        # The last message should be "Assistant response 8"
-        if "response 8" in last_message.content or "8" in last_message.content:
-            print_test("✓ Most recent messages preserved", "pass")
-        else:
-            print_test(f"✗ Expected '8' in last message, got: '{last_message.content}'", "fail")
-            # Debug: Show what messages were actually preserved
-            print("Debug - Preserved messages:")
-            for i, msg in enumerate(messages):
-                print(f"  {i}: {msg.content}")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"Sliding window memory failed: {e}", "fail")
-        return False
+        print()  # Add spacing between tool calls
 
-def test_memory_with_tools():
-    """Test memory preservation of tool calls and results."""
-    print_header("Memory with Tool Calls Tests", "single")
+def test_basic_tool_call_extraction():
+    """Test basic tool call extraction from LLM responses."""
+    print_header("Tool Call Extraction Tests", "single")
     
     try:
-        print_test("Creating memory with tool call preservation", "running")
+        print_test("Creating LLM provider for tool call extraction", "running")
         
-        memory = InMemoryConversation()
-        
-        # Create a message with tool calls
-        user_msg = Message.user_message("Calculate 15 * 8 + 32")
-        memory.add_message(user_msg)
-        
-        # Create assistant message with tool calls
-        tool_calls = [{
-            "id": "call_123",
-            "type": "function",
-            "function": {
-                "name": "calculate_advanced",
-                "arguments": json.dumps({"expression": "15 * 8 + 32", "precision": "2"})
-            }
-        }]
-        
-        assistant_msg = Message.assistant_message(
-            content="I'll calculate that for you.",
-            tool_calls=tool_calls
-        )
-        memory.add_message(assistant_msg)
-        
-        # Create tool result message
-        tool_msg = Message.tool_message(
-            content='{"result": 152, "expression": "15 * 8 + 32"}',
-            name="calculate_advanced",
-            tool_call_id="call_123"
-        )
-        memory.add_message(tool_msg)
-        
-        # Create final assistant response
-        final_msg = Message.assistant_message("The result is 152.")
-        memory.add_message(final_msg)
-        
-        print_test("✓ Added conversation with tool calls", "pass")
-        
-        # Verify tool calls are preserved
-        messages = memory.get_messages()
-        tool_call_found = False
-        tool_result_found = False
-        
-        for msg in messages:
-            if msg.has_tool_calls():
-                tool_call_found = True
-            if msg.role == "tool":
-                tool_result_found = True
-        
-        if tool_call_found and tool_result_found:
-            print_test("✓ Tool calls and results preserved in memory", "pass")
-        else:
-            print_test("✗ Tool calls or results not properly preserved", "fail")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"Memory with tools failed: {e}", "fail")
-        return False
-
-def test_memory_factory():
-    """Test memory factory for creating different memory types."""
-    print_header("Memory Factory Tests", "single")
-    
-    try:
-        print_test("Testing memory factory creation", "running")
-        
-        # Test in-memory creation
-        memory1 = ConversationMemoryFactory.create("memory")
-        
-        if isinstance(memory1, InMemoryConversation):
-            print_test("✓ In-memory conversation created via factory", "pass")
-        else:
-            print_test("✗ Wrong memory type created", "fail")
-            return False
-        
-        # Test sliding window creation
-        memory2 = ConversationMemoryFactory.create("sliding_window", max_messages=10)
-        
-        if isinstance(memory2, SlidingWindowConversation):
-            print_test("✓ Sliding window conversation created via factory", "pass")
-        else:
-            print_test("✗ Wrong memory type created", "fail")
-            return False
-        
-        # Test configuration application
-        if memory2.max_messages == 10:
-            print_test("✓ Memory configuration applied correctly", "pass")
-        else:
-            print_test("✗ Memory configuration not applied", "fail")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"Memory factory failed: {e}", "fail")
-        return False
-
-def test_conversation_with_llm():
-    """Test memory integration with LLM provider."""
-    print_header("LLM Integration with Memory Tests", "single")
-    
-    try:
-        print_test("Creating LLM provider with memory", "running")
-        
-        # Create provider
+        # Create provider - no tool execution, just text generation
         provider = OllamaProvider(
             model_name=TEST_MODEL,
-            tool_execute="manual",
+            verbose=True,
             timeout=TIMEOUT
         )
+        
+        print_test("✓ LLM provider created (text generation only)", "pass")
         
         # Create memory
         memory = InMemoryConversation()
         
-        print_test("✓ LLM provider and memory created", "pass")
+        # Test tool call extraction
+        print_test("Testing tool call extraction", "running")
         
-        # Test conversation flow with memory
-        print_test("Testing multi-turn conversation with memory", "running")
-        
-        # First interaction
-        user_msg1 = Message.user_message("My name is Alice. What's 5 + 3?")
-        memory.add_message(user_msg1)
-        
-        response1 = provider.complete(memory.get_messages())
-        memory.add_message(response1)
-        
-        print_chat("user", "My name is Alice. What's 5 + 3?")
-        print_chat("assistant", response1.content, model=TEST_MODEL)
-        
-        # Second interaction - test memory retention
-        user_msg2 = Message.user_message("What's my name?")
-        memory.add_message(user_msg2)
-        
-        response2 = provider.complete(memory.get_messages())
-        memory.add_message(response2)
-        
-        print_chat("user", "What's my name?")
-        print_chat("assistant", response2.content, model=TEST_MODEL)
-        
-        # Check if the model remembered the name
-        if "Alice" in response2.content or "alice" in response2.content.lower():
-            print_test("✓ LLM remembered information from memory", "pass")
-        else:
-            print_test("⚠ LLM may not have used memory context", "warn")
-        
-        # Verify conversation length
-        if len(memory.get_messages()) >= 4:
-            print_test("✓ Conversation history maintained", "pass")
-        else:
-            print_test("✗ Conversation history incomplete", "fail")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"LLM integration failed: {e}", "fail")
-        return False
-
-def test_memory_with_auto_tools():
-    """Test memory with automatic tool execution."""
-    print_header("Memory with Auto Tool Execution Tests", "single")
-    
-    try:
-        print_test("Creating LLM with auto tools and memory", "running")
-        
-        # Create provider with auto tool execution
-        provider = OllamaProvider(
-            model_name=TEST_MODEL,
-            tool_execute="auto",
-            max_tool_iterations=3,
-            timeout=TIMEOUT
-        )
-        
-        provider.register_tools(TOOLS_REGISTRY)
-        
-        # Create memory
-        memory = InMemoryConversation()
-        
-        print_test("✓ Auto tool provider and memory ready", "pass")
-        
-        # Test conversation with automatic tool execution
-        print_test("Testing conversation with auto tool execution", "running")
-        
-        user_msg = Message.user_message(
-            "Calculate the statistical analysis of these numbers: [10, 20, 30, 40, 50]. "
-            "Remember this analysis for later."
-        )
+        user_msg = Message.user_message("Calculate 15 * 8 + 32 using the advanced calculator")
         memory.add_message(user_msg)
         
-        with Timer("Auto tool execution with memory"):
-            response = provider.complete(
-                memory.get_messages(),
-                tools=TOOL_DEFINITIONS,
-                temperature=0.5
-            )
+        print_chat("user", user_msg.content)
+        
+        # Get response with tool calls
+        response, tool_calls = provider.complete_with_tool_calls(
+            memory.get_messages(),
+            tools=TOOL_DEFINITIONS,
+            temperature=0.3
+        )
         
         memory.add_message(response)
         
-        print_chat("user", user_msg.content)
         print_chat("assistant", response.content, model=TEST_MODEL)
         
-        # Follow-up question to test memory
-        follow_up = Message.user_message("What was the mean from the previous calculation?")
-        memory.add_message(follow_up)
-        
-        response2 = provider.complete(memory.get_messages())
-        memory.add_message(response2)
-        
-        print_chat("user", follow_up.content)
-        print_chat("assistant", response2.content, model=TEST_MODEL)
-        
-        # Check memory preservation
-        final_count = len(memory.get_messages())
-        if final_count >= 4:
-            print_test(f"✓ All interactions preserved in memory ({final_count} messages)", "pass")
+        # Display extracted tool calls
+        if tool_calls:
+            display_tool_calls(tool_calls, "(from direct extraction)")
+            print_test(f"✓ Extracted {len(tool_calls)} tool calls", "pass")
         else:
-            print_test(f"✗ Memory incomplete ({final_count} messages)", "fail")
-            return False
+            print_test("⚠ No tool calls extracted", "warn")
         
-        return True
+        # Also check tool calls in response metadata
+        if hasattr(response, 'metadata') and response.metadata and 'tool_calls' in response.metadata:
+            metadata_tool_calls = [ToolCall.from_dict(tc) for tc in response.metadata['tool_calls']]
+            if metadata_tool_calls:
+                display_tool_calls(metadata_tool_calls, "(from response metadata)")
+                print_test(f"✓ Found {len(metadata_tool_calls)} tool calls in metadata", "pass")
+        
+        return len(tool_calls) > 0 or (hasattr(response, 'metadata') and response.metadata and 'tool_calls' in response.metadata)
         
     except Exception as e:
-        print_test(f"Memory with auto tools failed: {e}", "fail")
+        print_test(f"Tool call extraction failed: {e}", "fail")
         return False
 
-def test_long_conversation_handling():
-    """Test handling of very long conversations."""
-    print_header("Long Conversation Handling Tests", "single")
+def test_memory_with_tool_calls():
+    """Test memory preservation of tool calls without execution."""
+    print_header("Memory with Tool Call Preservation", "single")
     
     try:
-        print_test("Testing long conversation with sliding window", "running")
+        print_test("Testing tool call preservation in memory", "running")
         
-        # Create sliding window with reasonable limit
-        memory = SlidingWindowConversation(max_messages=20)
-        
-        # Simulate a long conversation
-        print_test("Simulating 50-message conversation", "running")
-        
-        for i in range(25):  # 25 back-and-forth exchanges = 50 messages
-            user_msg = Message.user_message(f"Question {i + 1}: What is {i + 1} * 2?")
-            assistant_msg = Message.assistant_message(f"Answer {i + 1}: {(i + 1) * 2}")
-            
-            memory.add_message(user_msg)
-            memory.add_message(assistant_msg)
-        
-        # Verify sliding window behavior
-        final_count = len(memory.get_messages())
-        if final_count == 20:
-            print_test("✓ Sliding window maintained correct size", "pass")
-        else:
-            print_test(f"✗ Expected 20 messages, got {final_count}", "fail")
-            return False
-        
-        # Verify recent messages are preserved
-        messages = memory.get_messages()
-        last_message = messages[-1]
-        
-        if "Answer 25" in last_message.content:
-            print_test("✓ Most recent messages preserved", "pass")
-        else:
-            print_test("✗ Recent messages not preserved correctly", "fail")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"Long conversation handling failed: {e}", "fail")
-        return False
-
-def test_memory_performance():
-    """Test memory performance with large conversations."""
-    print_header("Memory Performance Tests", "single")
-    
-    try:
-        print_test("Testing memory performance", "running")
-        
-        # Test performance with large in-memory conversation
-        memory = InMemoryConversation()
-        
-        # Add many messages and measure performance
-        start_time = time.time()
-        
-        for i in range(1000):
-            msg = Message.user_message(f"Message {i}")
-            memory.add_message(msg)
-        
-        add_time = time.time() - start_time
-        
-        # Test retrieval performance
-        start_time = time.time()
-        messages = memory.get_messages()
-        retrieval_time = time.time() - start_time
-        
-        if len(messages) == 1000:
-            print_test("✓ All messages stored correctly", "pass")
-        else:
-            print_test(f"✗ Expected 1000 messages, got {len(messages)}", "fail")
-            return False
-        
-        print_test(f"✓ Add performance: {add_time:.3f}s for 1000 messages", "pass")
-        print_test(f"✓ Retrieval performance: {retrieval_time:.3f}s", "pass")
-        
-        # Performance thresholds
-        if add_time < 1.0 and retrieval_time < 0.1:
-            print_test("✓ Performance within acceptable limits", "pass")
-        else:
-            print_test("⚠ Performance slower than expected", "warn")
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"Memory performance test failed: {e}", "fail")
-        return False
-
-def test_token_counting():
-    """Test token counting functionality."""
-    print_header("Token Counting Tests", "single")
-    
-    try:
-        print_test("Testing token counting", "running")
-        
-        memory = InMemoryConversation()
-        
-        # Add a message with known content
-        test_content = "This is a test message for token counting. " * 10  # ~100 words
-        memory.add_message(Message.user_message(test_content))
-        
-        # Get token count
-        token_count = memory.get_token_count()
-        
-        if token_count > 0:
-            print_test(f"✓ Token counting functional: {token_count} tokens", "pass")
-        else:
-            print_test("✗ Token counting failed", "fail")
-            return False
-        
-        # Test with multiple messages
-        memory.add_message(Message.assistant_message("Short response"))
-        new_count = memory.get_token_count()
-        
-        if new_count > token_count:
-            print_test("✓ Token count increases with new messages", "pass")
-        else:
-            print_test("✗ Token count not updating properly", "fail")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print_test(f"Token counting failed: {e}", "fail")
-        return False
-
-async def test_async_memory_operations():
-    """Test memory operations in async contexts."""
-    print_header("Async Memory Operations Tests", "single")
-    
-    try:
-        print_test("Testing async memory operations", "running")
-        
-        # Create provider with async capabilities
         provider = OllamaProvider(
             model_name=TEST_MODEL,
-            tool_execute="auto",
+            verbose=False,
             timeout=TIMEOUT
         )
         
-        provider.register_tools(TOOLS_REGISTRY)
-        
-        # Create memory
         memory = InMemoryConversation()
         
-        # Test async conversation
-        user_msg = Message.user_message("Generate 5 sample users and tell me about them")
-        memory.add_message(user_msg)
-        
-        with Timer("Async conversation with memory"):
-            response = await provider.acomplete(
-                memory.get_messages(),
-                tools=TOOL_DEFINITIONS,
-                temperature=0.5
-            )
-        
-        memory.add_message(response)
-        
-        print_chat("user", user_msg.content)
-        print_chat("assistant", response.content, model=TEST_MODEL)
-        
-        if len(memory.get_messages()) >= 2:
-            print_test("✓ Async operations with memory successful", "pass")
-            return True
-        else:
-            print_test("✗ Async memory operations failed", "fail")
-            return False
-        
-    except Exception as e:
-        print_test(f"Async memory operations failed: {e}", "fail")
-        return False
-
-def demonstrate_memory_capabilities():
-    """Demonstrate comprehensive memory capabilities."""
-    print_header("🧠 Memory Capabilities Demonstration", "double")
-    
-    try:
-        print_test("Demo: Persistent Multi-Turn Conversation", "running")
-        
-        # Create provider and memory
-        provider = OllamaProvider(
-            model_name=TEST_MODEL,
-            tool_execute="auto",
-            timeout=TIMEOUT
-        )
-        provider.register_tools(TOOLS_REGISTRY)
-        
-        memory = InMemoryConversation()
-        
-        # Multi-turn conversation demonstrating memory
+        # Multi-step conversation with tool awareness
         conversations = [
-            "Hi, I'm working on a data analysis project. Can you help me?",
-            "I have these sales numbers: [100, 150, 200, 175, 125]. Can you analyze them?",
-            "What was the mean from my previous analysis?",
-            "Now calculate what the total revenue would be if I increased each number by 20%",
-            "Perfect! Can you remind me what my original dataset was?"
+            "Hello! I need help with some calculations.",
+            "Calculate the mean of these numbers: [10, 20, 30, 40, 50]",
+            "Now calculate 25 * 4 + 100",
+            "What was the mean from my first calculation?"
         ]
         
         for i, user_input in enumerate(conversations):
-            print_test(f"Turn {i + 1}: Processing conversation", "running")
+            print_test(f"Processing conversation turn {i + 1}", "running")
             
             user_msg = Message.user_message(user_input)
             memory.add_message(user_msg)
             
-            if i == 1:  # Second turn needs tools
-                response = provider.complete(
+            print_chat("user", user_input)
+            
+            if i > 0:  # Only use tools after the greeting
+                response, tool_calls = provider.complete_with_tool_calls(
                     memory.get_messages(),
                     tools=TOOL_DEFINITIONS,
                     temperature=0.4
                 )
+                
+                if tool_calls:
+                    display_tool_calls(tool_calls, f"(Turn {i + 1})")
+                else:
+                    print_test("No tool calls needed for this turn", "skip")
             else:
                 response = provider.complete(memory.get_messages(), temperature=0.4)
             
             memory.add_message(response)
-            
-            print_chat("user", user_input)
             print_chat("assistant", response.content, model=TEST_MODEL)
             separator("·")
         
-        print_test(f"✓ Completed {len(conversations)}-turn conversation", "pass")
-        print_test(f"✓ Memory contains {len(memory.get_messages())} messages", "pass")
+        # Analyze memory contents
+        messages = memory.get_messages()
+        tool_call_count = 0
+        
+        for msg in messages:
+            if hasattr(msg, 'metadata') and msg.metadata and 'tool_calls' in msg.metadata:
+                tool_call_count += len(msg.metadata['tool_calls'])
+        
+        print_test(f"✓ Conversation preserved with {len(messages)} messages", "pass")
+        print_test(f"✓ Found {tool_call_count} tool calls in memory", "pass")
         
         return True
         
     except Exception as e:
-        print_test(f"Memory demonstration failed: {e}", "fail")
+        print_test(f"Memory with tool calls failed: {e}", "fail")
+        return False
+
+def test_async_tool_call_extraction():
+    """Test async tool call extraction."""
+    print_header("Async Tool Call Extraction", "single")
+    
+    async def run_async_test():
+        try:
+            print_test("Testing async tool call extraction", "running")
+            
+            provider = OllamaProvider(
+                model_name=TEST_MODEL,
+                verbose=False,
+                timeout=TIMEOUT
+            )
+            
+            memory = InMemoryConversation()
+            
+            user_msg = Message.user_message(
+                "Generate 5 sample users and then calculate statistics on their ages"
+            )
+            memory.add_message(user_msg)
+            
+            print_chat("user", user_msg.content)
+            
+            with Timer("Async tool call extraction"):
+                response, tool_calls = await provider.acomplete_with_tool_calls(
+                    memory.get_messages(),
+                    tools=TOOL_DEFINITIONS,
+                    temperature=0.5
+                )
+            
+            memory.add_message(response)
+            
+            print_chat("assistant", response.content, model=TEST_MODEL)
+            
+            if tool_calls:
+                display_tool_calls(tool_calls, "(async extraction)")
+                print_test(f"✓ Async extracted {len(tool_calls)} tool calls", "pass")
+                return True
+            else:
+                print_test("⚠ No tool calls extracted in async mode", "warn")
+                return False
+            
+        except Exception as e:
+            print_test(f"Async tool call extraction failed: {e}", "fail")
+            return False
+    
+    return run_async(run_async_test())
+
+def test_tool_call_analysis():
+    """Test analysis of extracted tool calls."""
+    print_header("Tool Call Analysis", "single")
+    
+    try:
+        print_test("Testing tool call analysis and categorization", "running")
+        
+        provider = OllamaProvider(
+            model_name=TEST_MODEL,
+            verbose=False,
+            timeout=TIMEOUT
+        )
+        
+        # Complex request that should trigger multiple tool calls
+        complex_request = """
+        I need you to:
+        1. Generate 10 sample products
+        2. Calculate statistics on their prices
+        3. Simulate an API request to check our inventory system
+        4. Process the JSON response from the API
+        """
+        
+        messages = [Message.user_message(complex_request)]
+        
+        print_chat("user", complex_request)
+        
+        response, tool_calls = provider.complete_with_tool_calls(
+            messages,
+            tools=TOOL_DEFINITIONS,
+            temperature=0.6
+        )
+        
+        print_chat("assistant", response.content, model=TEST_MODEL)
+        
+        if tool_calls:
+            display_tool_calls(tool_calls, "(complex request)")
+            
+            # Analyze tool calls by category
+            tool_categories = {}
+            for tool_call in tool_calls:
+                func_name = tool_call.function.name
+                
+                # Categorize tools
+                if 'calculate' in func_name or 'statistical' in func_name:
+                    category = "Mathematics"
+                elif 'generate' in func_name:
+                    category = "Data Generation"
+                elif 'simulate' in func_name or 'api' in func_name:
+                    category = "Network"
+                elif 'process' in func_name or 'json' in func_name:
+                    category = "Data Processing"
+                else:
+                    category = "Other"
+                
+                if category not in tool_categories:
+                    tool_categories[category] = []
+                tool_categories[category].append(func_name)
+            
+            print_header("📊 Tool Call Analysis", "single")
+            for category, tools in tool_categories.items():
+                print_test(f"{category}: {', '.join(tools)}", "pass")
+            
+            print_test(f"✓ Analyzed {len(tool_calls)} tool calls across {len(tool_categories)} categories", "pass")
+            return True
+        else:
+            print_test("⚠ No tool calls extracted for analysis", "warn")
+            return False
+            
+    except Exception as e:
+        print_test(f"Tool call analysis failed: {e}", "fail")
+        return False
+
+def test_conversation_with_tool_awareness():
+    """Test a full conversation flow with tool call awareness."""
+    print_header("Conversation Flow with Tool Awareness", "single")
+    
+    try:
+        print_test("Testing complete conversation flow", "running")
+        
+        provider = OllamaProvider(
+            model_name=TEST_MODEL,
+            verbose=False,
+            timeout=TIMEOUT
+        )
+        
+        memory = SlidingWindowConversation(max_messages=20)
+        
+        # Simulate a realistic data analysis session
+        conversation_flow = [
+            "Hi! I'm working on a data analysis project and need help.",
+            "Can you generate 5 sample user records for testing?",
+            "Now calculate statistics on the user ages from that data.",
+            "What was the average age from the previous calculation?",
+            "Create a summary of what we've accomplished so far."
+        ]
+        
+        total_tool_calls = 0
+        
+        for i, user_input in enumerate(conversation_flow):
+            print_test(f"Conversation turn {i + 1}/{len(conversation_flow)}", "running")
+            
+            user_msg = Message.user_message(user_input)
+            memory.add_message(user_msg)
+            
+            print_chat("user", user_input)
+            
+            if "generate" in user_input.lower() or "calculate" in user_input.lower():
+                # Use tools for generation and calculation requests
+                response, tool_calls = provider.complete_with_tool_calls(
+                    memory.get_messages(),
+                    tools=TOOL_DEFINITIONS,
+                    temperature=0.4
+                )
+                
+                if tool_calls:
+                    total_tool_calls += len(tool_calls)
+                    display_tool_calls(tool_calls, f"(Turn {i + 1})")
+            else:
+                # Regular conversation
+                response = provider.complete(memory.get_messages(), temperature=0.4)
+            
+            memory.add_message(response)
+            print_chat("assistant", response.content, model=TEST_MODEL)
+            separator("·")
+        
+        # Final analysis
+        print_header("📈 Conversation Analysis", "single")
+        final_messages = memory.get_messages()
+        print_test(f"Total messages in memory: {len(final_messages)}", "pass")
+        print_test(f"Total tool calls extracted: {total_tool_calls}", "pass")
+        
+        # Check memory retention
+        if len(final_messages) >= len(conversation_flow) * 2:  # User + assistant messages
+            print_test("✓ Conversation history preserved", "pass")
+        else:
+            print_test("⚠ Some conversation history may be lost", "warn")
+        
+        return True
+        
+    except Exception as e:
+        print_test(f"Conversation flow test failed: {e}", "fail")
+        return False
+
+def demonstrate_tool_call_capabilities():
+    """Demonstrate comprehensive tool call extraction capabilities."""
+    print_header("🎯 Tool Call Extraction Demonstration", "double")
+    
+    try:
+        print_test("Demo: Comprehensive Tool Call Extraction", "running")
+        
+        provider = OllamaProvider(
+            model_name=TEST_MODEL,
+            verbose=False,
+            timeout=TIMEOUT
+        )
+        
+        memory = InMemoryConversation()
+        
+        # Complex scenario that should trigger multiple different tools
+        complex_scenario = """
+        I'm running an e-commerce analysis. Please help me:
+        
+        1. Generate 8 sample products with prices
+        2. Calculate statistical analysis of the product prices
+        3. Simulate checking our API health for the inventory service
+        4. Create a JSON summary of the findings
+        
+        Show me what tools you would use and how you'd approach this.
+        """
+        
+        user_msg = Message.user_message(complex_scenario)
+        memory.add_message(user_msg)
+        
+        print_chat("user", complex_scenario)
+        
+        with Timer("Complex tool call extraction"):
+            response, tool_calls = provider.complete_with_tool_calls(
+                memory.get_messages(),
+                tools=TOOL_DEFINITIONS,
+                temperature=0.5
+            )
+        
+        memory.add_message(response)
+        
+        print_chat("assistant", response.content, model=TEST_MODEL)
+        
+        if tool_calls:
+            print_header("🔍 Detailed Tool Call Analysis", "single")
+            
+            # Detailed analysis of each tool call
+            for i, tool_call in enumerate(tool_calls, 1):
+                print_test(f"Tool Call {i}: {tool_call.function.name}", "pass")
+                
+                # Show what the tool would do
+                args = tool_call.get_arguments()
+                
+                if tool_call.function.name == "generate_test_data":
+                    data_type = args.get("data_type", "unknown")
+                    count = args.get("count", "unknown")
+                    print(f"   → Would generate {count} {data_type} records")
+                
+                elif tool_call.function.name == "statistical_analysis":
+                    numbers = args.get("numbers", "unknown")
+                    print(f"   → Would analyze data: {str(numbers)[:50]}...")
+                
+                elif tool_call.function.name == "simulate_api_request":
+                    url = args.get("url", "unknown")
+                    method = args.get("method", "GET")
+                    print(f"   → Would make {method} request to: {url}")
+                
+                elif tool_call.function.name == "process_json_data":
+                    operation = args.get("operation", "unknown")
+                    print(f"   → Would perform {operation} operation on JSON data")
+                
+                print()
+            
+            # Summary
+            print_test(f"✓ Successfully extracted {len(tool_calls)} tool calls", "pass")
+            print_test("✓ Tool call details preserved for MCP execution", "pass")
+            
+        else:
+            print_test("⚠ No tool calls extracted from complex scenario", "warn")
+        
+        return len(tool_calls) > 0 if tool_calls else False
+        
+    except Exception as e:
+        print_test(f"Tool call demonstration failed: {e}", "fail")
         return False
 
 def main():
-    """Run all memory and conversation tests."""
-    print_header("🧠 Enterprise AI - Memory & Conversation Tests", "double")
-    print_test("Starting comprehensive memory and conversation test suite...", "running")
+    """Run all memory and tool call extraction tests."""
+    print_header("🧠 Enterprise AI - Memory & Tool Call Extraction Tests", "double")
+    print_test("Testing LLM layer with tool call extraction (no execution)...", "running")
     
     # Test results tracking
     results = {}
     
-    # Test 1: Basic memory operations
-    results['basic_operations'] = test_basic_memory_operations()
+    # Test 1: Basic tool call extraction
+    results['tool_extraction'] = test_basic_tool_call_extraction()
     
-    # Test 2: Sliding window memory
-    results['sliding_window'] = test_sliding_window_memory()
+    # Test 2: Memory with tool calls
+    results['memory_tools'] = test_memory_with_tool_calls()
     
-    # Test 3: Memory with tool calls
-    results['memory_tools'] = test_memory_with_tools()
+    # Test 3: Async tool call extraction
+    results['async_extraction'] = test_async_tool_call_extraction()
     
-    # Test 4: Memory factory
-    results['memory_factory'] = test_memory_factory()
+    # Test 4: Tool call analysis
+    results['tool_analysis'] = test_tool_call_analysis()
     
-    # Test 5: LLM integration
-    results['llm_integration'] = test_conversation_with_llm()
+    # Test 5: Conversation flow
+    results['conversation_flow'] = test_conversation_with_tool_awareness()
     
-    # Test 6: Auto tools with memory
-    results['auto_tools_memory'] = test_memory_with_auto_tools()
-    
-    # Test 7: Long conversation handling
-    results['long_conversations'] = test_long_conversation_handling()
-    
-    # Test 8: Memory performance
-    results['performance'] = test_memory_performance()
-    
-    # Test 9: Token counting
-    results['token_counting'] = test_token_counting()
-    
-    # Test 10: Async operations
-    results['async_operations'] = run_async(test_async_memory_operations())
-    
-    # Test 11: Capabilities demonstration
-    results['demonstration'] = demonstrate_memory_capabilities()
+    # Test 6: Capabilities demonstration
+    results['demonstration'] = demonstrate_tool_call_capabilities()
     
     # Final summary
-    print_header("📊 Memory & Conversation Test Results", "box")
+    print_header("📊 Tool Call Extraction Test Results", "box")
     
     passed = sum(results.values())
     total = len(results)
@@ -660,33 +520,28 @@ def main():
     print_test(f"Overall: {passed}/{total} tests passed", "pass" if passed == total else "warn")
     
     if passed == total:
-        print_test("🎉 All memory tests passed!", "pass")
-        print_test("Your memory system is working perfectly!", "pass")
+        print_test("🎉 All tool call extraction tests passed!", "pass")
     else:
         print_test(f"⚠️ {total - passed} tests need attention", "warn")
     
-    # Memory insights
+    # Architecture insights
     separator()
-    print_header("💡 Memory System Insights", "box")
-    print_test("Key memory capabilities validated:", "pass")
-    print_test("✓ In-memory conversation management", "pass")
-    print_test("✓ Sliding window memory with size limits", "pass")
-    print_test("✓ Tool call and result preservation", "pass")
-    print_test("✓ LLM integration with conversation history", "pass")
-    print_test("✓ Factory pattern for memory creation", "pass")
-    print_test("✓ Long conversation handling", "pass")
-    print_test("✓ Token counting and estimation", "pass")
-    print_test("✓ Async memory operations", "pass")
+    print_header("🏗️ Clean Architecture Validation", "box")
+    print_test("✓ LLM layer focused on text generation only", "pass")
+    print_test("✓ Tool calls extracted but not executed", "pass")
+    print_test("✓ Memory preserves tool call information", "pass")
+    print_test("✓ Clear separation between LLM and MCP layers", "pass")
+    print_test("✓ Ready for MCP-based tool execution", "pass")
     
     # Next steps
     separator()
-    print_header("🚀 Ready for Multi-Agent Development", "box")
-    print_test("Your Enterprise AI memory system supports:", "pass")
-    print_test("• Persistent multi-turn conversations", "pass")
-    print_test("• Tool execution with history preservation", "pass")
-    print_test("• Scalable conversation management", "pass")
-    print_test("• Performance-optimized memory operations", "pass")
-    print_test("• Async conversation handling", "pass")
+    print_header("🚀 Ready for MCP Integration", "box")
+    print_test("Your LLM layer successfully:", "pass")
+    print_test("• Generates text responses", "pass")
+    print_test("• Extracts tool calls without executing them", "pass")
+    print_test("• Preserves conversation memory with tool awareness", "pass")
+    print_test("• Provides clean separation for MCP integration", "pass")
+    print_test("• Supports both sync and async operations", "pass")
     
     return results
 

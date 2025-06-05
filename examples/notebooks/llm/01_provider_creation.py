@@ -79,10 +79,7 @@ def test_ollama_advanced_configuration():
         "timeout": 180.0,  # 3 minutes for GTX 1650
         "temperature": 0.7,
         "max_tokens": 1024,
-        "top_p": 0.9,
-        "tool_execute": "manual",  # Start with manual tool execution
-        "max_tool_iterations": 3,
-        "tool_execution_timeout": 45.0,
+        "top_p": 0.9
     }
     
     try:
@@ -94,8 +91,6 @@ def test_ollama_advanced_configuration():
         # Test configuration values
         print_test(f"Model: {provider.model_name}", "pass")
         print_test(f"Timeout: {provider._timeout}s", "pass")
-        print_test(f"Tool execution: {provider.tool_execute}", "pass")
-        print_test(f"Max iterations: {provider.max_tool_iterations}", "pass")
         
         # Test provider info
         provider_info = provider.get_provider_info()
@@ -186,7 +181,6 @@ def test_openai_mock_creation():
         "timeout": 60.0,
         "temperature": 0.7,
         "max_tokens": 1000,
-        "tool_execute": "manual",
     }
     
     try:
