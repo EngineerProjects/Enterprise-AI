@@ -5,9 +5,9 @@ This module provides handlers for different types of MCP requests,
 including tool execution, sandbox routing, and agent communication.
 """
 
-from .tool_handler import ToolHandler
-from .sandbox_handler import SandboxHandler
-from .agent_handler import AgentHandler
+from enterprise_ai.mcp.handlers.tool_handler import ToolHandler
+from enterprise_ai.mcp.handlers.sandbox_handler import SandboxHandler
+from enterprise_ai.mcp.handlers.agent_handler import AgentHandler
 
 __all__ = [
     "ToolHandler",

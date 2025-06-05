@@ -34,7 +34,7 @@ class ToolBridge:
             List of tool definitions in MCP format
         """
         try:
-            tools = self.tool_registry.get_all_tools()
+            tools = self.tool_registry.get_all_tool_classes()
             mcp_definitions = []
             
             for tool_name, tool_instance in tools.items():
@@ -89,28 +89,57 @@ class ToolBridge:
                         getattr(tool, 'name', 'unknown'), e)
             return None
     
-    def _get_tool_description(self, tool: BaseTool) -> str:
-        """Extract tool description."""
-        # Try different description attributes
-        if hasattr(tool, 'description') and tool.description:
-            return tool.description
-        elif hasattr(tool, '__doc__') and tool.__doc__:
-            return tool.__doc__.strip()
-        elif hasattr(tool, 'execute') and tool.execute.__doc__:
-            return tool.execute.__doc__.strip()
-        else:
-            return f"Tool: {tool.__class__.__name__}"
-    
-    def _get_tool_input_schema(self, tool: BaseTool) -> Dict[str, Any]:
-        """Extract tool input schema from the tool."""
-        try:
-            # Try to get schema from tool parameters
-            if hasattr(tool, 'parameters') and tool.parameters:
-                return self._convert_parameters_to_schema(tool.parameters)
+    def _get_tool_description(self, tool: "BaseTool") -> str:
+        """Extract tool description from tool class or instance."""
+        # If it's a class (Type[BaseTool]), access class-level field defaults
+        if isinstance(tool, type):
+            # Get field defaults from pydantic model fields
+            if hasattr(tool, 'model_fields') and 'description' in tool.model_fields:
+                desc_field = tool.model_fields['description']
+                if hasattr(desc_field, 'default') and desc_field.default:
+                    return desc_field.default
             
-            # Try to get schema from execute method signature
-            if hasattr(tool, 'execute'):
-                return self._extract_schema_from_method(tool.execute)
+            # Fallback to class docstring
+            if tool.__doc__:
+                return tool.__doc__.strip()
+            
+            return f"Tool: {tool.__name__}"
+        
+        # If it's an instance, use instance attributes
+        else:
+            if hasattr(tool, 'description') and tool.description:
+                return tool.description
+            elif hasattr(tool, '__doc__') and tool.__doc__:
+                return tool.__doc__.strip()
+            elif hasattr(tool, 'execute') and tool.execute.__doc__:
+                return tool.execute.__doc__.strip()
+            else:
+                return f"Tool: {tool.__class__.__name__}"
+    
+    def _get_tool_input_schema(self, tool: "BaseTool") -> Dict[str, Any]:
+        """Extract tool input schema from the tool class or instance."""
+        try:
+            # Handle tool classes (Type[BaseTool])
+            if isinstance(tool, type):
+                # Get parameters from class-level field defaults
+                if hasattr(tool, 'model_fields') and 'parameters' in tool.model_fields:
+                    params_field = tool.model_fields['parameters']
+                    if hasattr(params_field, 'default') and params_field.default:
+                        return self._convert_parameters_to_schema(params_field.default)
+                
+                # Try to get schema from execute method signature
+                if hasattr(tool, 'execute'):
+                    return self._extract_schema_from_method(tool.execute)
+            
+            # Handle tool instances
+            else:
+                # Try to get schema from tool parameters
+                if hasattr(tool, 'parameters') and tool.parameters:
+                    return self._convert_parameters_to_schema(tool.parameters)
+                
+                # Try to get schema from execute method signature
+                if hasattr(tool, 'execute'):
+                    return self._extract_schema_from_method(tool.execute)
             
             # Fallback to basic schema
             return {
@@ -233,30 +262,52 @@ class ToolBridge:
         else:
             return {"type": "string"}  # Fallback
     
-    def _get_tool_metadata(self, tool: BaseTool) -> Dict[str, Any]:
-        """Extract tool metadata."""
+    def _get_tool_metadata(self, tool: "BaseTool") -> Dict[str, Any]:
+        """Extract tool metadata from tool class or instance."""
         metadata = {}
         
-        # Add capabilities
-        if hasattr(tool, 'capabilities'):
-            metadata["capabilities"] = list(tool.capabilities)
+        # Handle tool classes (Type[BaseTool])
+        if isinstance(tool, type):
+            # Get capabilities from class-level field defaults
+            if hasattr(tool, 'model_fields'):
+                if 'capabilities' in tool.model_fields:
+                    cap_field = tool.model_fields['capabilities']
+                    if hasattr(cap_field, 'default') and cap_field.default:
+                        metadata["capabilities"] = list(cap_field.default)
+                
+                if 'version' in tool.model_fields:
+                    ver_field = tool.model_fields['version']
+                    if hasattr(ver_field, 'default') and ver_field.default:
+                        metadata["version"] = ver_field.default
+                
+                if 'config' in tool.model_fields:
+                    config_field = tool.model_fields['config']
+                    if hasattr(config_field, 'default') and config_field.default:
+                        if hasattr(config_field.default, 'danger_level'):
+                            metadata["danger_level"] = config_field.default.danger_level
         
-        # Add configuration
-        if hasattr(tool, 'config') and tool.config:
-            config_dict = tool.config.dict() if hasattr(tool.config, 'dict') else dict(tool.config)
-            metadata["config"] = config_dict
-        
-        # Add version
-        if hasattr(tool, 'version'):
-            metadata["version"] = tool.version
-        
-        # Add category
-        if hasattr(tool, 'category'):
-            metadata["category"] = tool.category
-        
-        # Add danger level for approval decisions
-        if hasattr(tool, 'config') and hasattr(tool.config, 'danger_level'):
-            metadata["danger_level"] = tool.config.danger_level
+        # Handle tool instances
+        else:
+            # Add capabilities
+            if hasattr(tool, 'capabilities'):
+                metadata["capabilities"] = list(tool.capabilities)
+            
+            # Add configuration
+            if hasattr(tool, 'config') and tool.config:
+                config_dict = tool.config.dict() if hasattr(tool.config, 'dict') else dict(tool.config)
+                metadata["config"] = config_dict
+            
+            # Add version
+            if hasattr(tool, 'version'):
+                metadata["version"] = tool.version
+            
+            # Add category
+            if hasattr(tool, 'category'):
+                metadata["category"] = tool.category
+            
+            # Add danger level for approval decisions
+            if hasattr(tool, 'config') and hasattr(tool.config, 'danger_level'):
+                metadata["danger_level"] = tool.config.danger_level
         
         return metadata
     
@@ -271,12 +322,13 @@ class ToolBridge:
             Enterprise AI ToolCall instance
         """
         try:
+            function_data = mcp_call.get("function", {})
             return ToolCall(
                 id=mcp_call.get("id", ""),
                 type=mcp_call.get("type", "function"),
                 function={
-                    "name": mcp_call.get("name", ""),
-                    "arguments": mcp_call.get("arguments", {})
+                    "name": function_data.get("name", ""),
+                    "arguments": function_data.get("arguments", {})
                 }
             )
         except Exception as e:
@@ -316,7 +368,7 @@ class ToolBridge:
     
     def get_tool_by_name(self, tool_name: str) -> Optional[BaseTool]:
         """Get a tool instance by name."""
-        return self.tool_registry.get_tool(tool_name)
+        return self.tool_registry.get_tool_class(tool_name)
     
     def refresh_tool_definitions(self) -> None:
         """Refresh cached tool definitions."""
@@ -325,7 +377,7 @@ class ToolBridge:
     
     def get_bridge_stats(self) -> Dict[str, Any]:
         """Get bridge statistics."""
-        total_tools = len(self.tool_registry.get_all_tools())
+        total_tools = len(self.tool_registry.get_all_tool_classes())
         cached_definitions = len(self._tool_definitions_cache)
         
         return {

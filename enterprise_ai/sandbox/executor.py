@@ -12,7 +12,7 @@ from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.llm.tool_executor import ToolExecutor
 from enterprise_ai.schema import ToolCall, ToolResult
 from enterprise_ai.tool.core.base import ToolCapability, SandboxMode, ExecutionMode
-from enterprise_ai.sandbox.client import SandboxClient
+from enterprise_ai.sandbox.client import BaseSandboxClient
 from enterprise_ai.config.sandbox import SandboxSettings
 
 logger = get_optimized_logger("sandbox.executor")
@@ -91,8 +91,8 @@ class SandboxToolExecutor:
         )
         
         # Sandbox clients for different modes
-        self._unified_sandbox: Optional[SandboxClient] = None
-        self._individual_sandboxes: Dict[str, SandboxClient] = {}
+        self._unified_sandbox: Optional[BaseSandboxClient] = None
+        self._individual_sandboxes: Dict[str, BaseSandboxClient] = {}
         
         # Execution tracking
         self._local_executions = 0
@@ -168,11 +168,11 @@ class SandboxToolExecutor:
         
         return self.default_sandbox_mode
 
-    async def _get_sandbox_client(self, mode: SandboxMode, tool_name: str) -> SandboxClient:
+    async def _get_sandbox_client(self, mode: SandboxMode, tool_name: str) -> BaseSandboxClient:
         """Get or create sandbox client based on mode."""
         if mode == SandboxMode.UNIFIED:
             if not self._unified_sandbox:
-                self._unified_sandbox = SandboxClient(self.sandbox_settings)
+                self._unified_sandbox = BaseSandboxClient(self.sandbox_settings)
                 await self._unified_sandbox.start()
                 
                 if self.verbose:
@@ -182,7 +182,7 @@ class SandboxToolExecutor:
         
         elif mode == SandboxMode.INDIVIDUAL:
             if tool_name not in self._individual_sandboxes:
-                self._individual_sandboxes[tool_name] = SandboxClient(self.sandbox_settings)
+                self._individual_sandboxes[tool_name] = BaseSandboxClient(self.sandbox_settings)
                 await self._individual_sandboxes[tool_name].start()
                 
                 if self.verbose:
@@ -196,7 +196,7 @@ class SandboxToolExecutor:
     async def _execute_in_sandbox(
         self, 
         tool_call: ToolCall, 
-        sandbox_client: SandboxClient,
+        sandbox_client: BaseSandboxClient,
         context: Optional[Dict[str, Any]] = None
     ) -> ToolResult:
         """Execute a tool call in a sandbox environment."""

@@ -15,11 +15,11 @@ from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.schema import ToolCall, ToolResult, Message
 from enterprise_ai.types import MessageProtocol
 from enterprise_ai.tool.core.base import ExecutionMode, ToolCapability
-from enterprise_ai.sandbox.client import SandboxClient
+from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
 from enterprise_ai.config import get_config
 
-from .config import MCPConfig
-from .session_manager import SessionManager
+from enterprise_ai.mcp.config import MCPConfig
+from enterprise_ai.mcp.session_manager import SessionManager
 
 logger = get_optimized_logger("mcp.executor")
 
@@ -54,7 +54,7 @@ class ToolExecutor:
         self.sandbox_client = None
         if self.config.sandbox_enabled:
             try:
-                self.sandbox_client = SandboxClient()
+                self.sandbox_client = create_sandbox_client()
             except Exception as e:
                 logger.warning("Failed to initialize sandbox client: %s", e)
         

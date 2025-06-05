@@ -12,16 +12,16 @@ from typing import Any, Dict, List, Optional
 
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.registry import ToolRegistry
-from enterprise_ai.sandbox.client import SandboxClient
+from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
 
-from .config import MCPConfig
-from .executor import ToolExecutor
-from .session_manager import SessionManager
-from .handlers.tool_handler import ToolHandler
-from .handlers.sandbox_handler import SandboxHandler
-from .handlers.agent_handler import AgentHandler
-from .protocols.mcp_protocol import MCPProtocol, MCPMessage, MCPMessageType
-from .protocols.tool_bridge import ToolBridge
+from enterprise_ai.mcp.config import MCPConfig
+from enterprise_ai.mcp.executor import ToolExecutor
+from enterprise_ai.mcp.session_manager import SessionManager
+from enterprise_ai.mcp.handlers.tool_handler import ToolHandler
+from enterprise_ai.mcp.handlers.sandbox_handler import SandboxHandler
+from enterprise_ai.mcp.handlers.agent_handler import AgentHandler
+from enterprise_ai.mcp.protocols.mcp_protocol import MCPProtocol, MCPMessage, MCPMessageType
+from enterprise_ai.mcp.protocols.tool_bridge import ToolBridge
 
 logger = get_logger("mcp.server")
 
@@ -410,7 +410,7 @@ class EnterpriseMCPServer:
                 "session_stats": self.session_manager.get_session_stats(),
                 "execution_stats": self.tool_executor.get_execution_stats(),
                 "agent_stats": self.agent_handler.get_communication_stats(),
-                "tool_count": len(self.tool_registry.get_all_tools()),
+                "tool_count": len(self.tool_registry.get_all_tool_classes()),
                 "sandbox_available": self.sandbox_handler.is_available(),
                 "protocol_info": self.protocol.get_protocol_info()
             }
@@ -444,7 +444,7 @@ class EnterpriseMCPServer:
                 "sessions": self.session_manager.get_session_stats(),
                 "execution": self.tool_executor.get_execution_stats(),
                 "agents": self.agent_handler.get_communication_stats(),
-                "tools": len(self.tool_registry.get_all_tools())
+                "tools": len(self.tool_registry.get_all_tool_classes())
             }
         }
     

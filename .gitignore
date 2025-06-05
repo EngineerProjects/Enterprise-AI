@@ -142,3 +142,6 @@ uv.lock
 
 # browser screenshots
 browser_test_screenshots/
+
+# server
+.lh/

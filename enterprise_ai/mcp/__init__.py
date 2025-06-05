@@ -13,10 +13,10 @@ The MCP module serves as the execution layer that complements the LLM module's
 text generation capabilities, enabling clean separation of concerns.
 """
 
-from .server import EnterpriseMCPServer
-from .executor import ToolExecutor
-from .session_manager import SessionManager
-from .config import MCPConfig
+from enterprise_ai.mcp.server import EnterpriseMCPServer
+from enterprise_ai.mcp.executor import ToolExecutor
+from enterprise_ai.mcp.session_manager import SessionManager
+from enterprise_ai.mcp.config import MCPConfig
 
 __all__ = [
     "EnterpriseMCPServer",

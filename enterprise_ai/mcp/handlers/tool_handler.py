@@ -11,8 +11,8 @@ from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import ToolCall, ToolResult
 from enterprise_ai.tool.core.registry import ToolRegistry
 
-from ..executor import ToolExecutor
-from ..session_manager import SessionManager
+from enterprise_ai.mcp.executor import ToolExecutor
+from enterprise_ai.mcp.session_manager import SessionManager
 
 logger = get_logger("mcp.handlers.tool")
 
@@ -37,13 +37,20 @@ class ToolHandler:
     def _register_tools_from_registry(self) -> None:
         """Register all tools from the tool registry."""
         try:
-            tools = self.tool_registry.get_all_tools()
+            tools = self.tool_registry.get_all_tool_classes()
             tool_functions = {}
             
-            for tool_name, tool_instance in tools.items():
-                # Create a wrapper function that calls the tool's execute method
-                async def tool_wrapper(tool=tool_instance, **kwargs):
-                    return await tool.execute(**kwargs)
+            for tool_name, tool_class in tools.items():
+                # Create a wrapper function that instantiates the tool and calls execute
+                async def tool_wrapper(tool_cls=tool_class, tool_name=tool_name, **kwargs):
+                    try:
+                        # Instantiate the tool
+                        tool_instance = tool_cls()
+                        # Call the tool's execute method
+                        return await tool_instance.execute(**kwargs)
+                    except Exception as e:
+                        logger.error("Error executing tool %s: %s", tool_name, e)
+                        raise
                 
                 tool_functions[tool_name] = tool_wrapper
             
@@ -104,7 +111,7 @@ class ToolHandler:
     async def handle_tool_list_request(self) -> List[Dict[str, Any]]:
         """Handle request to list available tools."""
         try:
-            tools = self.tool_registry.get_all_tools()
+            tools = self.tool_registry.get_all_tool_classes()
             tool_definitions = []
             
             for tool_name, tool_instance in tools.items():
@@ -126,7 +133,7 @@ class ToolHandler:
     async def handle_tool_info_request(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """Handle request for specific tool information."""
         try:
-            tool_instance = self.tool_registry.get_tool(tool_name)
+            tool_instance = self.tool_registry.get_tool_class(tool_name)
             if not tool_instance:
                 return None
             
