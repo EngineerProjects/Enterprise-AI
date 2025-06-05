@@ -293,6 +293,37 @@ class AdvancedMCPTestSuite:
                 print(f"   ⚡ {capability}: {len(tools_with_cap)} tools")
         else:
             print_test(f"Only found {len(capabilities)} capabilities", "warn")
+
+        # Test 6: Execution Tools
+        print_test("Testing execution tools...", "running")
+        
+        # Test Python execution
+        try:
+            python_call = ToolCall.create(
+                name="python_execute",
+                arguments={"code": "result = 2 + 2\nprint(f'Test result: {result}')"},
+                id="python_test_001"
+            )
+            
+            python_success = await self._execute_tool_test(python_call, test_session)
+            
+            # Test bash execution (simple and safe)
+            bash_call = ToolCall.create(
+                name="bash",
+                arguments={"command": "echo 'MCP execution test successful'"},
+                id="bash_test_001"
+            )
+            
+            bash_success = await self._execute_tool_test(bash_call, test_session)
+            
+            if python_success or bash_success:
+                self.test_results["execution_tools"] = True
+                print_test("Execution tools working", "pass")
+            else:
+                print_test("Execution tools failed", "warn")
+                
+        except Exception as e:
+            print_test(f"Execution tools test error: {str(e)}", "warn")
     
     async def _run_integration_tests(self):
         """Test end-to-end integration scenarios."""
@@ -338,6 +369,53 @@ class AdvancedMCPTestSuite:
             
         except Exception as e:
             print_test(f"Integration workflow failed: {str(e)}", "fail")
+
+        # Test Error Recovery
+        print_test("Testing error recovery mechanisms...", "running")
+        
+        try:
+            # Test 1: Invalid tool call
+            invalid_call = ToolCall.create(
+                name="non_existent_tool",
+                arguments={"test": "data"},
+                id="error_test_001"
+            )
+            
+            message = MCPMessage.create(
+                message_type=MCPMessageType.TOOL_CALL,
+                data={
+                    "tool_calls": [invalid_call.to_dict()],
+                    "context": {"test_execution": True}
+                },
+                session_id=test_session,
+                agent_id=self.test_agent_id
+            )
+            
+            response = await self.server.process_message(message)
+            invalid_tool_handled = response.message_type == MCPMessageType.ERROR
+            
+            # Test 2: Invalid parameters
+            invalid_params_call = ToolCall.create(
+                name="configuration",
+                arguments={"invalid_param": "test"},
+                id="error_test_002"
+            )
+            
+            invalid_params_success = await self._execute_tool_test(invalid_params_call, test_session, silent=True)
+            # Should fail gracefully, not crash
+            invalid_params_handled = not invalid_params_success  # Should return False, not throw exception
+            
+            # Test 3: Server resilience
+            server_resilient = self.server is not None and hasattr(self.server, 'session_manager')
+            
+            if invalid_tool_handled and invalid_params_handled and server_resilient:
+                self.test_results["error_recovery"] = True
+                print_test("Error recovery working correctly", "pass")
+            else:
+                print_test("Error recovery needs improvement", "warn")
+                
+        except Exception as e:
+            print_test(f"Error recovery test failed: {str(e)}", "warn")
     
     async def _run_performance_tests(self):
         """Test performance and stress scenarios."""
