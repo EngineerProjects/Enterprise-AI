@@ -96,7 +96,7 @@ class BaseAgent(ABC):
         
         # Use reasoning engine if available
         if self.reasoning_engine:
-            return await self.reasoning_engine.process(task, self)
+            return await self.reasoning_engine.process(task, context or {})
         else:
             # Simple direct execution
             return await self._simple_execute(task)
