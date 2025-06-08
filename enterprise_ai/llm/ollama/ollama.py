@@ -377,6 +377,131 @@ class OllamaProvider(LLMProvider):
         ):
             yield msg
 
+    # Tool Call Methods with Fixed Argument Handling
+    def complete_with_tool_calls(
+        self, 
+        messages: List[MessageProtocol],
+        **kwargs: Any
+    ) -> tuple[MessageProtocol, List[ToolCall]]:
+        """
+        FIXED: Generate completion and extract tool calls with proper Ollama argument handling.
+        
+        This override fixes the tool call argument serialization issue for multi-turn conversations.
+        """
+        request_id = generate_request_id()
+        
+        if self.verbose:
+            logger.info("Ollama tool completion request %s with %s messages", request_id, len(messages))
+        
+        # Prepare request parameters  
+        has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
+        has_tools = "tools" in kwargs and kwargs["tools"]
+        
+        timeout = OllamaConfigHelper.determine_timeout_for_request(
+            self._timeout, self.model_name, has_images, has_tools, **kwargs
+        )
+
+        if self.verbose:
+            logger.info("Request config: has_images=%s, has_tools=%s, timeout=%ss", has_images, has_tools, timeout)
+
+        # Process tools
+        if has_tools:
+            kwargs["tools"] = self._tool_converter.normalize_tools(kwargs.pop("tools"))
+
+        # Build request parameters
+        request_params = {
+            "temperature": kwargs.get("temperature", self.config.get("temperature")),
+            "max_tokens": kwargs.get("max_tokens", self.config.get("max_tokens")),
+            "top_p": kwargs.get("top_p", self.config.get("top_p")),
+            **kwargs
+        }
+
+        # Use chat endpoint for tool calls
+        use_chat = OllamaConfigHelper.should_use_chat_endpoint(messages, has_tools, **kwargs)
+        
+        if self.verbose:
+            logger.info("Using %s endpoint for optimal tool call compliance", 'chat' if use_chat else 'generate')
+        
+        try:
+            if use_chat:
+                llm_response = self._execute_chat_request(messages, timeout, **request_params)
+            else:
+                llm_response = self._execute_generate_request(messages, timeout, **request_params)
+            
+            self.track_request(True)
+            
+            # FIXED: Convert LLMResponse to Message with proper tool call handling
+            response_message = self._llm_response_to_message(llm_response)
+            
+            # Extract tool calls - they're already in the LLMResponse
+            tool_calls = llm_response.tool_calls or []
+            
+            if self.verbose:
+                logger.info("Ollama tool completion request %s completed successfully", request_id)
+                if tool_calls:
+                    logger.info("Extracted %d tool calls", len(tool_calls))
+            
+            return response_message, tool_calls
+            
+        except Exception as e:
+            self.track_request(False)
+            if self.verbose:
+                logger.error("Ollama tool completion request %s failed: %s", request_id, str(e))
+            raise
+
+    async def acomplete_with_tool_calls(
+        self, 
+        messages: List[MessageProtocol],
+        **kwargs: Any
+    ) -> tuple[MessageProtocol, List[ToolCall]]:
+        """
+        FIXED: Generate async completion and extract tool calls with proper Ollama argument handling.
+        """
+        if self.verbose:
+            logger.info("Making async Ollama tool completion request with %s messages", len(messages))
+        
+        # Same preparation logic as sync version
+        has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
+        has_tools = "tools" in kwargs and kwargs["tools"]
+        timeout = OllamaConfigHelper.determine_timeout_for_request(
+            self._timeout, self.model_name, has_images, has_tools, **kwargs
+        )
+
+        if has_tools:
+            kwargs["tools"] = self._tool_converter.normalize_tools(kwargs.pop("tools"))
+
+        request_params = {
+            "temperature": kwargs.get("temperature", self.config.get("temperature")),
+            "max_tokens": kwargs.get("max_tokens", self.config.get("max_tokens")),
+            "top_p": kwargs.get("top_p", self.config.get("top_p")),
+            **kwargs
+        }
+
+        use_chat = OllamaConfigHelper.should_use_chat_endpoint(messages, has_tools, **kwargs)
+        
+        try:
+            if use_chat:
+                llm_response = await self._execute_async_chat_request(messages, timeout, **request_params)
+            else:
+                llm_response = await self._execute_async_generate_request(messages, timeout, **request_params)
+            
+            self.track_request(True)
+            response_message = self._llm_response_to_message(llm_response)
+            tool_calls = llm_response.tool_calls or []
+            
+            if self.verbose:
+                logger.info("Async Ollama tool completion request completed successfully")
+                if tool_calls:
+                    logger.info("Extracted %d tool calls", len(tool_calls))
+            
+            return response_message, tool_calls
+            
+        except Exception as e:
+            self.track_request(False)
+            if self.verbose:
+                logger.error("Async Ollama tool completion request failed: %s", str(e))
+            raise
+
     # Model Information Methods (unchanged but validated)
     def get_model_info(self) -> ModelInfo:
         """Get model information using enhanced universal capability detection."""

@@ -28,6 +28,53 @@ class OllamaMessageFormatter:
     """FIXED: API-compliant message formatting with proper system prompt handling."""
 
     @staticmethod
+    def _fix_tool_calls_for_ollama(tool_calls_data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Fix tool calls to have proper JSON object arguments instead of strings.
+        
+        Ollama expects tool call arguments as JSON objects, not JSON strings.
+        This method ensures compatibility with Ollama's Go struct unmarshaling.
+        """
+        if not tool_calls_data:
+            return tool_calls_data
+        
+        fixed_tool_calls = []
+        
+        for tc in tool_calls_data:
+            if not isinstance(tc, dict):
+                continue
+                
+            fixed_tc = tc.copy()
+            
+            # Handle function arguments - ensure they're objects, not strings
+            if "function" in fixed_tc and isinstance(fixed_tc["function"], dict):
+                function_data = fixed_tc["function"]
+                
+                if "arguments" in function_data:
+                    args = function_data["arguments"]
+                    
+                    # If arguments is a JSON string, parse it to object
+                    if isinstance(args, str):
+                        try:
+                            # Parse JSON string to object
+                            parsed_args = json.loads(args)
+                            fixed_tc["function"]["arguments"] = parsed_args
+                            logger.debug(f"Converted string arguments to object for tool {function_data.get('name', 'unknown')}")
+                        except json.JSONDecodeError as e:
+                            # If parsing fails, wrap in a content field as fallback
+                            logger.warning(f"Failed to parse tool arguments JSON: {e}, wrapping in content field")
+                            fixed_tc["function"]["arguments"] = {"content": args}
+                    elif not isinstance(args, dict):
+                        # If it's not a dict or string, convert to dict with value field
+                        logger.debug(f"Converting non-dict arguments to dict for tool {function_data.get('name', 'unknown')}")
+                        fixed_tc["function"]["arguments"] = {"value": str(args)}
+                    # If it's already a dict, leave it as is
+            
+            fixed_tool_calls.append(fixed_tc)
+        
+        return fixed_tool_calls
+
+    @staticmethod
     def format_for_chat(message: MessageProtocol) -> Dict[str, Any]:
         """Format message for chat endpoint - excludes system messages."""
         # Handle both Message objects and dictionaries
@@ -54,11 +101,12 @@ class OllamaMessageFormatter:
         if base_dict.get("name") is not None:
             chat_format["name"] = base_dict["name"]
         
-        # Add tool_calls for assistant messages (Ollama format)
+        # FIXED: Add tool_calls for assistant messages with proper argument handling
         if "metadata" in base_dict and base_dict["metadata"]:
             tool_calls = base_dict["metadata"].get("tool_calls")
             if tool_calls:
-                chat_format["tool_calls"] = tool_calls
+                # CRITICAL FIX: Ensure tool call arguments are proper JSON objects, not strings
+                chat_format["tool_calls"] = OllamaMessageFormatter._fix_tool_calls_for_ollama(tool_calls)
         
         # Add images for multimodal models
         if "metadata" in base_dict and base_dict["metadata"]:
