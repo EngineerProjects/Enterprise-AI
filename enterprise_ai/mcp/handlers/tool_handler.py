@@ -186,11 +186,17 @@ class ToolHandler:
                         capabilities_list.append(str(cap))
                 
                 tool_def = {
-                    "name": tool_name,
-                    "description": description,
-                    "parameters": parameters,
-                    "capabilities": capabilities_list,
-                    "metadata": getattr(tool_class, "metadata", {})
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,
+                        "description": description,
+                        "parameters": parameters
+                    },
+                    # additional MCP metadata
+                    "metadata": {
+                        "capabilities": capabilities_list,
+                        "tool_metadata": getattr(tool_class, "metadata", {})
+                    }
                 }
                 tool_definitions.append(tool_def)
             

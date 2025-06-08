@@ -2,17 +2,18 @@
 LLM functionality for Enterprise AI.
 
 This module provides a comprehensive framework for interacting with language models
-through a clean, provider-agnostic interface with high-performance implementations.
+through a clean, provider-agnostic interface with MCP integration.
 """
 
-from asyncio.log import logger
 from typing import Any, Dict, List, Optional, Union, cast
 
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.llm.factory import create_provider, list_available_providers
 from enterprise_ai.schema import Message, ModelInfo, CompletionOptions
 from enterprise_ai.types import MessageProtocol
-from enterprise_ai.llm.tool_executor import ToolExecutor
+from enterprise_ai.logger import get_logger
+
+logger = get_logger("llm")
 
 
 def complete(
@@ -93,16 +94,14 @@ def inspect_model_capabilities(
         
         if hasattr(provider, 'get_capability_details'):
             result = provider.get_capability_details()
-            # Ensure provider is always included
             if "provider" not in result:
                 result["provider"] = provider_name
             return result
         else:
-            # Fallback for providers without detailed capability inspection
             model_info = provider.get_model_info()
             return {
                 "model_name": model_name,
-                "provider": provider_name,  # Fixed: use provider_name consistently
+                "provider": provider_name,
                 "detected_features": list(model_info.features),
                 "context_window": model_info.context_window,
                 "max_tokens": model_info.max_tokens,
@@ -110,7 +109,6 @@ def inspect_model_capabilities(
             }
     except Exception as e:
         logger.error(f"Failed to inspect capabilities for {model_name}: {e}")
-        # Return a minimal structure to avoid KeyError
         return {
             "model_name": model_name,
             "provider": provider_name,
@@ -124,7 +122,7 @@ def inspect_model_capabilities(
 __all__ = [
     # High-level API
     "complete",
-    "inspect_model_capabilities",  # New function
+    "inspect_model_capabilities",
     
     # Core classes
     "LLMProvider",
@@ -138,7 +136,4 @@ __all__ = [
     "ModelInfo", 
     "CompletionOptions",
     "MessageProtocol",
-
-    # Executor for Ollama tools
-    "ToolExecutor",
 ]

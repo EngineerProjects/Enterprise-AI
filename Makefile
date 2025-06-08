@@ -73,7 +73,7 @@ notebook:
 
 
 all: lint test pre-commit coverage
-setup: setup_uv setup-browser
+setup: clean setup_uv
 
 help:
 	@echo "Enterprise-AI Development Makefile"

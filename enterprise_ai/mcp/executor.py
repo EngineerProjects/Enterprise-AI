@@ -37,6 +37,7 @@ class ToolExecutor:
         config: Optional[MCPConfig] = None,
         session_manager: Optional[SessionManager] = None,
         tools: Optional[Dict[str, Callable]] = None,
+        approval_callback: Optional[Callable] = None,
     ):
         """
         Initialize the tool executor.
@@ -45,10 +46,12 @@ class ToolExecutor:
             config: MCP configuration
             session_manager: Session manager instance
             tools: Dictionary mapping tool names to callable functions
+            approval_callback: Async function to request approval for tool execution
         """
         self.config = config or MCPConfig.from_config()
         self.session_manager = session_manager
         self.tools = tools or {}
+        self._approval_callback = approval_callback
         
         # Initialize sandbox client
         self.sandbox_client = None
@@ -81,6 +84,12 @@ class ToolExecutor:
         self.tools.update(tools)
         if self.config.verbose_logging:
             logger.info("Registered %d tools: %s", len(tools), list(tools.keys()))
+
+    def set_approval_callback(self, callback: Optional[Callable]) -> None:
+        """Set or update the approval callback."""
+        self._approval_callback = callback
+        if callback and self.config.verbose_logging:
+            logger.info("Approval callback updated")
 
     def can_execute_tool(self, tool_name: str) -> bool:
         """Check if a tool can be executed based on policies."""
@@ -117,20 +126,36 @@ class ToolExecutor:
         """Determine if approval should be requested for a tool call."""
         tool_name = tool_call.function.name
         
-        # Check tool-specific danger level
-        tool = self.tools.get(tool_name)
-        danger_level = 0
+        # If we have an approval callback, check config
+        if hasattr(self, '_approval_callback') and self._approval_callback:
+            # Check tool-specific danger level
+            tool = self.tools.get(tool_name)
+            danger_level = 0
+            
+            if hasattr(tool, 'config') and hasattr(tool.config, 'danger_level'):
+                danger_level = tool.config.danger_level
+            
+            return self.config.should_require_approval(tool_name, danger_level)
         
-        if hasattr(tool, 'config') and hasattr(tool.config, 'danger_level'):
-            danger_level = tool.config.danger_level
-        
-        return self.config.should_require_approval(tool_name, danger_level)
+        # No callback available - don't require approval
+        return False
 
-    def _request_approval(self, tool_call: ToolCall) -> bool:
+    async def _request_approval(self, tool_call: ToolCall) -> bool:
         """Request human approval for tool execution."""
-        # For now, implement a simple console-based approval
-        # In production, this would integrate with the agent's approval callback
+        if hasattr(self, '_approval_callback') and self._approval_callback:
+            try:
+                # Use the agent's approval callback
+                if asyncio.iscoroutinefunction(self._approval_callback):
+                    return await self._approval_callback(tool_call)
+                else:
+                    # Handle sync callback
+                    loop = asyncio.get_event_loop()
+                    return await loop.run_in_executor(None, self._approval_callback, tool_call)
+            except Exception as e:
+                logger.error("Approval callback failed: %s", e)
+                return False
         
+        # Fallback: console-based approval for testing
         tool_name = tool_call.function.name
         args = tool_call.get_arguments()
         
@@ -138,9 +163,8 @@ class ToolExecutor:
         print(f"Tool: {tool_name}")
         print(f"Arguments: {json.dumps(args, indent=2)}")
         
-        # In a real implementation, this would be handled by the agent's approval system
-        # For now, we'll assume approval (this should be replaced with actual approval logic)
-        logger.info("Tool approval requested for %s (auto-approved for testing)", tool_name)
+        # Auto-approve for testing when no callback is set
+        logger.info("Tool approval requested for %s (auto-approved - no callback)", tool_name)
         self._approved_executions += 1
         return True
 
@@ -204,9 +228,10 @@ class ToolExecutor:
                     error=error_msg
                 )
             
-            # Check if approval is required
+            # Check if approval is required - FIXED: Make it async
             if self._should_request_approval(tool_call):
-                if not self._request_approval(tool_call):
+                approved = await self._request_approval(tool_call)
+                if not approved:
                     self._denied_executions += 1
                     error_msg = f"Tool '{tool_name}' execution denied by user"
                     logger.info(error_msg)

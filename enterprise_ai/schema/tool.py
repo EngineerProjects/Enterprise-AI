@@ -7,7 +7,7 @@ enhanced for the new architecture with better validation and conversion support.
 
 import json
 from typing import Any, Dict, List, Optional, Union
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class Function(BaseModel):
@@ -16,7 +16,8 @@ class Function(BaseModel):
     name: str = Field(..., description="Name of the function to call")
     arguments: Union[str, Dict[str, Any]] = Field(..., description="Function arguments as JSON string or dict")
     
-    @validator('arguments', pre=True)
+    @field_validator('arguments', mode='before')
+    @classmethod
     def validate_arguments(cls, v):
         """Ensure arguments is properly formatted."""
         if isinstance(v, dict):

@@ -1,216 +1,134 @@
 """
-Base Agent implementation for Enterprise AI.
-
-This provides the foundation for all agents in the system.
+Base agent interface for Enterprise AI.
 """
 
+import abc
+import time
 import uuid
 import asyncio
-from typing import Any, Dict, List, Optional, Union
-from abc import ABC, abstractmethod
+from typing import Any, Dict, List, Optional
 
-from enterprise_ai.mcp.protocols.mcp_protocol import MCPMessage, MCPMessageType
-from enterprise_ai.schema import ToolCall
 from enterprise_ai.logger import get_optimized_logger
+from enterprise_ai.llm.base import LLMProvider
+from enterprise_ai.schema import ToolCall, ToolResult, Message
+from enterprise_ai.types import MessageProtocol
 
 logger = get_optimized_logger("agent.base")
 
 
-class BaseAgent(ABC):
+class BaseAgent(LLMProvider):
     """
-    Base class for all Enterprise AI agents.
+    Base agent class that inherits from LLMProvider and adds MCP tool execution.
     
-    Provides core functionality for:
-    - MCP integration
-    - Reasoning processes
-    - Memory management
-    - Tool execution
+    Agents inherit ALL LLM provider methods (complete, acomplete, complete_stream, etc.)
+    and add tool execution capabilities through MCP integration.
     """
     
     def __init__(
         self,
-        name: str,
-        llm_provider,
-        mcp_server,
-        reasoning_engine=None,
-        **kwargs
+        agent_id: Optional[str] = None,
+        name: Optional[str] = None,
+        description: Optional[str] = None,
+        **kwargs: Any
     ):
-        self.name = name
-        self.llm = llm_provider
-        self.mcp_server = mcp_server
-        self.reasoning_engine = reasoning_engine
+        """Initialize the base agent."""
+        # Initialize LLM provider with all kwargs
+        super().__init__(**kwargs)
         
-        # Core agent state
-        self.session_id: Optional[str] = None
-        self.memory: List[Dict[str, Any]] = []
-        self.context: Dict[str, Any] = {}
-        self.tools: List[str] = []
+        # Agent-specific attributes
+        self.agent_id = agent_id or str(uuid.uuid4())
+        self.agent_name = name or f"Agent-{self.agent_id[:8]}"
+        self.agent_description = description or f"Enterprise AI Agent: {self.agent_name}"
         
-        # Configuration
-        self.max_iterations = kwargs.get('max_iterations', 10)
-        self.verbose = kwargs.get('verbose', False)
+        # Agent execution tracking
+        self._agent_start_time = time.time()
+        self._conversation_count = 0
+        self._tool_execution_count = 0
+        self._agent_error_count = 0
         
-        logger.info(f"Initialized agent: {self.name}")
+        logger.info(f"Initialized agent: {self.agent_name} ({self.agent_id})")
     
-    async def initialize(self) -> bool:
-        """Initialize the agent and create MCP session."""
+    # Override complete to ensure proper async handling
+    def complete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
+        """Generate completion (sync wrapper around async method)."""
         try:
-            # Create MCP session
-            session_response = await self.mcp_server.process_message(
-                MCPMessage.create(
-                    message_type=MCPMessageType.SESSION_CREATE,
-                    data={"agent_id": self.name},
-                    agent_id=self.name
-                )
-            )
-            
-            if session_response.message_type != MCPMessageType.ERROR:
-                self.session_id = session_response.data.get("session_id")
-                logger.info(f"Agent {self.name} session created: {self.session_id}")
-                return True
-            else:
-                logger.error(f"Failed to create session for agent {self.name}")
-                return False
-                
+            # Use asyncio.run for sync context
+            return asyncio.run(self.acomplete(messages, **kwargs))
         except Exception as e:
-            logger.error(f"Error initializing agent {self.name}: {e}")
-            return False
+            self._track_agent_error()
+            logger.error(f"Completion failed for agent {self.agent_name}: {e}")
+            raise
     
-    async def execute_task(self, task: str, context: Dict[str, Any] = None) -> Dict[str, Any]:
+    @abc.abstractmethod
+    async def chat(
+        self,
+        messages: List[MessageProtocol],
+        tools: Optional[List[Dict[str, Any]]] = None,
+        max_iterations: int = 5,
+        **kwargs: Any
+    ) -> List[MessageProtocol]:
         """
-        Main entry point for task execution.
+        Generate completion with automatic tool execution loop.
+        
+        This is the main agent method that combines LLM completion with MCP tool execution.
         
         Args:
-            task: The task description
-            context: Additional context for the task
+            messages: List of conversation messages
+            tools: Available tools for the conversation
+            max_iterations: Maximum tool execution iterations
+            **kwargs: Additional parameters for LLM completion
             
         Returns:
-            Task execution result
+            List of messages including tool executions and responses
         """
-        if not self.session_id:
-            await self.initialize()
-        
-        # Update context
-        if context:
-            self.context.update(context)
-        
-        # Use reasoning engine if available
-        if self.reasoning_engine:
-            return await self.reasoning_engine.process(task, context or {})
-        else:
-            # Simple direct execution
-            return await self._simple_execute(task)
-    
-    async def _simple_execute(self, task: str) -> Dict[str, Any]:
-        """Simple task execution without complex reasoning."""
-        try:
-            # Think about the task
-            thought = await self.think(task)
-            
-            # Decide on action
-            action = await self.plan_action(thought)
-            
-            if action:
-                # Execute action
-                result = await self.execute_tool(**action)
-                
-                # Observe result
-                observation = await self.observe(result)
-                
-                return {
-                    "success": True,
-                    "result": observation,
-                    "thought": thought,
-                    "action": action
-                }
-            else:
-                return {
-                    "success": True,
-                    "result": thought,
-                    "thought": thought,
-                    "action": None
-                }
-                
-        except Exception as e:
-            logger.error(f"Error in simple execution: {e}")
-            return {
-                "success": False,
-                "error": str(e),
-                "thought": None,
-                "action": None
-            }
-    
-    @abstractmethod
-    async def think(self, input_text: str) -> str:
-        """Generate thoughts/reasoning for the input."""
         pass
     
-    @abstractmethod
-    async def plan_action(self, thought: str) -> Optional[Dict[str, Any]]:
-        """Plan the next action based on current thought."""
+    @abc.abstractmethod
+    async def execute_tools(
+        self,
+        tool_calls: List[ToolCall],
+        session_id: Optional[str] = None,
+        **kwargs: Any
+    ) -> List[ToolResult]:
+        """
+        Execute tool calls through MCP.
+        
+        Args:
+            tool_calls: List of tool calls to execute
+            session_id: Optional session ID for tracking
+            **kwargs: Additional execution context
+            
+        Returns:
+            List of tool execution results
+        """
         pass
     
-    async def execute_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute a tool via MCP."""
-        try:
-            tool_call = ToolCall.create(
-                name=tool_name,
-                arguments=arguments,
-                id=f"agent_{self.name}_{uuid.uuid4().hex[:8]}"
-            )
+    def get_agent_info(self) -> Dict[str, Any]:
+        """Get agent information including LLM provider info."""
+        return {
+            # Agent-specific info
+            "agent_id": self.agent_id,
+            "name": self.agent_name,
+            "description": self.agent_description,
+            "uptime_seconds": time.time() - self._agent_start_time,
+            "conversation_count": self._conversation_count,
+            "tool_execution_count": self._tool_execution_count,
+            "error_count": self._agent_error_count,
             
-            message = MCPMessage.create(
-                message_type=MCPMessageType.TOOL_CALL,
-                data={
-                    "tool_calls": [tool_call.to_dict()],
-                    "context": self.context
-                },
-                session_id=self.session_id,
-                agent_id=self.name
-            )
-            
-            response = await self.mcp_server.process_message(message)
-            
-            if response.message_type != MCPMessageType.ERROR:
-                results = response.data.get("tool_results", [])
-                return results[0] if results else {"success": False, "error": "No results"}
-            else:
-                return {"success": False, "error": response.data.get("error", "Unknown error")}
-                
-        except Exception as e:
-            logger.error(f"Tool execution error: {e}")
-            return {"success": False, "error": str(e)}
+            # LLM provider info
+            "model_name": self.get_model_name(),
+            "llm_metrics": self.get_metrics(),
+            "model_info": self.get_model_info().to_dict() if hasattr(self.get_model_info(), 'to_dict') else str(self.get_model_info()),
+        }
     
-    async def observe(self, result: Dict[str, Any]) -> str:
-        """Process and interpret tool execution results."""
-        if result.get("success", False):
-            return f"Action completed successfully: {result.get('result', 'No details')}"
-        else:
-            return f"Action failed: {result.get('error', 'Unknown error')}"
+    def _track_agent_conversation(self) -> None:
+        """Track agent conversation metrics."""
+        self._conversation_count += 1
     
-    def add_to_memory(self, entry: Dict[str, Any]) -> None:
-        """Add an entry to agent memory."""
-        self.memory.append({
-            "timestamp": asyncio.get_event_loop().time(),
-            "agent": self.name,
-            **entry
-        })
+    def _track_agent_tool_execution(self, count: int = 1) -> None:
+        """Track agent tool execution metrics."""
+        self._tool_execution_count += count
     
-    def get_memory_summary(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """Get recent memory entries."""
-        return self.memory[-limit:] if self.memory else []
-    
-    async def cleanup(self) -> None:
-        """Clean up agent resources."""
-        if self.session_id:
-            try:
-                await self.mcp_server.process_message(
-                    MCPMessage.create(
-                        message_type=MCPMessageType.SESSION_CLOSE,
-                        data={"session_id": self.session_id},
-                        agent_id=self.name
-                    )
-                )
-                logger.info(f"Agent {self.name} session closed")
-            except Exception as e:
-                logger.warning(f"Error closing session for agent {self.name}: {e}")
+    def _track_agent_error(self) -> None:
+        """Track agent error metrics."""
+        self._agent_error_count += 1

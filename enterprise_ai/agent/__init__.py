@@ -1,34 +1,19 @@
 """
-Enterprise AI Agent Module
+Enterprise AI Agent Module.
 
-This module provides intelligent agents that can reason, plan, and execute
-tasks using the MCP (Model Context Protocol) framework.
-
-Key Components:
-- BaseAgent: Foundation for all agents
-- Reasoning engines: CoT, ReAct, SWE, Browser
-- Memory systems: Conversation, task, knowledge
-- Specialized agents: Developer, Researcher, Assistant
-
-Usage:
-    from enterprise_ai.agent import SimpleAgent
-    from enterprise_ai.mcp import EnterpriseMCPServer
-    
-    # Create MCP server
-    server = EnterpriseMCPServer()
-    
-    # Create agent
-    agent = SimpleAgent("assistant", llm_provider, server)
-    await agent.initialize()
-    
-    # Execute task
-    result = await agent.execute_task("List files in /tmp directory")
+This module provides the core agent system that combines LLM capabilities
+with MCP tool execution for autonomous AI agents.
 """
 
-from .base import BaseAgent
+from enterprise_ai.agent.base import BaseAgent
+from enterprise_ai.agent.config import AgentConfig
+from enterprise_ai.agent.core import EnterpriseAgent
+from enterprise_ai.agent.factory import create_agent
 
 __all__ = [
     "BaseAgent",
+    "AgentConfig", 
+    "EnterpriseAgent",
+    # Factory function for creating agents
+    "create_agent",
 ]
-
-__version__ = "1.0.0"

@@ -126,3 +126,8 @@ class MCPConfig(BaseModel):
             return tool_name in self.allowed_tools
         
         return True
+
+    @classmethod
+    def from_dict(cls, config_dict: Dict[str, Any]) -> "MCPConfig":
+        """Create MCPConfig from a dictionary."""
+        return cls(**config_dict)

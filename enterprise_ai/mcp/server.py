@@ -8,7 +8,7 @@ session management, agent communication, and sandbox integration.
 import asyncio
 import signal
 import sys
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.registry import ToolRegistry
@@ -37,7 +37,7 @@ class EnterpriseMCPServer:
     and sandbox integration through a unified MCP protocol interface.
     """
     
-    def __init__(self, config: Optional[MCPConfig] = None):
+    def __init__(self, config: Optional[MCPConfig] = None, approval_callback: Optional[Callable] = None):
         """Initialize the Enterprise MCP server."""
         self.config = config or MCPConfig.from_config()
         self.is_running = False
@@ -53,7 +53,8 @@ class EnterpriseMCPServer:
         )
         self.tool_executor = ToolExecutor(
             config=self.config,
-            session_manager=self.session_manager
+            session_manager=self.session_manager,
+            approval_callback=approval_callback  # ADD THIS
         )
         
         # Initialize protocol and bridge
@@ -75,6 +76,10 @@ class EnterpriseMCPServer:
         self._register_message_handlers()
         
         logger.info("EnterpriseMCPServer initialized with config: %s", self.config.execution_mode)
+
+    def set_approval_callback(self, callback: Optional[Callable]) -> None:
+        """Set or update the approval callback for tool execution."""
+        self.tool_executor.set_approval_callback(callback)
     
     def _register_message_handlers(self) -> None:
         """Register handlers for different MCP message types."""
