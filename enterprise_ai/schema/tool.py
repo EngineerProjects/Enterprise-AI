@@ -260,7 +260,7 @@ class ToolResult(BaseModel):
         )
     
     @classmethod  
-    def error(
+    def create_error(
         cls,
         tool_call_id: str,
         name: str,

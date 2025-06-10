@@ -4,12 +4,13 @@ Sandbox configuration for Enterprise AI tools.
 Provides manual control over which tools use sandbox and how.
 """
 
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Literal
 from dataclasses import dataclass
 
 from enterprise_ai.logger import get_optimized_logger
+from enterprise_ai.tool.core.base import SandboxMode
 
-logger = get_optimized_logger("sandbox.config")
+logger = get_optimized_logger("mcp.sandbox_config")
 
 
 @dataclass
@@ -20,6 +21,8 @@ class SandboxConfig:
     always_sandbox: Set[str] = None
     never_sandbox: Set[str] = None
     timeout: float = 30.0
+    default_mode: SandboxMode = SandboxMode.UNIFIED
+    simplified_routing: bool = True  # When True, uses only dangerous_tools for routing
     
     def __post_init__(self):
         """Initialize default sets."""
@@ -55,7 +58,9 @@ def create_sandbox_config(
     dangerous_tools: Optional[List[str]] = None,
     always_sandbox: Optional[List[str]] = None,
     never_sandbox: Optional[List[str]] = None,
-    timeout: float = 30.0
+    timeout: float = 30.0,
+    default_mode: SandboxMode = SandboxMode.UNIFIED,
+    simplified_routing: bool = True
 ) -> SandboxConfig:
     """Create a sandbox configuration."""
     return SandboxConfig(
@@ -63,7 +68,9 @@ def create_sandbox_config(
         dangerous_tools=set(dangerous_tools) if dangerous_tools else None,
         always_sandbox=set(always_sandbox) if always_sandbox else None,
         never_sandbox=set(never_sandbox) if never_sandbox else None,
-        timeout=timeout
+        timeout=timeout,
+        default_mode=default_mode,
+        simplified_routing=simplified_routing
     )
 
 

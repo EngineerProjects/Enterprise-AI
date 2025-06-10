@@ -7,12 +7,15 @@ Leverages existing tool infrastructure for clean, simple tool execution.
 import asyncio
 import inspect
 import time
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.schema import ToolCall, ToolResult
+from enterprise_ai.schema import ToolCall
+from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.registry import ToolRegistry
+from enterprise_ai.tool.core.base import ToolCapability, ExecutionMode
 from enterprise_ai.mcp.sandbox_config import SandboxConfig, DEFAULT_SANDBOX_CONFIG
+from enterprise_ai.mcp.sandbox_executor import SimpleMCPExecutor, SandboxToolExecutor
 
 logger = get_optimized_logger("new_mcp.executor")
 
@@ -39,6 +42,24 @@ class ToolMCP:
         self._execution_count = 0
         self._failed_count = 0
         self._tools = {}
+        
+        # Initialize tool executor
+        self.tool_executor = SimpleMCPExecutor(
+            tools={},
+            execution_timeout=timeout,
+            verbose=False
+        )
+        
+        # Initialize sandbox executor if enabled
+        self.sandbox_executor = None
+        if self.sandbox_config.enabled:
+            self.sandbox_executor = SandboxToolExecutor(
+                tools={},
+                execution_timeout=timeout,
+                default_sandbox_mode=self.sandbox_config.default_mode,
+                enable_sandbox_routing=True,
+                verbose=False
+            )
         
         # Load available tools from registry if requested
         if auto_load_tools:
@@ -89,6 +110,12 @@ class ToolMCP:
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool function directly."""
         self._tools[name] = func
+        self.tool_executor.register_tool(name, func)
+        
+        # Also register with sandbox executor if enabled
+        if self.sandbox_executor:
+            self.sandbox_executor.register_tool(name, func)
+        
         logger.info("Registered tool: %s", name)
 
     def get_available_tools(self) -> List[str]:
@@ -109,46 +136,68 @@ class ToolMCP:
             return []
 
         results = []
+        self._execution_count += len(tool_calls)
         
-        for tool_call in tool_calls:
-            result = await self._execute_single_tool(tool_call)
-            results.append(result)
+        try:
+            # Determine if we should use sandbox based on config and tool types
+            if self.sandbox_executor and self.sandbox_config.enabled:
+                # Check if any tools are in the dangerous list
+                dangerous_tools = [
+                    tc for tc in tool_calls 
+                    if tc.function.name in self.sandbox_config.dangerous_tools
+                ]
+                
+                # Split tool calls between dangerous and safe
+                safe_tools = [tc for tc in tool_calls if tc not in dangerous_tools]
+                
+                # Process dangerous tools with sandbox
+                if dangerous_tools:
+                    sandbox_results = await self.sandbox_executor.aexecute_tool_calls(dangerous_tools)
+                    results.extend(sandbox_results)
+                
+                # Process safe tools directly
+                if safe_tools:
+                    safe_results = await self.tool_executor.aexecute_tool_calls(safe_tools)
+                    results.extend(safe_results)
+            else:
+                # Process all tools directly
+                results = await self.tool_executor.aexecute_tool_calls(tool_calls)
+                
+            # Track failures
+            self._failed_count += sum(1 for r in results if not r.success)
             
-        return results
+            return results
+        except Exception as e:
+            self._failed_count += len(tool_calls)
+            # Create error results for all tool calls
+            for tool_call in tool_calls:
+                results.append(
+                    ToolResult(
+                        tool_call_id=tool_call.id,
+                        name=tool_call.function.name,
+                        result="",
+                        success=False,
+                        error=f"MCP execution error: {str(e)}"
+                    )
+                )
+            return results
 
     async def _execute_single_tool(self, tool_call: ToolCall) -> ToolResult:
         """Execute a single tool call with error handling."""
-        start_time = time.time()
-        tool_name = tool_call.function.name
-        
-        try:
-            self._execution_count += 1
+        # This method is deprecated but kept for backward compatibility
+        # It now delegates to the tool executor
+        if self.sandbox_executor and self.sandbox_config.enabled and tool_call.function.name in self.sandbox_config.dangerous_tools:
+            results = await self.sandbox_executor.aexecute_tool_calls([tool_call])
+        else:
+            results = await self.tool_executor.aexecute_tool_calls([tool_call])
             
-            # Check if tool exists
-            if tool_name not in self._tools:
-                self._failed_count += 1
-                return self._create_error_result(
-                    tool_call.id, tool_name, f"Tool '{tool_name}' not found"
-                )
-            
-            # Get tool function and arguments
-            tool_func = self._tools[tool_name]
-            args = tool_call.get_arguments()
-            
-            # Check if should use sandbox
-            if self.sandbox_config.should_use_sandbox(tool_name):
-                return await self._execute_in_sandbox(tool_call, tool_func, args, start_time)
-            else:
-                return await self._execute_directly(tool_call, tool_func, args, start_time)
-                
-        except Exception as e:
-            self._failed_count += 1
-            execution_time = time.time() - start_time
-            logger.error("Tool execution failed for %s: %s", tool_name, e)
-            
-            return self._create_error_result(
-                tool_call.id, tool_name, str(e), execution_time
-            )
+        return results[0] if results else ToolResult(
+            tool_call_id=tool_call.id,
+            name=tool_call.function.name,
+            result="",
+            success=False,
+            error="No result returned from tool executor"
+        )
 
     async def _execute_directly(self, tool_call: ToolCall, tool_func: Callable, args: Dict[str, Any], start_time: float) -> ToolResult:
         """Execute tool directly."""
@@ -237,17 +286,24 @@ class ToolMCP:
 
     def get_stats(self) -> Dict[str, Any]:
         """Get execution statistics."""
-        success_count = self._execution_count - self._failed_count
-        success_rate = success_count / self._execution_count if self._execution_count > 0 else 0
-        
-        return {
+        stats = {
             "total_executions": self._execution_count,
-            "successful_executions": success_count,
+            "successful_executions": self._execution_count - self._failed_count,
             "failed_executions": self._failed_count,
-            "success_rate": success_rate,
+            "success_rate": (self._execution_count - self._failed_count) / max(1, self._execution_count),
             "available_tools": len(self._tools),
             "tool_names": list(self._tools.keys())
         }
+        
+        # Add executor stats if available
+        if hasattr(self.tool_executor, 'get_execution_stats'):
+            stats["executor_stats"] = self.tool_executor.get_execution_stats()
+            
+        # Add sandbox stats if available
+        if self.sandbox_executor and hasattr(self.sandbox_executor, 'get_execution_stats'):
+            stats["sandbox_stats"] = self.sandbox_executor.get_execution_stats()
+            
+        return stats
 
     def reset_stats(self) -> None:
         """Reset execution statistics."""
