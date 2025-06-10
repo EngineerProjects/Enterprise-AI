@@ -98,16 +98,11 @@ class SandboxToolExecutor:
         self._local_executions = 0
         self._sandbox_executions = 0
         self._routing_decisions = []
-        
-        logger.info("Initialized sandbox tool executor | Routing: %s | Default mode: %s", enable_sandbox_routing, default_sandbox_mode)
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool for execution."""
         self.tools[name] = func
         self._local_executor.register_tool(name, func)
-        
-        if self.verbose:
-            logger.info("Registered tool: %s", name)
 
     def register_tools(self, tools: Dict[str, Callable]) -> None:
         """Register multiple tools at once."""
@@ -184,9 +179,6 @@ class SandboxToolExecutor:
             if tool_name not in self._individual_sandboxes:
                 self._individual_sandboxes[tool_name] = BaseSandboxClient(self.sandbox_settings)
                 await self._individual_sandboxes[tool_name].start()
-                
-                if self.verbose:
-                    logger.info("Created individual sandbox for %s", tool_name)
             
             return self._individual_sandboxes[tool_name]
         

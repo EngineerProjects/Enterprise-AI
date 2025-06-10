@@ -116,9 +116,6 @@ class OllamaProvider(LLMProvider):
         """FIXED: Generate completion with proper API endpoint selection."""
         request_id = generate_request_id()
         
-        if self.verbose:
-            logger.info("Ollama completion request %s with %s messages", request_id, len(messages))
-        
         # Prepare request parameters
         has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
         has_tools = "tools" in kwargs and kwargs["tools"]
@@ -127,9 +124,6 @@ class OllamaProvider(LLMProvider):
         timeout = OllamaConfigHelper.determine_timeout_for_request(
             self._timeout, self.model_name, has_images, has_tools, **kwargs
         )
-
-        if self.verbose:
-            logger.info("Request config: has_images=%s, has_tools=%s, timeout=%ss", has_images, has_tools, timeout)
 
         # Process tools
         if has_tools:
@@ -158,9 +152,6 @@ class OllamaProvider(LLMProvider):
             self.track_request(True)
             result = self._llm_response_to_message(llm_response)
             
-            if self.verbose:
-                logger.info("Ollama request %s completed successfully", request_id)
-            
             return result
         except Exception as e:
             self.track_request(False)
@@ -170,9 +161,6 @@ class OllamaProvider(LLMProvider):
 
     async def acomplete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
         """FIXED: Generate async completion with API compliance."""
-        if self.verbose:
-            logger.info("Making async Ollama completion request with %s messages", len(messages))
-        
         # Prepare request (same logic as sync)
         has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
         has_tools = "tools" in kwargs and kwargs["tools"]
@@ -201,9 +189,6 @@ class OllamaProvider(LLMProvider):
             self.track_request(True)
             result = self._llm_response_to_message(llm_response)
             
-            if self.verbose:
-                logger.info("Async Ollama request completed successfully")
-            
             return result
         except Exception as e:
             self.track_request(False)
@@ -217,9 +202,6 @@ class OllamaProvider(LLMProvider):
         payload = OllamaConfigHelper.build_chat_payload(
             self.model_name, messages, self._message_formatter, **kwargs
         )
-        
-        if self.verbose:
-            logger.debug("Chat payload: %s", payload)
         
         try:
             response = self._get_client().post(self._get_api_url("chat"), json=payload, timeout=timeout)
@@ -240,9 +222,6 @@ class OllamaProvider(LLMProvider):
         payload = OllamaConfigHelper.build_generate_payload(
             self.model_name, messages, self._message_formatter, **kwargs
         )
-        
-        if self.verbose:
-            logger.debug("Generate payload: %s", payload)
         
         try:
             response = self._get_client().post(self._get_api_url("generate"), json=payload, timeout=timeout)
@@ -390,9 +369,6 @@ class OllamaProvider(LLMProvider):
         """
         request_id = generate_request_id()
         
-        if self.verbose:
-            logger.info("Ollama tool completion request %s with %s messages", request_id, len(messages))
-        
         # Prepare request parameters  
         has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
         has_tools = "tools" in kwargs and kwargs["tools"]
@@ -400,9 +376,6 @@ class OllamaProvider(LLMProvider):
         timeout = OllamaConfigHelper.determine_timeout_for_request(
             self._timeout, self.model_name, has_images, has_tools, **kwargs
         )
-
-        if self.verbose:
-            logger.info("Request config: has_images=%s, has_tools=%s, timeout=%ss", has_images, has_tools, timeout)
 
         # Process tools
         if has_tools:
@@ -436,11 +409,6 @@ class OllamaProvider(LLMProvider):
             # Extract tool calls - they're already in the LLMResponse
             tool_calls = llm_response.tool_calls or []
             
-            if self.verbose:
-                logger.info("Ollama tool completion request %s completed successfully", request_id)
-                if tool_calls:
-                    logger.info("Extracted %d tool calls", len(tool_calls))
-            
             return response_message, tool_calls
             
         except Exception as e:
@@ -457,9 +425,6 @@ class OllamaProvider(LLMProvider):
         """
         FIXED: Generate async completion and extract tool calls with proper Ollama argument handling.
         """
-        if self.verbose:
-            logger.info("Making async Ollama tool completion request with %s messages", len(messages))
-        
         # Same preparation logic as sync version
         has_images = any(hasattr(msg, "metadata") and msg.metadata and "images" in msg.metadata for msg in messages)
         has_tools = "tools" in kwargs and kwargs["tools"]
@@ -488,11 +453,6 @@ class OllamaProvider(LLMProvider):
             self.track_request(True)
             response_message = self._llm_response_to_message(llm_response)
             tool_calls = llm_response.tool_calls or []
-            
-            if self.verbose:
-                logger.info("Async Ollama tool completion request completed successfully")
-                if tool_calls:
-                    logger.info("Extracted %d tool calls", len(tool_calls))
             
             return response_message, tool_calls
             
@@ -560,10 +520,6 @@ class OllamaProvider(LLMProvider):
             
             if response.status_code == 200:
                 model_data = response.json()
-                if self.verbose:
-                    logger.info("Retrieved model data for %s", self.model_name)
-                else:
-                    logger.debug("Retrieved model data for %s", self.model_name)
                 return model_data
             elif response.status_code == 404:
                 logger.warning("Model %s not found in Ollama", self.model_name)

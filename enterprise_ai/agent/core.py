@@ -63,17 +63,12 @@ def create_dynamic_agent_class(
             
             # Set approval callback directly on the tool executor
             if agent_config.tool_approval_callback:
-                self.mcp_server.tool_executor.set_approval_callback(agent_config.tool_approval_callback)
-                if agent_config.verbose:
-                    logger.info("Approval callback set for tool execution")
+                if agent_config.tool_approval_callback:
+                    self.mcp_server.tool_executor.set_approval_callback(agent_config.tool_approval_callback)
             
             # Agent-specific state
             self.agent_config = agent_config
             self._current_session: Optional[str] = None
-            
-            logger.info(
-                f"Created agent with {base_llm_class.__name__} + MCP Server: {self.agent_name}"
-            )
         
         async def _get_or_create_session(self) -> str:
             """Get current session or create via MCP server."""
@@ -265,17 +260,10 @@ def create_dynamic_agent_class(
                 
                 # Tool execution loop
                 for iteration in range(max_iterations):
-                    if self.agent_config.verbose:
-                        logger.info(f"Chat iteration {iteration + 1}/{max_iterations}")
-                    
                     # Prepare completion with tools
                     completion_kwargs = kwargs.copy()
                     if tool_definitions:
                         completion_kwargs["tools"] = tool_definitions
-                        
-                        if self.agent_config.verbose:
-                            logger.info(f"Sending {len(tool_definitions)} tools to LLM")
-                            logger.debug(f"Tool names: {[t['function']['name'] for t in tool_definitions]}")
                     
                     # Get response with tool calls
                     response, tool_calls = await self.acomplete_with_tool_calls(
@@ -300,8 +288,6 @@ def create_dynamic_agent_class(
                     tool_messages = self.mcp_server.tool_executor.create_tool_messages(tool_results)
                     conversation.extend(tool_messages)
                     
-                    if self.agent_config.verbose:
-                        logger.info(f"Added {len(tool_messages)} tool result messages to conversation")
                 
                 self._track_agent_conversation()
                 return conversation

@@ -1,7 +1,7 @@
 """
-Simplified MCP Executor - Tool execution focused.
+Standalone SimpleMCP - completely independent of existing tool registry.
 
-Leverages existing tool infrastructure for clean, simple tool execution.
+For testing and manual tool registration.
 """
 
 import asyncio
@@ -11,100 +11,43 @@ from typing import Any, Callable, Dict, List, Optional
 
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.schema import ToolCall, ToolResult
-from enterprise_ai.tool.core.registry import ToolRegistry
 from enterprise_ai.mcp.sandbox_config import SandboxConfig, DEFAULT_SANDBOX_CONFIG
 
-logger = get_optimized_logger("new_mcp.executor")
+logger = get_optimized_logger("new_mcp.standalone")
 
 
-class ToolMCP:
+class StandaloneMCP:
     """
-    Simplified MCP for Enterprise AI - Tool execution only.
+    Standalone MCP - manual tool registration only.
     
-    Leverages existing ToolRegistry and focuses purely on executing tools
-    and returning clean, structured results.
+    Completely independent of the existing tool registry to avoid import issues.
     """
 
-    def __init__(self, timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True):
+    def __init__(self, timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None):
         """
-        Initialize SimpleMCP.
+        Initialize StandaloneMCP.
         
         Args:
             timeout: Default timeout for tool execution
-            sandbox_config: Optional sandbox configuration for manual control
-            auto_load_tools: Whether to automatically load tools from registry
+            sandbox_config: Optional sandbox configuration
         """
         self.timeout = timeout
         self.sandbox_config = sandbox_config or DEFAULT_SANDBOX_CONFIG
+        self._tools: Dict[str, Callable] = {}
         self._execution_count = 0
         self._failed_count = 0
-        self._tools = {}
-        
-        # Load available tools from registry if requested
-        if auto_load_tools:
-            try:
-                self.registry = ToolRegistry()
-                self._tools = self._load_tools_from_registry()
-                
-                if self._tools:
-                    logger.info("SimpleMCP initialized with %d tools", len(self._tools))
-                else:
-                    logger.error("No tools loaded from registry")
-            except Exception as e:
-                logger.error("Failed to load tools from registry: %s", e)
-                logger.info("SimpleMCP initialized without auto-loading tools")
-        else:
-            logger.info("SimpleMCP initialized without auto-loading tools")
-
-    def _load_tools_from_registry(self) -> Dict[str, Callable]:
-        """Load tool functions from the existing registry."""
-        tools = {}
-        
-        if not hasattr(self, 'registry'):
-            return tools
-        
-        try:
-            # Get all tool classes from registry
-            tool_classes = self.registry.get_all_tool_classes()
-            
-            for tool_name, tool_class in tool_classes.items():
-                try:
-                    # Create tool instance
-                    tool_instance = tool_class()
-                    
-                    # Get the execute method
-                    if hasattr(tool_instance, 'execute') and callable(tool_instance.execute):
-                        tools[tool_name] = tool_instance.execute
-                    else:
-                        logger.error("Tool %s has no execute method", tool_name)
-                        
-                except Exception as e:
-                    logger.error("Failed to load tool %s: %s", tool_name, e)
-                    
-        except Exception as e:
-            logger.error("Failed to load tools from registry: %s", e)
-            
-        return tools
-
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool function directly."""
         self._tools[name] = func
-        logger.info("Registered tool: %s", name)
-
+    def register_tools(self, tools: Dict[str, Callable]) -> None:
+        """Register multiple tools at once."""
+        self._tools.update(tools)
     def get_available_tools(self) -> List[str]:
         """Get list of available tool names."""
         return list(self._tools.keys())
 
     async def execute_tool_calls(self, tool_calls: List[ToolCall]) -> List[ToolResult]:
-        """
-        Execute a list of tool calls.
-        
-        Args:
-            tool_calls: List of tool calls to execute
-            
-        Returns:
-            List of tool execution results
-        """
+        """Execute a list of tool calls."""
         if not tool_calls:
             return []
 
@@ -181,7 +124,6 @@ class ToolMCP:
     async def _execute_in_sandbox(self, tool_call: ToolCall, tool_func: Callable, args: Dict[str, Any], start_time: float) -> ToolResult:
         """Execute tool in sandbox (placeholder for now)."""
         # For now, just execute directly with a note
-        # You can integrate actual sandbox execution here later
         logger.info("Tool %s marked for sandbox execution", tool_call.function.name)
         
         result = await self._execute_directly(tool_call, tool_func, args, start_time)
@@ -253,9 +195,3 @@ class ToolMCP:
         """Reset execution statistics."""
         self._execution_count = 0
         self._failed_count = 0
-
-
-# Factory function for easy creation
-def create_simple_mcp(timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True) -> ToolMCP:
-    """Create a SimpleMCP instance with optional sandbox configuration."""
-    return ToolMCP(timeout=timeout, sandbox_config=sandbox_config, auto_load_tools=auto_load_tools)

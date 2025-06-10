@@ -160,24 +160,19 @@ class OllamaCapabilities:
             if name in ["thinking", "think_tags", "think_variables", "think_conditionals"]):
             capabilities.add("thinking")
             capabilities.add("reasoning")
-            logger.debug("Thinking capability detected from template")
         
         if any(pattern.search(template) for name, pattern in self._template_patterns.items() 
             if name in ["tools", "toolcalls", "function", "tool_response"]):
             capabilities.add("tools")
-            logger.debug("Tools capability detected from template")
         
         if self._template_patterns["vision"].search(template):
             capabilities.add("vision")
-            logger.debug("Vision capability detected from template")
         
         if self._template_patterns["conversation"].search(template):
             capabilities.add("conversation")
-            logger.debug("Conversation capability detected from template")
         
         if self._template_patterns["system"].search(template):
             capabilities.add("system_messages")
-            logger.debug("System capability detected from template")
         
         return capabilities
 
@@ -533,7 +528,6 @@ class OllamaCapabilities:
                 }
                 
                 if req in basic_caps and not basic_caps[req]:
-                    logger.debug(f"Model {model_name} missing basic capability: {req}")
                     return False
         
         return True
@@ -541,7 +535,6 @@ class OllamaCapabilities:
     def clear_cache(self) -> None:
         """Clear the capability cache."""
         self._capability_cache.clear()
-        logger.debug("Capability cache cleared")
 
     def get_cache_stats(self) -> Dict[str, int]:
         """Get cache statistics."""

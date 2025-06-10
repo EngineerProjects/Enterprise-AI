@@ -163,21 +163,18 @@ class ToolRegistry:
             if semver.compare(version, existing_version) > 0:
                 # New version is higher, replace in main registry
                 self._tools[name] = tool_cls
-                logger.debug(f"Upgraded tool '{name}' to version {version}")
             else:
                 # Keep existing version in main registry, but still register this version
-                logger.debug(f"Registered alternate version {version} of tool '{name}'")
+                pass
         else:
             # First registration of this tool
             self._tools[name] = tool_cls
-            logger.debug(f"Registered tool '{name}' version {version}")
 
         # Register category
         if category:
             if category not in self._categories:
                 self._categories[category] = set()
             self._categories[category].add(name)
-            logger.debug(f"Registered tool '{name}' in category '{category}'")
 
         # Register capabilities
         tool_capabilities: Set[str] = set()
