@@ -36,6 +36,7 @@ class TerminateTool(BaseTool):
     """
 
     name: str = "terminate"
+    short_description: str = "Signal the end of an interaction with success or failure status and explanation."
     description: str = """
     Signal the end of an interaction when tasks are completed or cannot proceed.
 

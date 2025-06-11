@@ -260,6 +260,7 @@ class FileEditor(BaseTool):
     """
 
     name: str = "file_editor"
+    short_description: str = "Edit files with precision using string replacement, regex patterns, and line operations."
     description: str = """
     Optimized file editor for precise editing operations with comprehensive validation.
 

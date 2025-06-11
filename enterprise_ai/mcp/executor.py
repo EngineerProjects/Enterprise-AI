@@ -380,7 +380,31 @@ class ToolMCP:
                     else:
                         parameters = tool_info.get("parameters", {})
                         
-                    description = tool_info.get("description", f"Tool: {tool_name}")
+                    # Try to get description with proper priority hierarchy
+                    if tool_instance and hasattr(tool_instance, 'short_description') and tool_instance.short_description:
+                        # Use short_description attribute if available
+                        description = tool_instance.short_description
+                    elif hasattr(tool_class, 'short_description') and getattr(tool_class, 'short_description', None):
+                        # Use class short_description if available
+                        description = getattr(tool_class, 'short_description')
+                    elif tool_instance and hasattr(tool_instance, 'description') and tool_instance.description:
+                        # If no short description but regular description exists on instance
+                        full_desc = tool_instance.description
+                        # Extract first line only for concise LLM tool description
+                        if isinstance(full_desc, str):
+                            description = full_desc.strip().split('\n')[0]
+                        else:
+                            description = str(full_desc)
+                    elif hasattr(tool_class, 'description') and getattr(tool_class, 'description', None):
+                        # If no short description but regular description exists on class
+                        full_desc = getattr(tool_class, 'description')
+                        if isinstance(full_desc, str):
+                            description = full_desc.strip().split('\n')[0]
+                        else:
+                            description = str(full_desc)
+                    else:
+                        # Fall back to registry info or generic description
+                        description = tool_info.get("description", f"Tool: {tool_name}")
                 else:
                     # Fallback to minimal definition
                     parameters = {

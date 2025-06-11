@@ -294,6 +294,7 @@ class FileSystemTool(BaseTool):
     """
 
     name: str = "filesystem"
+    short_description: str = "Perform file operations including reading, writing, moving, and searching with security controls."
     description: str = """
     Comprehensive file system operations with Desktop Commander enhancements for security and performance.
 

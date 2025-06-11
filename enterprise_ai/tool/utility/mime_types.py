@@ -59,6 +59,7 @@ class MimeTypeTool(BaseTool):
     """
 
     name: str = "mime_type_detector"
+    short_description: str = "Detect file types and classify files based on extensions, content, and signatures."
     description: str = """
     Comprehensive MIME type detection and file classification.
 

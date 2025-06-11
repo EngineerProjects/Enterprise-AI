@@ -428,7 +428,11 @@ class ToolRegistry:
 
         # Extract description properly from Pydantic models
         description = ""
-        if hasattr(tool_cls, "model_fields") and "description" in tool_cls.model_fields:
+        # First try short_description for LLM use
+        if hasattr(tool_cls, "short_description"):
+            description = getattr(tool_cls, "short_description", "")
+        # Then try model_fields for Pydantic models
+        elif hasattr(tool_cls, "model_fields") and "description" in tool_cls.model_fields:
             # Pydantic model - get from field default
             description = tool_cls.model_fields["description"].default or ""
         else:

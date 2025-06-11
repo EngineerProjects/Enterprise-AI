@@ -110,6 +110,7 @@ class BrowserUseTool(BaseTool):
     """
 
     name: str = "browser_use"
+    short_description: str = "Control a browser to navigate websites, interact with web elements, and extract content."
     description: str = """
     Browser automation tool that provides interactive web capabilities.
 

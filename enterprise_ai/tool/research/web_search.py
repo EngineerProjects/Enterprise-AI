@@ -278,6 +278,7 @@ class WebSearch(BaseTool):
     """
 
     name: str = "web_search"
+    short_description: str = "Search for current information on the web like news, articles, and facts. For internet searches only."
     description: str = """
     Search the web for real-time information using multiple search engines.
 

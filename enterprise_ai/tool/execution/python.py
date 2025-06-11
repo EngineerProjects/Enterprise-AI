@@ -237,6 +237,7 @@ class PythonExecute(BaseTool):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str = "python_execute"
+    short_description: str = "Run Python code for calculations, math operations, or data processing. Perfect for computing numerical results."
     description: str = """
     Enhanced Python code execution with intelligent safety routing and session management.
 

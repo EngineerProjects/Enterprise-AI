@@ -238,6 +238,7 @@ class DeepResearch(BaseTool):
     """
 
     name: str = "deep_research"
+    short_description: str = "Perform in-depth research on complex topics requiring multiple follow-up searches. For comprehensive investigations."
     description: str = """
     Performs comprehensive, multi-level research on topics through iterative web searches and content analysis.
 

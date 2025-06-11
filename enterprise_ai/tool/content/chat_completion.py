@@ -36,6 +36,7 @@ class CreateChatCompletion(BaseTool):
     """
 
     name: str = "create_chat_completion"
+    short_description: str = "Generate structured content with specific output formats and schema validation."
     description: str = """
     Creates a structured completion with specified output formatting.
 
