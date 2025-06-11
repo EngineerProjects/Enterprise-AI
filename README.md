@@ -16,7 +16,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Active%20Development-green?style=for-the-badge">
-  <img src="https://img.shields.io/badge/Python-3.8%2B-blue?style=for-the-badge&logo=python">
+  <img src="https://img.shields.io/badge/Python-3.12%2B-blue?style=for-the-badge&logo=python">
   <img src="https://img.shields.io/badge/AI-Multi--Agent-purple?style=for-the-badge">
   <img src="https://img.shields.io/badge/License-Proprietary-red?style=for-the-badge">
 </p>
