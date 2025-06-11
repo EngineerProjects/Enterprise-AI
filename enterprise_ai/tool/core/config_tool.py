@@ -47,6 +47,7 @@ class ConfigurationTool(BaseTool):
     """
 
     name: str = "configuration"
+    short_description: str = "Manage system configuration settings, security policies, and behavior controls."
     description: str = """
     Configuration management tool for Enterprise AI system settings and policies.
 

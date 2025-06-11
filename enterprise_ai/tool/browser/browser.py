@@ -110,6 +110,7 @@ class BrowserUseTool(BaseTool):
     """
 
     name: str = "browser_use"
+    short_description: str = "Control a browser to navigate websites, interact with web elements, and extract content."
     description: str = """
     Browser automation tool that provides interactive web capabilities.
 
@@ -267,7 +268,6 @@ class BrowserUseTool(BaseTool):
         """
         try:
             # Initialize web search tool lazily when needed
-            logger.info("BrowserUseTool initialization completed")
             return True
         except Exception as e:
             logger.error("Browser initialization error: %s", e)
@@ -397,8 +397,6 @@ class BrowserUseTool(BaseTool):
         goal = kwargs.get("goal")
         keys = kwargs.get("keys")
         seconds = kwargs.get("seconds", 3)
-
-        logger.info("Executing browser action: %s", action)
 
         # Execution with retries
         while retry_count <= max_retries:

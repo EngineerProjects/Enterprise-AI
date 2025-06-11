@@ -278,6 +278,7 @@ class WebSearch(BaseTool):
     """
 
     name: str = "web_search"
+    short_description: str = "Search for current information on the web like news, articles, and facts. For internet searches only."
     description: str = """
     Search the web for real-time information using multiple search engines.
 
@@ -376,7 +377,6 @@ class WebSearch(BaseTool):
         try:
             self._initialize_search_engines()
             self.content_fetcher = WebContentFetcher()
-            logger.info("WebSearch tool successfully initialized")
             return True
         except Exception as e:
             logger.error("Failed to initialize WebSearch tool: %s", e)
@@ -420,9 +420,6 @@ class WebSearch(BaseTool):
             country = kwargs.get("country") or get_config("search.country", "us")
             fetch_content = kwargs.get("fetch_content", False)
             search_engine = kwargs.get("search_engine", "auto")
-
-            logger.info("Executing web search for query: %s", query)
-            logger.debug("Parameters: num_results=%s, lang=%s, country=%s", num_results, lang, country)
 
             # Initialize engines if needed
             if not self.search_engines:
@@ -484,7 +481,6 @@ class WebSearch(BaseTool):
                             )
                             for i, item in enumerate(search_items)
                         ]
-                        logger.info("Search with %s successful, found %s results", engine_name, len(results))
                         break
                 except Exception as e:
                     logger.error("Error with %s search engine: %s", engine_name, str(e))

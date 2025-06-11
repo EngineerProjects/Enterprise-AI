@@ -59,14 +59,12 @@ class OllamaMessageFormatter:
                             # Parse JSON string to object
                             parsed_args = json.loads(args)
                             fixed_tc["function"]["arguments"] = parsed_args
-                            logger.debug(f"Converted string arguments to object for tool {function_data.get('name', 'unknown')}")
                         except json.JSONDecodeError as e:
                             # If parsing fails, wrap in a content field as fallback
                             logger.warning(f"Failed to parse tool arguments JSON: {e}, wrapping in content field")
                             fixed_tc["function"]["arguments"] = {"content": args}
                     elif not isinstance(args, dict):
                         # If it's not a dict or string, convert to dict with value field
-                        logger.debug(f"Converting non-dict arguments to dict for tool {function_data.get('name', 'unknown')}")
                         fixed_tc["function"]["arguments"] = {"value": str(args)}
                     # If it's already a dict, leave it as is
             
@@ -677,7 +675,6 @@ class OllamaStreamProcessor:
         try:
             return json.loads(line)
         except json.JSONDecodeError:
-            logger.debug(f"Failed to parse chunk line: {line[:100]}")
             return None
 
     @staticmethod

@@ -246,8 +246,6 @@ class ConfigManager:
                     os.remove(self.config_path)
             os.rename(temp_path, self.config_path)
             
-            logger.debug(f"Configuration saved to {self.config_path}")
-            
         except Exception as e:
             logger.error(f"Failed to save configuration: {e}")
             # Clean up temp file
@@ -281,8 +279,6 @@ class ConfigManager:
             # Clean up old backups
             self._cleanup_old_backups(backup_dir)
             
-            logger.debug(f"Configuration backup created: {backup_path}")
-            
         except Exception as e:
             logger.warning(f"Failed to create configuration backup: {e}")
     
@@ -299,7 +295,6 @@ class ConfigManager:
             # Remove old backups
             for old_backup in backup_files[max_backups:]:
                 old_backup.unlink()
-                logger.debug(f"Removed old backup: {old_backup}")
                 
         except Exception as e:
             logger.warning(f"Failed to cleanup old backups: {e}")

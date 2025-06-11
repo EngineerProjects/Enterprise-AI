@@ -163,21 +163,18 @@ class ToolRegistry:
             if semver.compare(version, existing_version) > 0:
                 # New version is higher, replace in main registry
                 self._tools[name] = tool_cls
-                logger.debug(f"Upgraded tool '{name}' to version {version}")
             else:
                 # Keep existing version in main registry, but still register this version
-                logger.debug(f"Registered alternate version {version} of tool '{name}'")
+                pass
         else:
             # First registration of this tool
             self._tools[name] = tool_cls
-            logger.debug(f"Registered tool '{name}' version {version}")
 
         # Register category
         if category:
             if category not in self._categories:
                 self._categories[category] = set()
             self._categories[category].add(name)
-            logger.debug(f"Registered tool '{name}' in category '{category}'")
 
         # Register capabilities
         tool_capabilities: Set[str] = set()
@@ -429,19 +426,40 @@ class ToolRegistry:
             capability for capability, tools in self._capabilities.items() if name in tools
         ]
 
+        # Extract description properly from Pydantic models
+        description = ""
+        # First try short_description for LLM use
+        if hasattr(tool_cls, "short_description"):
+            description = getattr(tool_cls, "short_description", "")
+        # Then try model_fields for Pydantic models
+        elif hasattr(tool_cls, "model_fields") and "description" in tool_cls.model_fields:
+            # Pydantic model - get from field default
+            description = tool_cls.model_fields["description"].default or ""
+        else:
+            # Regular class - get from attribute
+            description = getattr(tool_cls, "description", "")
+        
+        # Extract parameters properly from Pydantic models
+        parameters = {}
+        if hasattr(tool_cls, "model_fields") and "parameters" in tool_cls.model_fields:
+            # Pydantic model - get from field default
+            parameters = tool_cls.model_fields["parameters"].default or {}
+        else:
+            # Regular class - get from attribute
+            parameters = getattr(tool_cls, "parameters", {})
+
         return {
             "name": name,
-            "description": getattr(tool_cls, "description", ""),
+            "description": description,
             "versions": versions,
             "latest_version": latest_version,
             "categories": categories,
             "capabilities": capabilities,
-            "parameters": getattr(tool_cls, "parameters", {}),
+            "parameters": parameters,
             "requires_initialization": getattr(tool_cls, "requires_initialization", False),
             "dependencies": getattr(tool_cls, "dependencies", []),
             "authorization_required": getattr(tool_cls, "authorization_required", False),
         }
-
 
 # Singleton registry instance
 _registry = ToolRegistry()

@@ -1,134 +1,133 @@
 """
-Base agent interface for Enterprise AI.
+Enterprise AI Agent - Base Implementation.
+
+Provides the core Agent class that orchestrates LLM reasoning and tool execution.
 """
 
-import abc
-import time
-import uuid
-import asyncio
-from typing import Any, Dict, List, Optional
+from typing import List, Optional, Dict, Any, AsyncIterator
 
-from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.schema import ToolCall, ToolResult, Message
-from enterprise_ai.types import MessageProtocol
+from enterprise_ai.mcp.executor import ToolMCP
+from enterprise_ai.schema import Message
+from enterprise_ai.schema.memory import ConversationMemory, InMemoryConversation
+from enterprise_ai.agent.reasoning.base import ReasoningPattern
+from enterprise_ai.agent.role import AgentRole
+from enterprise_ai.logger import get_optimized_logger
 
-logger = get_optimized_logger("agent.base")
+logger = get_optimized_logger("agent")
 
 
-class BaseAgent(LLMProvider):
+class Agent:
     """
-    Base agent class that inherits from LLMProvider and adds MCP tool execution.
+    Base agent implementation that orchestrates reasoning and tool execution.
     
-    Agents inherit ALL LLM provider methods (complete, acomplete, complete_stream, etc.)
-    and add tool execution capabilities through MCP integration.
+    Connects LLM, reasoning pattern, and MCP to create a coherent AI agent
+    that can process tasks and use tools as needed.
     """
-    
+
     def __init__(
-        self,
-        agent_id: Optional[str] = None,
-        name: Optional[str] = None,
-        description: Optional[str] = None,
-        **kwargs: Any
+        self, 
+        name: str,
+        role: AgentRole,
+        llm: LLMProvider,
+        mcp: ToolMCP,
+        reasoning_pattern: ReasoningPattern,
+        memory: Optional[ConversationMemory] = None,
+        verbose: bool = False
     ):
-        """Initialize the base agent."""
-        # Initialize LLM provider with all kwargs
-        super().__init__(**kwargs)
-        
-        # Agent-specific attributes
-        self.agent_id = agent_id or str(uuid.uuid4())
-        self.agent_name = name or f"Agent-{self.agent_id[:8]}"
-        self.agent_description = description or f"Enterprise AI Agent: {self.agent_name}"
-        
-        # Agent execution tracking
-        self._agent_start_time = time.time()
-        self._conversation_count = 0
-        self._tool_execution_count = 0
-        self._agent_error_count = 0
-        
-        logger.info(f"Initialized agent: {self.agent_name} ({self.agent_id})")
-    
-    # Override complete to ensure proper async handling
-    def complete(self, messages: List[MessageProtocol], **kwargs: Any) -> MessageProtocol:
-        """Generate completion (sync wrapper around async method)."""
-        try:
-            # Use asyncio.run for sync context
-            return asyncio.run(self.acomplete(messages, **kwargs))
-        except Exception as e:
-            self._track_agent_error()
-            logger.error(f"Completion failed for agent {self.agent_name}: {e}")
-            raise
-    
-    @abc.abstractmethod
-    async def chat(
-        self,
-        messages: List[MessageProtocol],
-        tools: Optional[List[Dict[str, Any]]] = None,
-        max_iterations: int = 5,
-        **kwargs: Any
-    ) -> List[MessageProtocol]:
         """
-        Generate completion with automatic tool execution loop.
-        
-        This is the main agent method that combines LLM completion with MCP tool execution.
+        Initialize agent with components.
         
         Args:
-            messages: List of conversation messages
-            tools: Available tools for the conversation
-            max_iterations: Maximum tool execution iterations
-            **kwargs: Additional parameters for LLM completion
+            name: Agent name
+            role: Agent role with system prompt
+            llm: LLM provider for generating responses
+            mcp: Tool execution coordinator
+            reasoning_pattern: Strategy for reasoning and tool usage
+            memory: Conversation memory (defaults to InMemoryConversation)
+            verbose: Enable detailed logging
+        """
+        self.name = name
+        self.role = role
+        self.llm = llm
+        self.mcp = mcp
+        self.reasoning_pattern = reasoning_pattern
+        self.memory = memory or InMemoryConversation()
+        self.verbose = verbose
+        
+        # Configure the reasoning pattern
+        self.reasoning_pattern.configure(llm=llm, mcp=mcp, verbose=verbose)
+        
+        # Initialize with system prompt
+        if role.system_prompt:
+            self.memory.add_system_message(role.system_prompt)
             
-        Returns:
-            List of messages including tool executions and responses
-        """
-        pass
+        if verbose:
+            logger.info(f"Agent '{name}' initialized with role '{role.name}'")
     
-    @abc.abstractmethod
-    async def execute_tools(
-        self,
-        tool_calls: List[ToolCall],
-        session_id: Optional[str] = None,
-        **kwargs: Any
-    ) -> List[ToolResult]:
+    async def process(self, user_input: str) -> str:
         """
-        Execute tool calls through MCP.
+        Process user input and return response.
+        
+        This method adds the user input to memory and delegates
+        processing to the reasoning pattern.
         
         Args:
-            tool_calls: List of tool calls to execute
-            session_id: Optional session ID for tracking
-            **kwargs: Additional execution context
+            user_input: User message content
             
         Returns:
-            List of tool execution results
+            Final agent response
         """
-        pass
-    
-    def get_agent_info(self) -> Dict[str, Any]:
-        """Get agent information including LLM provider info."""
-        return {
-            # Agent-specific info
-            "agent_id": self.agent_id,
-            "name": self.agent_name,
-            "description": self.agent_description,
-            "uptime_seconds": time.time() - self._agent_start_time,
-            "conversation_count": self._conversation_count,
-            "tool_execution_count": self._tool_execution_count,
-            "error_count": self._agent_error_count,
+        # Add user message to memory
+        self.memory.add_user_message(user_input)
+        
+        # Get messages from memory
+        messages = self.memory.get_messages()
+        
+        # Let the reasoning pattern handle the interaction
+        if self.verbose:
+            logger.info(f"Processing input with {self.reasoning_pattern.__class__.__name__}")
             
-            # LLM provider info
-            "model_name": self.get_model_name(),
-            "llm_metrics": self.get_metrics(),
-            "model_info": self.get_model_info().to_dict() if hasattr(self.get_model_info(), 'to_dict') else str(self.get_model_info()),
-        }
+        final_response = await self.reasoning_pattern.process(messages, self.memory)
+        
+        # Return the final text response
+        return final_response
     
-    def _track_agent_conversation(self) -> None:
-        """Track agent conversation metrics."""
-        self._conversation_count += 1
+    async def process_stream(self, user_input: str) -> AsyncIterator[str]:
+        """
+        Process user input and stream the response.
+        
+        Args:
+            user_input: User message content
+            
+        Returns:
+            Async iterator of response chunks
+        """
+        # Add user message to memory
+        self.memory.add_user_message(user_input)
+        
+        # Get messages from memory
+        messages = self.memory.get_messages()
+        
+        # Let the reasoning pattern handle the streaming interaction
+        if self.verbose:
+            logger.info(f"Processing streaming input with {self.reasoning_pattern.__class__.__name__}")
+            
+        async for response_chunk in self.reasoning_pattern.process_stream(messages, self.memory):
+            yield response_chunk
     
-    def _track_agent_tool_execution(self, count: int = 1) -> None:
-        """Track agent tool execution metrics."""
-        self._tool_execution_count += count
-    
-    def _track_agent_error(self) -> None:
-        """Track agent error metrics."""
-        self._agent_error_count += 1
+    def reset(self) -> None:
+        """Reset agent state while preserving system prompt."""
+        # Get system messages
+        messages = self.memory.get_messages()
+        system_messages = [m for m in messages if m.role == "system"]
+        
+        # Clear memory
+        self.memory.clear()
+        
+        # Re-add system messages
+        for msg in system_messages:
+            self.memory.add_message(msg)
+            
+        if self.verbose:
+            logger.info(f"Agent '{self.name}' state reset")

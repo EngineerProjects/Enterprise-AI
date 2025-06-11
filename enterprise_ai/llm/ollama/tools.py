@@ -39,9 +39,7 @@ class OllamaToolConverter:
                     # Convert function to ToolDefinition then to Ollama format
                     logger.debug(f"Converting function {tool.__name__} to ToolDefinition")
                     tool_def = ToolConverter.function_to_tool_definition(tool)
-                    logger.debug(f"ToolDefinition created: {tool_def.get_name()}")
                     ollama_tool = OllamaToolConverter._tool_definition_to_ollama_format(tool_def)
-                    logger.debug(f"Ollama tool format: {ollama_tool}")
                     normalized.append(ollama_tool)
                 elif isinstance(tool, dict):
                     # Validate and convert dictionary to Ollama format
@@ -55,17 +53,11 @@ class OllamaToolConverter:
                     raise ValueError(f"Unsupported tool format: {type(tool)}")
             except Exception as e:
                 logger.error(f"Failed to normalize tool {i} ({type(tool)}): {e}")
-                logger.debug(f"Tool that failed: {tool}")
                 # Continue with other tools instead of failing completely
                 continue
         
         if normalized:
-            logger.debug(f"Normalized {len(normalized)} tools to Ollama format")
-            # Debug: Log first tool structure for verification
-            if logger.isEnabledFor(10):  # DEBUG level
-                logger.debug(f"First normalized tool structure: {normalized[0]}")
-        
-        return normalized
+            return normalized
 
     @staticmethod
     def _tool_definition_to_ollama_format(tool_def: ToolDefinition) -> Dict[str, Any]:
@@ -183,19 +175,16 @@ class OllamaToolExtractor:
                 found_calls = extract_func(content)
                 if found_calls:
                     tool_calls.extend(found_calls)
-                    logger.debug(f"Extracted {len(found_calls)} tool calls using {strategy_name}")
                     # Stop after first successful extraction to avoid duplicates
                     break
             except Exception as e:
-                logger.debug(f"Strategy {strategy_name} failed: {e}")
+                pass
         
         # Validate extracted tool calls
         validated_calls = []
         for tc in tool_calls:
             if tc.name and tc.arguments is not None:
                 validated_calls.append(tc)
-            else:
-                logger.debug(f"Skipping invalid tool call: {tc}")
         
         return validated_calls
 
@@ -230,7 +219,7 @@ class OllamaToolExtractor:
                             except json.JSONDecodeError:
                                 continue
             except Exception as e:
-                logger.debug(f"Failed to parse Ollama calls: {e}")
+                pass
         return tool_calls
 
     def _extract_from_json_blocks(self, content: str) -> List[ToolCall]:
@@ -252,7 +241,6 @@ class OllamaToolExtractor:
                     if tool_call:
                         tool_calls.append(tool_call)
             except json.JSONDecodeError as e:
-                logger.debug(f"Failed to parse JSON block: {e}")
                 continue
         return tool_calls
 
@@ -296,7 +284,6 @@ class OllamaToolExtractor:
                 )
                 tool_calls.append(tool_call)
             except Exception as e:
-                logger.debug(f"Failed to parse function call: {e}")
                 continue
         return tool_calls
 
@@ -322,7 +309,6 @@ class OllamaToolExtractor:
                 )
                 tool_calls.append(tool_call)
             except Exception as e:
-                logger.debug(f"Failed to parse tool tag: {e}")
                 continue
         return tool_calls
 
@@ -401,6 +387,6 @@ class OllamaToolExtractor:
                         tool_call = ToolCall.from_dict(raw_tc)
                         tool_calls.append(tool_call)
                 except Exception as e:
-                    logger.debug(f"Failed to parse native tool call: {e}")
+                    pass
         
         return tool_calls

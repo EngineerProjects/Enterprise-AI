@@ -1,385 +1,293 @@
 """
-Enhanced tool execution engine for Enterprise AI MCP with comprehensive control.
+Simplified MCP Executor - Tool execution focused.
 
-This module handles tool execution with approval mechanisms, sandbox routing,
-session management, and agent communication support.
+Leverages existing tool infrastructure for clean, simple tool execution.
 """
 
 import asyncio
 import inspect
 import time
-import json
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Callable, Dict, List, Optional, Set
 
 from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.schema import ToolCall, ToolResult, Message
-from enterprise_ai.types import MessageProtocol
-from enterprise_ai.tool.core.base import ExecutionMode, ToolCapability
-from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
-from enterprise_ai.config import get_config
+from enterprise_ai.schema import ToolCall
+from enterprise_ai.tool.core.result import ToolResult
+from enterprise_ai.tool.core.registry import ToolRegistry
+from enterprise_ai.tool.core.base import ToolCapability, ExecutionMode
+from enterprise_ai.mcp.sandbox_config import SandboxConfig, DEFAULT_SANDBOX_CONFIG
+from enterprise_ai.mcp.sandbox_executor import SimpleMCPExecutor, SandboxToolExecutor
 
-from enterprise_ai.mcp.config import MCPConfig
-from enterprise_ai.mcp.session_manager import SessionManager
-
-logger = get_optimized_logger("mcp.executor")
+logger = get_optimized_logger("new_mcp.executor")
 
 
-class ToolExecutor:
+class ToolMCP:
     """
-    Enhanced tool executor with MCP integration and comprehensive control.
+    Simplified MCP for Enterprise AI - Tool execution only.
     
-    Supports sync/async execution, approval workflows, sandbox routing,
-    session management, and agent communication.
+    Leverages existing ToolRegistry and focuses purely on executing tools
+    and returning clean, structured results.
     """
 
-    def __init__(
-        self,
-        config: Optional[MCPConfig] = None,
-        session_manager: Optional[SessionManager] = None,
-        tools: Optional[Dict[str, Callable]] = None,
-        approval_callback: Optional[Callable] = None,
-    ):
+    def __init__(self, timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True):
         """
-        Initialize the tool executor.
+        Initialize SimpleMCP.
         
         Args:
-            config: MCP configuration
-            session_manager: Session manager instance
-            tools: Dictionary mapping tool names to callable functions
-            approval_callback: Async function to request approval for tool execution
+            timeout: Default timeout for tool execution
+            sandbox_config: Optional sandbox configuration for manual control
+            auto_load_tools: Whether to automatically load tools from registry
         """
-        self.config = config or MCPConfig.from_config()
-        self.session_manager = session_manager
-        self.tools = tools or {}
-        self._approval_callback = approval_callback
-        
-        # Initialize sandbox client
-        self.sandbox_client = None
-        if self.config.sandbox_enabled:
-            try:
-                self.sandbox_client = create_sandbox_client()
-            except Exception as e:
-                logger.warning("Failed to initialize sandbox client: %s", e)
-        
-        # Execution tracking
+        self.timeout = timeout
+        self.sandbox_config = sandbox_config or DEFAULT_SANDBOX_CONFIG
         self._execution_count = 0
-        self._total_execution_time = 0.0
-        self._failed_executions = 0
-        self._approved_executions = 0
-        self._denied_executions = 0
-        self._sandbox_executions = 0
+        self._failed_count = 0
+        self._tools = {}
         
-        logger.info("ToolExecutor initialized with %d tools | Mode: %s | Sandbox: %s", 
-                   len(self.tools), self.config.execution_mode, 
-                   "enabled" if self.sandbox_client else "disabled")
+        # Initialize tool executor
+        self.tool_executor = SimpleMCPExecutor(
+            tools={},
+            execution_timeout=timeout,
+            verbose=False
+        )
+        
+        # Initialize sandbox executor if enabled
+        self.sandbox_executor = None
+        if self.sandbox_config.enabled:
+            self.sandbox_executor = SandboxToolExecutor(
+                tools={},
+                execution_timeout=timeout,
+                default_sandbox_mode=self.sandbox_config.default_mode,
+                enable_sandbox_routing=True,
+                verbose=False
+            )
+        
+        # Load available tools from registry if requested
+        if auto_load_tools:
+            try:
+                self.registry = ToolRegistry()
+                self._tools = self._load_tools_from_registry()
+                
+                if self._tools:
+                    logger.info("SimpleMCP initialized with %d tools", len(self._tools))
+                else:
+                    logger.error("No tools loaded from registry")
+            except Exception as e:
+                logger.error("Failed to load tools from registry: %s", e)
+                logger.info("SimpleMCP initialized without auto-loading tools")
+        else:
+            logger.info("SimpleMCP initialized without auto-loading tools")
+
+    def _load_tools_from_registry(self) -> Dict[str, Callable]:
+        """Load tool functions from the existing registry."""
+        tools = {}
+        
+        if not hasattr(self, 'registry'):
+            return tools
+        
+        try:
+            # Get all tool classes from registry
+            tool_classes = self.registry.get_all_tool_classes()
+            
+            for tool_name, tool_class in tool_classes.items():
+                try:
+                    # Create tool instance
+                    tool_instance = tool_class()
+                    
+                    # Get the execute method
+                    if hasattr(tool_instance, 'execute') and callable(tool_instance.execute):
+                        # Register with class name (e.g., 'WebSearch')
+                        tools[tool_name] = tool_instance.execute
+                        
+                        # Also register with snake_case name if tool has a name attribute
+                        if hasattr(tool_instance, 'name') and isinstance(tool_instance.name, str):
+                            instance_name = tool_instance.name
+                            if instance_name != tool_name:
+                                tools[instance_name] = tool_instance.execute
+                                logger.debug("Registered tool alias: %s -> %s", instance_name, tool_name)
+                        
+                        # Also add normalized version of class name (e.g., 'web_search')
+                        snake_name = self._normalize_tool_name(tool_name)
+                        if snake_name != tool_name:
+                            tools[snake_name] = tool_instance.execute
+                            logger.debug("Registered normalized name: %s -> %s", snake_name, tool_name)
+                    else:
+                        logger.error("Tool %s has no execute method", tool_name)
+                        
+                except Exception as e:
+                    logger.error("Failed to load tool %s: %s", tool_name, e)
+                    
+        except Exception as e:
+            logger.error("Failed to load tools from registry: %s", e)
+            
+        return tools
+        
+    def _normalize_tool_name(self, name: str) -> str:
+        """Convert CamelCase to snake_case for consistent tool naming."""
+        import re
+        # Convert CamelCase to snake_case
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
     def register_tool(self, name: str, func: Callable) -> None:
-        """Register a tool function for execution."""
-        self.tools[name] = func
-        if self.config.verbose_logging:
-            logger.info("Registered tool: %s", name)
+        """Register a tool function directly."""
+        self._tools[name] = func
+        self.tool_executor.register_tool(name, func)
+        
+        # Also register with sandbox executor if enabled
+        if self.sandbox_executor:
+            self.sandbox_executor.register_tool(name, func)
+        
+        logger.info("Registered tool: %s", name)
 
-    def register_tools(self, tools: Dict[str, Callable]) -> None:
-        """Register multiple tools at once."""
-        self.tools.update(tools)
-        if self.config.verbose_logging:
-            logger.info("Registered %d tools: %s", len(tools), list(tools.keys()))
+    def get_available_tools(self) -> List[str]:
+        """Get list of available tool names."""
+        return list(self._tools.keys())
 
-    def set_approval_callback(self, callback: Optional[Callable]) -> None:
-        """Set or update the approval callback."""
-        self._approval_callback = callback
-        if callback and self.config.verbose_logging:
-            logger.info("Approval callback updated")
-
-    def can_execute_tool(self, tool_name: str) -> bool:
-        """Check if a tool can be executed based on policies."""
-        if tool_name not in self.tools:
-            return False
-        
-        return self.config.is_tool_allowed(tool_name)
-
-    def should_use_sandbox(self, tool_name: str) -> bool:
-        """Determine if a tool should be executed in sandbox."""
-        if not self.sandbox_client or not self.config.sandbox_auto_routing:
-            return False
-        
-        tool = self.tools.get(tool_name)
-        if not tool:
-            return False
-        
-        # Check if tool has dangerous capabilities
-        if hasattr(tool, 'capabilities'):
-            dangerous_capabilities = {
-                ToolCapability.CODE_EXECUTION,
-                ToolCapability.TERMINAL_ACCESS,
-                ToolCapability.SHELL_ACCESS,
-                ToolCapability.FILE_ACCESS
-            }
-            tool_capabilities = getattr(tool, 'capabilities', set())
-            return any(cap in dangerous_capabilities for cap in tool_capabilities)
-        
-        # Fallback: check tool name for dangerous patterns
-        dangerous_patterns = ['execute', 'bash', 'shell', 'terminal', 'python', 'code']
-        return any(pattern in tool_name.lower() for pattern in dangerous_patterns)
-
-    def _should_request_approval(self, tool_call: ToolCall) -> bool:
-        """Determine if approval should be requested for a tool call."""
-        tool_name = tool_call.function.name
-        
-        # If we have an approval callback, check config
-        if hasattr(self, '_approval_callback') and self._approval_callback:
-            # Check tool-specific danger level
-            tool = self.tools.get(tool_name)
-            danger_level = 0
-            
-            if hasattr(tool, 'config') and hasattr(tool.config, 'danger_level'):
-                danger_level = tool.config.danger_level
-            
-            return self.config.should_require_approval(tool_name, danger_level)
-        
-        # No callback available - don't require approval
-        return False
-
-    async def _request_approval(self, tool_call: ToolCall) -> bool:
-        """Request human approval for tool execution."""
-        if hasattr(self, '_approval_callback') and self._approval_callback:
-            try:
-                # Use the agent's approval callback
-                if asyncio.iscoroutinefunction(self._approval_callback):
-                    return await self._approval_callback(tool_call)
-                else:
-                    # Handle sync callback
-                    loop = asyncio.get_event_loop()
-                    return await loop.run_in_executor(None, self._approval_callback, tool_call)
-            except Exception as e:
-                logger.error("Approval callback failed: %s", e)
-                return False
-        
-        # Fallback: console-based approval for testing
-        tool_name = tool_call.function.name
-        args = tool_call.get_arguments()
-        
-        print(f"\n🔒 TOOL EXECUTION APPROVAL REQUIRED")
-        print(f"Tool: {tool_name}")
-        print(f"Arguments: {json.dumps(args, indent=2)}")
-        
-        # Auto-approve for testing when no callback is set
-        logger.info("Tool approval requested for %s (auto-approved - no callback)", tool_name)
-        self._approved_executions += 1
-        return True
-
-    async def execute_tool_calls(
-        self, 
-        tool_calls: List[ToolCall],
-        session_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
-    ) -> List[ToolResult]:
+    async def execute_tool_calls(self, tool_calls: List[ToolCall]) -> List[ToolResult]:
         """
-        Execute a list of tool calls and return results.
+        Execute a list of tool calls.
         
         Args:
             tool_calls: List of tool calls to execute
-            session_id: Optional session ID for tracking
-            context: Optional context to pass to tools
             
         Returns:
             List of tool execution results
         """
-        results = []
-        
-        if self.config.verbose_logging:
-            logger.info("Executing %s tool calls", len(tool_calls))
-        
-        for i, tool_call in enumerate(tool_calls):
-            if self.config.verbose_logging:
-                logger.info("Processing tool call %s/%s: %s", i+1, len(tool_calls), tool_call.function.name)
-            
-            result = await self._execute_single_tool(tool_call, session_id, context)
-            results.append(result)
-            
-            # Update session if provided
-            if session_id and self.session_manager:
-                self.session_manager.add_tool_execution(session_id, tool_call, result)
-        
-        return results
+        if not tool_calls:
+            return []
 
-    async def _execute_single_tool(
-        self, 
-        tool_call: ToolCall, 
-        session_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
-    ) -> ToolResult:
-        """Execute a single tool call with comprehensive error handling."""
-        start_time = time.time()
-        tool_name = tool_call.function.name
+        results = []
+        self._execution_count += len(tool_calls)
         
-        if self.config.verbose_logging:
-            logger.info("Starting execution of tool: %s", tool_name)
+        # Update tool executors with current tools
+        self.tool_executor.tools = self._tools
+        if self.sandbox_executor:
+            self.sandbox_executor.tools = self._tools
         
         try:
-            # Check execution permissions
-            if not self.can_execute_tool(tool_name):
-                self._failed_executions += 1
-                error_msg = f"Tool '{tool_name}' execution not allowed"
-                logger.warning(error_msg)
-                return self._create_error_result(
-                    tool_call_id=tool_call.id,
-                    name=tool_name,
-                    error=error_msg
-                )
-            
-            # Check if approval is required - FIXED: Make it async
-            if self._should_request_approval(tool_call):
-                approved = await self._request_approval(tool_call)
-                if not approved:
-                    self._denied_executions += 1
-                    error_msg = f"Tool '{tool_name}' execution denied by user"
-                    logger.info(error_msg)
-                    return self._create_error_result(
-                        tool_call_id=tool_call.id,
-                        name=tool_name,
-                        error=error_msg
-                    )
-            
-            # Determine execution environment
-            use_sandbox = self.should_use_sandbox(tool_name)
-            
-            if use_sandbox and self.sandbox_client:
-                result = await self._execute_in_sandbox(tool_call, context)
-                self._sandbox_executions += 1
+            # Determine if we should use sandbox based on config and tool types
+            if self.sandbox_executor and self.sandbox_config.enabled:
+                # Check if any tools are in the dangerous list
+                dangerous_tools = [
+                    tc for tc in tool_calls 
+                    if tc.function.name in self.sandbox_config.dangerous_tools
+                ]
+                
+                # Split tool calls between dangerous and safe
+                safe_tools = [tc for tc in tool_calls if tc not in dangerous_tools]
+                
+                # Process dangerous tools with sandbox
+                if dangerous_tools:
+                    sandbox_results = await self.sandbox_executor.aexecute_tool_calls(dangerous_tools)
+                    results.extend(sandbox_results)
+                
+                # Process safe tools directly
+                if safe_tools:
+                    safe_results = await self.tool_executor.aexecute_tool_calls(safe_tools)
+                    results.extend(safe_results)
             else:
-                result = await self._execute_directly(tool_call, context)
+                # Process all tools directly
+                results = await self.tool_executor.aexecute_tool_calls(tool_calls)
+                
+            # Track failures
+            self._failed_count += sum(1 for r in results if not r.success)
             
-            execution_time = time.time() - start_time
-            self._track_execution(execution_time, success=True)
-            
-            if self.config.verbose_logging:
-                logger.info("Tool %s completed successfully in %.3fs", tool_name, execution_time)
-            
-            return result
-            
+            return results
         except Exception as e:
-            execution_time = time.time() - start_time
-            self._track_execution(execution_time, success=False)
-            
-            error_msg = str(e)
-            logger.error("Tool execution failed for %s: %s", tool_name, error_msg)
-            
-            return self._create_error_result(
-                tool_call_id=tool_call.id,
-                name=tool_name,
-                error=error_msg,
-                execution_time=execution_time
-            )
+            self._failed_count += len(tool_calls)
+            # Create error results for all tool calls
+            for tool_call in tool_calls:
+                results.append(
+                    ToolResult(
+                        tool_call_id=tool_call.id,
+                        name=tool_call.function.name,
+                        result="",
+                        success=False,
+                        error=f"MCP execution error: {str(e)}"
+                    )
+                )
+            return results
 
-    async def _execute_directly(
-        self, 
-        tool_call: ToolCall, 
-        context: Optional[Dict[str, Any]] = None
-    ) -> ToolResult:
-        """Execute tool directly in the current environment."""
-        tool_name = tool_call.function.name
-        tool_func = self.tools[tool_name]
-        
-        # Prepare arguments
-        args = tool_call.get_arguments()
-        if context:
-            args.update(context)
-        
-        # Execute with timeout
+    async def _execute_single_tool(self, tool_call: ToolCall) -> ToolResult:
+        """Execute a single tool call with error handling."""
+        # This method is deprecated but kept for backward compatibility
+        # It now delegates to the tool executor
+        if self.sandbox_executor and self.sandbox_config.enabled and tool_call.function.name in self.sandbox_config.dangerous_tools:
+            results = await self.sandbox_executor.aexecute_tool_calls([tool_call])
+        else:
+            results = await self.tool_executor.aexecute_tool_calls([tool_call])
+            
+        return results[0] if results else ToolResult(
+            tool_call_id=tool_call.id,
+            name=tool_call.function.name,
+            result="",
+            success=False,
+            error="No result returned from tool executor"
+        )
+
+    async def _execute_directly(self, tool_call: ToolCall, tool_func: Callable, args: Dict[str, Any], start_time: float) -> ToolResult:
+        """Execute tool directly."""
         try:
             if inspect.iscoroutinefunction(tool_func):
-                raw_result = await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     tool_func(**args), 
-                    timeout=self.config.tool_execution_timeout
+                    timeout=self.timeout
                 )
             else:
                 # Run sync function in thread pool
                 loop = asyncio.get_event_loop()
-                raw_result = await asyncio.wait_for(
+                result = await asyncio.wait_for(
                     loop.run_in_executor(None, lambda: tool_func(**args)),
-                    timeout=self.config.tool_execution_timeout
+                    timeout=self.timeout
                 )
             
+            execution_time = time.time() - start_time
+            
             return self._create_success_result(
-                tool_call_id=tool_call.id,
-                name=tool_name,
-                raw_result=raw_result
+                tool_call.id, tool_call.function.name, result, execution_time
             )
             
         except asyncio.TimeoutError:
-            raise Exception(f"Tool execution timed out after {self.config.tool_execution_timeout}s")
+            self._failed_count += 1
+            return self._create_error_result(
+                tool_call.id, tool_call.function.name, f"Tool execution timed out after {self.timeout}s"
+            )
 
-    async def _execute_in_sandbox(
-        self, 
-        tool_call: ToolCall, 
-        context: Optional[Dict[str, Any]] = None
-    ) -> ToolResult:
-        """Execute tool in sandbox environment."""
-        if not self.sandbox_client:
-            raise Exception("Sandbox client not available")
+    async def _execute_in_sandbox(self, tool_call: ToolCall, tool_func: Callable, args: Dict[str, Any], start_time: float) -> ToolResult:
+        """Execute tool in sandbox (placeholder for now)."""
+        # For now, just execute directly with a note
+        # You can integrate actual sandbox execution here later
+        logger.info("Tool %s marked for sandbox execution", tool_call.function.name)
         
-        tool_name = tool_call.function.name
-        args = tool_call.get_arguments()
-        if context:
-            args.update(context)
+        result = await self._execute_directly(tool_call, tool_func, args, start_time)
         
-        if self.config.verbose_logging:
-            logger.info("Executing %s in sandbox", tool_name)
+        # Add sandbox metadata
+        if result.metadata is None:
+            result.metadata = {}
+        result.metadata["sandbox_intended"] = True
+        result.metadata["sandbox_available"] = False  # Change when you integrate actual sandbox
         
-        # Execute through sandbox client
-        sandbox_result = await self.sandbox_client.execute_tool(
-            tool_name=tool_name,
-            arguments=args,
-            timeout=self.config.tool_execution_timeout
-        )
-        
-        return ToolResult(
-            tool_call_id=tool_call.id,
-            name=tool_name,
-            result=sandbox_result.get("result", ""),
-            success=sandbox_result.get("success", False),
-            error=sandbox_result.get("error"),
-            execution_time=sandbox_result.get("execution_time"),
-            metadata={"executed_in_sandbox": True}
-        )
+        return result
 
     def _create_success_result(
-        self,
-        tool_call_id: str,
-        name: str,
-        raw_result: Any
+        self, tool_call_id: str, name: str, result: Any, execution_time: float
     ) -> ToolResult:
-        """Create a success ToolResult from raw result."""
-        try:
-            # Process the result safely
-            safe_result = self._make_result_safe(raw_result)
-            
-            return ToolResult(
-                tool_call_id=tool_call_id,
-                name=name,
-                result=safe_result,
-                success=True,
-                error=None,
-                metadata={}
-            )
-        except Exception as e:
-            logger.error("Failed to create success result for %s: %s", name, str(e))
-            return ToolResult(
-                tool_call_id=tool_call_id,
-                name=name,
-                result=f"Tool executed but result processing failed: {str(e)}",
-                success=False,
-                error=f"Result processing error: {str(e)}",
-                metadata={}
-            )
+        """Create a success ToolResult."""
+        # Clean up the result for safe serialization
+        cleaned_result = self._clean_result(result)
+        
+        return ToolResult(
+            tool_call_id=tool_call_id,
+            name=name,
+            result=cleaned_result,
+            success=True,
+            error=None,
+            execution_time=execution_time,
+            metadata={}
+        )
 
     def _create_error_result(
-        self,
-        tool_call_id: str,
-        name: str,
-        error: str,
-        execution_time: Optional[float] = None
+        self, tool_call_id: str, name: str, error: str, execution_time: Optional[float] = None
     ) -> ToolResult:
         """Create an error ToolResult."""
         return ToolResult(
@@ -392,126 +300,145 @@ class ToolExecutor:
             metadata={}
         )
 
-    def _make_result_safe(self, result: Any) -> Any:
-        """Make the result safe for serialization."""
+    def _clean_result(self, result: Any) -> Any:
+        """Clean result for safe serialization."""
         try:
-            if isinstance(result, dict):
-                # Wrap to avoid field conflicts
-                return {"tool_output": result}
-            elif isinstance(result, (str, int, float, bool)):
-                return result
-            elif isinstance(result, list):
+            if isinstance(result, (str, int, float, bool, list, dict)):
                 return result
             else:
                 return str(result)
-        except Exception as e:
-            logger.warning("Error making result safe: %s", e)
-            return f"Result: {str(result)}"
+        except Exception:
+            return "Result could not be serialized"
 
-    def _track_execution(self, execution_time: float, success: bool = True) -> None:
-        """Track execution metrics."""
-        self._execution_count += 1
-        self._total_execution_time += execution_time
-        if not success:
-            self._failed_executions += 1
-
-    def create_tool_messages(self, tool_results: List[ToolResult]) -> List[MessageProtocol]:
-        """Convert tool results to tool messages for conversation continuation."""
-        messages = []
+    def get_stats(self) -> Dict[str, Any]:
+        """Get execution statistics."""
+        stats = {
+            "total_executions": self._execution_count,
+            "successful_executions": self._execution_count - self._failed_count,
+            "failed_executions": self._failed_count,
+            "success_rate": (self._execution_count - self._failed_count) / max(1, self._execution_count),
+            "available_tools": len(self._tools),
+            "tool_names": list(self._tools.keys())
+        }
         
-        for result in tool_results:
+        # Add executor stats if available
+        if hasattr(self.tool_executor, 'get_execution_stats'):
+            stats["executor_stats"] = self.tool_executor.get_execution_stats()
+            
+        # Add sandbox stats if available
+        if self.sandbox_executor and hasattr(self.sandbox_executor, 'get_execution_stats'):
+            stats["sandbox_stats"] = self.sandbox_executor.get_execution_stats()
+            
+        return stats
+
+    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """
+        Get tool definitions for all available tools in a format suitable for LLMs.
+        
+        Returns:
+            List of tool definitions in the format expected by LLM providers
+        """
+        from enterprise_ai.tool.core.registry import ToolRegistry
+        from enterprise_ai.schema.tool import ToolDefinition
+        
+        registry = ToolRegistry()
+        tool_definitions = []
+        
+        # Get the actual tool keys from the MCP
+        tool_keys = self.get_available_tools()
+        
+        # Build definitions for each tool
+        for tool_name in tool_keys:
             try:
-                content = self._safe_result_to_content(result)
+                # Try to get more info from registry if available
+                tool_class = None
+                # First try with exact name
+                tool_class = registry.get_tool_class(tool_name)
                 
-                tool_message = Message.tool_message(
-                    content=content,
-                    name=result.name,
-                    tool_call_id=result.tool_call_id,
-                    metadata={
-                        "execution_success": result.success,
-                        "execution_time": result.execution_time,
-                        "tool_metadata": result.metadata or {}
+                # If not found and name is lowercase with underscores, try with CamelCase
+                if not tool_class and "_" in tool_name:
+                    # Convert snake_case to CamelCase
+                    camel_name = "".join(word.capitalize() for word in tool_name.split("_"))
+                    tool_class = registry.get_tool_class(camel_name)
+                    
+                if tool_class:
+                    # Get tool info from registry
+                    tool_info = registry.get_tool_info(tool_class.__name__)
+                    
+                    # Try to get parameters directly from class instance if possible
+                    tool_instance = None
+                    try:
+                        tool_instance = tool_class()
+                    except Exception as e:
+                        logger.debug(f"Could not instantiate tool {tool_name}: {e}")
+                    
+                    # Get parameters with priority: instance > class > registry > fallback
+                    if tool_instance and hasattr(tool_instance, 'parameters') and tool_instance.parameters:
+                        parameters = tool_instance.parameters
+                    elif hasattr(tool_class, 'parameters') and getattr(tool_class, 'parameters', None):
+                        parameters = getattr(tool_class, 'parameters')
+                    else:
+                        parameters = tool_info.get("parameters", {})
+                        
+                    # Try to get description with proper priority hierarchy
+                    if tool_instance and hasattr(tool_instance, 'short_description') and tool_instance.short_description:
+                        # Use short_description attribute if available
+                        description = tool_instance.short_description
+                    elif hasattr(tool_class, 'short_description') and getattr(tool_class, 'short_description', None):
+                        # Use class short_description if available
+                        description = getattr(tool_class, 'short_description')
+                    elif tool_instance and hasattr(tool_instance, 'description') and tool_instance.description:
+                        # If no short description but regular description exists on instance
+                        full_desc = tool_instance.description
+                        # Extract first line only for concise LLM tool description
+                        if isinstance(full_desc, str):
+                            description = full_desc.strip().split('\n')[0]
+                        else:
+                            description = str(full_desc)
+                    elif hasattr(tool_class, 'description') and getattr(tool_class, 'description', None):
+                        # If no short description but regular description exists on class
+                        full_desc = getattr(tool_class, 'description')
+                        if isinstance(full_desc, str):
+                            description = full_desc.strip().split('\n')[0]
+                        else:
+                            description = str(full_desc)
+                    else:
+                        # Fall back to registry info or generic description
+                        description = tool_info.get("description", f"Tool: {tool_name}")
+                else:
+                    # Fallback to minimal definition
+                    parameters = {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
                     }
-                )
-                messages.append(tool_message)
+                    description = f"Tool: {tool_name}"
+                    
+                # Create a tool definition with the EXACT name from MCP
+                tool_def = {
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,  # Use exact name from MCP
+                        "description": description,
+                        "parameters": parameters
+                    }
+                }
                 
-                if self.config.verbose_logging:
-                    logger.info("Created tool message for %s: success=%s", result.name, result.success)
+                # Add the tool definition
+                tool_definitions.append(tool_def)
                 
             except Exception as e:
-                logger.error("Failed to create tool message for %s: %s", result.name, e)
-                # Create a fallback error message
-                error_message = Message.tool_message(
-                    content=f"Error creating tool message: {str(e)}",
-                    name=result.name,
-                    tool_call_id=result.tool_call_id,
-                    metadata={
-                        "execution_success": False,
-                        "error": "Message creation failed"
-                    }
-                )
-                messages.append(error_message)
+                logger.error("Error creating definition for tool %s: %s", tool_name, e)
         
-        return messages
-
-    def _safe_result_to_content(self, result: ToolResult) -> str:
-        """Safely convert tool result to message content."""
-        try:
-            if not result.success and result.error:
-                return f"Error: {result.error}"
-            
-            if isinstance(result.result, str):
-                return result.result
-            elif isinstance(result.result, dict):
-                # Handle wrapped tool_output format
-                if "tool_output" in result.result and len(result.result) == 1:
-                    return json.dumps(result.result["tool_output"], indent=2, default=str)
-                else:
-                    return json.dumps(result.result, indent=2, default=str)
-            elif isinstance(result.result, list):
-                return json.dumps(result.result, indent=2, default=str)
-            else:
-                return str(result.result)
-                
-        except Exception as e:
-            logger.warning("Error converting result to content: %s", e)
-            return f"Tool executed but result formatting failed: {str(e)}"
-
-    def get_execution_stats(self) -> Dict[str, Any]:
-        """Get execution statistics."""
-        avg_time = (
-            self._total_execution_time / self._execution_count 
-            if self._execution_count > 0 else 0
-        )
-        
-        success_rate = (
-            (self._execution_count - self._failed_executions) / self._execution_count
-            if self._execution_count > 0 else 0
-        )
-        
-        return {
-            "total_executions": self._execution_count,
-            "successful_executions": self._execution_count - self._failed_executions,
-            "failed_executions": self._failed_executions,
-            "approved_executions": self._approved_executions,
-            "denied_executions": self._denied_executions,
-            "sandbox_executions": self._sandbox_executions,
-            "success_rate": success_rate,
-            "total_execution_time": self._total_execution_time,
-            "average_execution_time": avg_time,
-            "registered_tools": list(self.tools.keys()),
-            "execution_mode": self.config.execution_mode,
-            "sandbox_enabled": self.sandbox_client is not None,
-        }
+        return tool_definitions
 
     def reset_stats(self) -> None:
         """Reset execution statistics."""
         self._execution_count = 0
-        self._total_execution_time = 0.0
-        self._failed_executions = 0
-        self._approved_executions = 0
-        self._denied_executions = 0
-        self._sandbox_executions = 0
-        
-        if self.config.verbose_logging:
-            logger.info("Tool execution statistics reset")
+        self._failed_count = 0
+
+
+# Factory function for easy creation
+def create_simple_mcp(timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True) -> ToolMCP:
+    """Create a SimpleMCP instance with optional sandbox configuration."""
+    return ToolMCP(timeout=timeout, sandbox_config=sandbox_config, auto_load_tools=auto_load_tools)

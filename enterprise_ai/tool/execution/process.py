@@ -69,6 +69,7 @@ class ProcessManagerTool(BaseTool):
     """
 
     name: str = "process_manager"
+    short_description: str = "Monitor and control system processes and terminal sessions with resource usage tracking."
     description: str = """
     Comprehensive process management with monitoring and control capabilities.
 

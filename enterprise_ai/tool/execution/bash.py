@@ -581,6 +581,7 @@ class Bash(BaseTool):
     """
 
     name: str = "bash"
+    short_description: str = "Execute bash commands with persistent sessions, security controls, and real-time output monitoring."
     description: str = """
     Enhanced bash command execution with Desktop Commander session management and safety controls.
 

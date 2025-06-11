@@ -6,16 +6,218 @@ local execution and sandbox environments based on tool capabilities and configur
 """
 
 import asyncio
+import time
+import inspect
 from typing import Any, Dict, List, Optional, Set, Callable, Union
 
 from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.llm.tool_executor import ToolExecutor
-from enterprise_ai.schema import ToolCall, ToolResult
+from enterprise_ai.schema import ToolCall
+from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.base import ToolCapability, SandboxMode, ExecutionMode
 from enterprise_ai.sandbox.client import BaseSandboxClient
 from enterprise_ai.config.sandbox import SandboxSettings
 
-logger = get_optimized_logger("sandbox.executor")
+logger = get_optimized_logger("mcp.sandbox_executor")
+
+
+class SimpleMCPExecutor:
+    """
+    Simple executor for basic tool execution within MCP.
+    Handles tool execution without sandboxing.
+    """
+    
+    def __init__(
+        self,
+        tools: Optional[Dict[str, Callable]] = None,
+        execution_timeout: float = 30.0,
+        allowed_tools: Optional[Set[str]] = None,
+        forbidden_tools: Optional[Set[str]] = None,
+        execution_mode: ExecutionMode = ExecutionMode.AUTO,
+        approval_callback: Optional[Callable[[ToolCall, str], bool]] = None,
+        verbose: bool = False
+    ):
+        """
+        Initialize the simple MCP executor.
+        
+        Args:
+            tools: Dictionary mapping tool names to callable functions
+            execution_timeout: Timeout for individual tool execution
+            allowed_tools: Set of allowed tool names
+            forbidden_tools: Set of forbidden tool names
+            execution_mode: Default execution mode for tools
+            approval_callback: Function for human approval
+            verbose: Whether to enable verbose logging
+        """
+        self.tools = tools or {}
+        self.execution_timeout = execution_timeout
+        self.allowed_tools = allowed_tools
+        self.forbidden_tools = forbidden_tools or set()
+        self.execution_mode = execution_mode
+        self.approval_callback = approval_callback
+        self.verbose = verbose
+        
+        # Execution tracking
+        self._execution_count = 0
+        self._failed_count = 0
+    
+    def register_tool(self, name: str, func: Callable) -> None:
+        """Register a tool for execution."""
+        self.tools[name] = func
+    
+    def register_tools(self, tools: Dict[str, Callable]) -> None:
+        """Register multiple tools at once."""
+        self.tools.update(tools)
+        
+        if self.verbose:
+            logger.info("Registered %s tools", len(tools))
+    
+    async def aexecute_tool_calls(
+        self, 
+        tool_calls: List[ToolCall],
+        context: Optional[Dict[str, Any]] = None
+    ) -> List[ToolResult]:
+        """Execute tool calls (async)."""
+        results = []
+        
+        for tool_call in tool_calls:
+            tool_name = tool_call.function.name
+            
+            if tool_name not in self.tools:
+                result = ToolResult(
+                    tool_call_id=tool_call.id,
+                    name=tool_name,
+                    result="",
+                    success=False,
+                    error=f"Tool '{tool_name}' not found"
+                )
+                results.append(result)
+                continue
+            
+            if self.forbidden_tools and tool_name in self.forbidden_tools:
+                result = ToolResult(
+                    tool_call_id=tool_call.id,
+                    name=tool_name,
+                    result="",
+                    success=False,
+                    error=f"Tool '{tool_name}' is forbidden"
+                )
+                results.append(result)
+                continue
+            
+            if self.allowed_tools and tool_name not in self.allowed_tools:
+                result = ToolResult(
+                    tool_call_id=tool_call.id,
+                    name=tool_name,
+                    result="",
+                    success=False,
+                    error=f"Tool '{tool_name}' is not allowed"
+                )
+                results.append(result)
+                continue
+            
+            # Execute tool
+            tool_func = self.tools[tool_name]
+            args = tool_call.get_arguments()
+            
+            # Request approval if needed
+            if self.approval_callback and self.execution_mode in (ExecutionMode.APPROVAL, ExecutionMode.HYBRID):
+                approval_message = f"Execute tool '{tool_name}' with arguments: {args}?"
+                if not self.approval_callback(tool_call, approval_message):
+                    result = ToolResult(
+                        tool_call_id=tool_call.id,
+                        name=tool_name,
+                        result="",
+                        success=False,
+                        error="Tool execution was not approved"
+                    )
+                    results.append(result)
+                    continue
+            
+            try:
+                self._execution_count += 1
+                
+                start_time = time.time()
+                
+                if inspect.iscoroutinefunction(tool_func):
+                    tool_result = await asyncio.wait_for(
+                        tool_func(**args),
+                        timeout=self.execution_timeout
+                    )
+                else:
+                    # Run sync function in thread pool
+                    loop = asyncio.get_event_loop()
+                    tool_result = await asyncio.wait_for(
+                        loop.run_in_executor(None, lambda: tool_func(**args)),
+                        timeout=self.execution_timeout
+                    )
+                
+                execution_time = time.time() - start_time
+                
+                # Create result
+                if isinstance(tool_result, ToolResult):
+                    result = tool_result
+                    # Ensure tool call ID is set
+                    if not result.tool_call_id:
+                        result.tool_call_id = tool_call.id
+                else:
+                    result = ToolResult(
+                        tool_call_id=tool_call.id,
+                        name=tool_name,
+                        result=tool_result,
+                        success=True,
+                        execution_time=execution_time
+                    )
+                
+                results.append(result)
+                
+            except asyncio.TimeoutError:
+                self._failed_count += 1
+                result = ToolResult(
+                    tool_call_id=tool_call.id,
+                    name=tool_name,
+                    result="",
+                    success=False,
+                    error=f"Tool execution timed out after {self.execution_timeout} seconds"
+                )
+                results.append(result)
+                
+            except Exception as e:
+                self._failed_count += 1
+                result = ToolResult(
+                    tool_call_id=tool_call.id,
+                    name=tool_name,
+                    result="",
+                    success=False,
+                    error=f"Tool execution failed: {str(e)}"
+                )
+                results.append(result)
+        
+        return results
+    
+    def execute_tool_calls(
+        self, 
+        tool_calls: List[ToolCall],
+        context: Optional[Dict[str, Any]] = None
+    ) -> List[ToolResult]:
+        """Execute tool calls (sync wrapper)."""
+        return asyncio.run(self.aexecute_tool_calls(tool_calls, context))
+    
+    def get_execution_stats(self) -> Dict[str, Any]:
+        """Get execution statistics."""
+        success_count = self._execution_count - self._failed_count
+        success_rate = success_count / max(1, self._execution_count)
+        
+        return {
+            "total_executions": self._execution_count,
+            "successful_executions": success_count,
+            "failed_executions": self._failed_count,
+            "success_rate": success_rate
+        }
+    
+    def reset_stats(self) -> None:
+        """Reset execution statistics."""
+        self._execution_count = 0
+        self._failed_count = 0
 
 
 class SandboxToolExecutor:
@@ -78,16 +280,14 @@ class SandboxToolExecutor:
         self.enable_sandbox_routing = enable_sandbox_routing
         
         # Initialize local executor for non-sandbox tools
-        self._local_executor = ToolExecutor(
+        self._local_executor = SimpleMCPExecutor(
             tools=tools,
-            max_iterations=1,  # Single execution, we handle iterations
             execution_timeout=execution_timeout,
             allowed_tools=allowed_tools,
             forbidden_tools=forbidden_tools,
             execution_mode=execution_mode,
             approval_callback=approval_callback,
             verbose=verbose,
-            hybrid_danger_threshold=hybrid_danger_threshold,
         )
         
         # Sandbox clients for different modes
@@ -98,16 +298,11 @@ class SandboxToolExecutor:
         self._local_executions = 0
         self._sandbox_executions = 0
         self._routing_decisions = []
-        
-        logger.info("Initialized sandbox tool executor | Routing: %s | Default mode: %s", enable_sandbox_routing, default_sandbox_mode)
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool for execution."""
         self.tools[name] = func
         self._local_executor.register_tool(name, func)
-        
-        if self.verbose:
-            logger.info("Registered tool: %s", name)
 
     def register_tools(self, tools: Dict[str, Callable]) -> None:
         """Register multiple tools at once."""
@@ -172,8 +367,11 @@ class SandboxToolExecutor:
         """Get or create sandbox client based on mode."""
         if mode == SandboxMode.UNIFIED:
             if not self._unified_sandbox:
-                self._unified_sandbox = BaseSandboxClient(self.sandbox_settings)
-                await self._unified_sandbox.start()
+                # Use LocalSandboxClient instead of BaseSandboxClient (which is an abstract class)
+                from enterprise_ai.sandbox.client import LocalSandboxClient
+                self._unified_sandbox = LocalSandboxClient()
+                # Create sandbox with the settings
+                await self._unified_sandbox.create(self.sandbox_settings)
                 
                 if self.verbose:
                     logger.info("Created unified sandbox")
@@ -182,11 +380,11 @@ class SandboxToolExecutor:
         
         elif mode == SandboxMode.INDIVIDUAL:
             if tool_name not in self._individual_sandboxes:
-                self._individual_sandboxes[tool_name] = BaseSandboxClient(self.sandbox_settings)
-                await self._individual_sandboxes[tool_name].start()
-                
-                if self.verbose:
-                    logger.info("Created individual sandbox for %s", tool_name)
+                # Use LocalSandboxClient instead of BaseSandboxClient
+                from enterprise_ai.sandbox.client import LocalSandboxClient
+                self._individual_sandboxes[tool_name] = LocalSandboxClient()
+                # Create sandbox with the settings
+                await self._individual_sandboxes[tool_name].create(self.sandbox_settings)
             
             return self._individual_sandboxes[tool_name]
         
@@ -210,6 +408,9 @@ class SandboxToolExecutor:
             # For now, we'll serialize the tool call and execute it in the sandbox
             # This is a simplified approach - in practice, you might want to
             # install tools directly in the sandbox environment
+
+            # Track start time for execution timing
+            start_time = time.time()
             
             # Create execution script for the sandbox
             execution_script = self._create_sandbox_execution_script(tool_call, context)
@@ -222,19 +423,30 @@ class SandboxToolExecutor:
             
             self._sandbox_executions += 1
             
-            return ToolResult.create_success(
-                result=result,
-                tool_name=tool_name,
+            return ToolResult(
                 tool_call_id=tool_call.id,
+                name=tool_name,
+                result=result,
+                success=True,
+                execution_time=time.time() - start_time,
                 metadata={"execution_environment": "sandbox"}
             )
             
         except Exception as e:
             logger.error("Sandbox execution failed for %s: %s", tool_name, str(e))
-            return ToolResult.create_error(
+            # If start_time is not defined due to an error before its assignment, set execution_time to None
+            execution_time = None
+            try:
+                execution_time = time.time() - start_time
+            except Exception:
+                pass
+            return ToolResult(
+                tool_call_id=tool_call.id,
+                name=tool_name,
+                result="",
+                success=False,
                 error=f"Sandbox execution failed: {str(e)}",
-                tool_name=tool_name,
-                tool_call_id=tool_call.id
+                execution_time=execution_time
             )
 
     def _create_sandbox_execution_script(
@@ -316,20 +528,18 @@ class SandboxToolExecutor:
             else:
                 # Execute locally
                 local_results = await self._local_executor.aexecute_tool_calls([tool_call], context)
-                result = local_results[0] if local_results else ToolResult.create_error(
-                    error="No result from local execution",
-                    tool_name=tool_name,
-                    tool_call_id=tool_call.id
+                result = local_results[0] if local_results else ToolResult(
+                    tool_call_id=tool_call.id,
+                    name=tool_name,
+                    result="",
+                    success=False,
+                    error="No result from local execution"
                 )
                 self._local_executions += 1
             
             results.append(result)
         
         return results
-
-    def create_tool_messages(self, tool_results: List[ToolResult]):
-        """Create tool messages from results."""
-        return self._local_executor.create_tool_messages(tool_results)
 
     async def cleanup(self) -> None:
         """Clean up sandbox resources."""
@@ -338,12 +548,12 @@ class SandboxToolExecutor:
         
         # Clean up unified sandbox
         if self._unified_sandbox:
-            await self._unified_sandbox.stop()
+            await self._unified_sandbox.cleanup()
             self._unified_sandbox = None
         
         # Clean up individual sandboxes
         for sandbox in self._individual_sandboxes.values():
-            await sandbox.stop()
+            await sandbox.cleanup()
         self._individual_sandboxes.clear()
         
         if self.verbose:
@@ -381,7 +591,7 @@ class SandboxToolExecutor:
         if self.verbose:
             logger.info("Default sandbox mode changed from %s to %s", old_mode, mode)
 
-    def enable_sandbox_routing(self, enable: bool = True) -> None:
+    def set_sandbox_routing(self, enable: bool = True) -> None:
         """Enable or disable sandbox routing."""
         old_state = self.enable_sandbox_routing
         self.enable_sandbox_routing = enable
@@ -389,22 +599,24 @@ class SandboxToolExecutor:
         if self.verbose:
             logger.info("Sandbox routing %s (was %s)", 'enabled' if enable else 'disabled', 'enabled' if old_state else 'disabled')
 
-    # Delegate methods to local executor for consistency
     def set_execution_mode(self, mode: ExecutionMode) -> None:
         """Change the execution mode."""
         self.execution_mode = mode
-        self._local_executor.set_execution_mode(mode)
+        if hasattr(self._local_executor, 'set_execution_mode'):
+            self._local_executor.set_execution_mode(mode)
+        else:
+            self._local_executor.execution_mode = mode
 
     def set_approval_callback(self, callback: Optional[Callable]) -> None:
         """Set or update the approval callback."""
         self.approval_callback = callback
-        self._local_executor.set_approval_callback(callback)
+        self._local_executor.approval_callback = callback
 
     def set_verbose(self, verbose: bool) -> None:
         """Enable or disable verbose logging."""
         old_verbose = self.verbose
         self.verbose = verbose
-        self._local_executor.set_verbose(verbose)
+        self._local_executor.verbose = verbose
         
         if old_verbose != verbose:
             logger.info("Verbose logging %s", 'enabled' if verbose else 'disabled')

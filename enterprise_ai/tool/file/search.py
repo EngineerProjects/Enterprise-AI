@@ -57,6 +57,7 @@ class CodeSearchTool(BaseTool):
     """
 
     name: str = "code_search"
+    short_description: str = "Find text patterns in LOCAL code and text files. CANNOT search the web or internet."
     description: str = """
     Advanced code and text search with pattern matching and context support.
 

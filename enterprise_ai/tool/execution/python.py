@@ -237,6 +237,7 @@ class PythonExecute(BaseTool):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     name: str = "python_execute"
+    short_description: str = "Run Python code for calculations, math operations, or data processing. Perfect for computing numerical results."
     description: str = """
     Enhanced Python code execution with intelligent safety routing and session management.
 
@@ -551,11 +552,29 @@ except Exception as e:
         if not code:
             return ToolResult.create_error(error="Code parameter is required", tool_name=self.name)
 
-        timeout = kwargs.get("timeout", self.config.timeout)
-        sandbox_preference = kwargs.get("sandbox_mode", "auto")
-        session_id = kwargs.get("session_id")
-        persist_variables = kwargs.get("persist_variables", False)
-        show_analysis = kwargs.get("show_analysis", False)
+        # Ensure all parameters have the correct types
+        try:
+            timeout = int(kwargs.get("timeout", self.config.timeout))
+            sandbox_preference = kwargs.get("sandbox_mode", "auto")
+            session_id = kwargs.get("session_id")
+            
+            # Handle boolean parameters that might be strings
+            persist_variables = kwargs.get("persist_variables", False)
+            if isinstance(persist_variables, str):
+                persist_variables = persist_variables.lower() == "true"
+                
+            show_analysis = kwargs.get("show_analysis", False)
+            if isinstance(show_analysis, str):
+                show_analysis = show_analysis.lower() == "true"
+                
+            # Handle session_id that might be "None" string
+            if session_id == "None" or session_id == "null":
+                session_id = None
+        except (ValueError, TypeError) as e:
+            return ToolResult.create_error(
+                error=f"Parameter type error: {str(e)}",
+                tool_name=self.name
+            )
         
         # Update stats
         self.execution_stats['total_executions'] += 1

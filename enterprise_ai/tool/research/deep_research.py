@@ -238,6 +238,7 @@ class DeepResearch(BaseTool):
     """
 
     name: str = "deep_research"
+    short_description: str = "Perform in-depth research on complex topics requiring multiple follow-up searches. For comprehensive investigations."
     description: str = """
     Performs comprehensive, multi-level research on topics through iterative web searches and content analysis.
 
@@ -342,7 +343,6 @@ class DeepResearch(BaseTool):
             self.search_tool = WebSearch()
             await self.search_tool.initialize()
             
-            logger.info("DeepResearch tool successfully initialized")
             return True
         except Exception as e:
             logger.error("Failed to initialize DeepResearch tool: %s", e)
@@ -406,8 +406,6 @@ class DeepResearch(BaseTool):
                 results_count=results_per_search,
                 deadline=deadline,
             )
-
-            logger.info("Research completed: %s insights, depth %s", len(context.insights), context.current_depth)
 
         except ToolError as e:
             logger.error("Research error: %s", str(e))
@@ -506,10 +504,8 @@ class DeepResearch(BaseTool):
             tasks = []
             for follow_up in follow_up_queries[:2]:  # Limit branching factor
                 if time.time() >= deadline:
-                    logger.info("Follow-up processing terminated: time limit reached")
                     break
 
-                logger.debug("Scheduling follow-up query: %s", follow_up)
                 task = self._research_graph(
                     context=context,
                     query=follow_up,
@@ -519,7 +515,6 @@ class DeepResearch(BaseTool):
                 tasks.append(task)
 
             if tasks:
-                logger.debug("Running %s follow-up queries in parallel", len(tasks))
                 await asyncio.gather(*tasks)
 
     async def _search_web(self, query: str, results_count: int) -> List[SearchResult]:

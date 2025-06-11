@@ -17,6 +17,7 @@ class PlanningTool(BaseTool):
     """Planning tool for creating and managing structured task plans."""
 
     name: str = "planning"
+    short_description: str = "Create and manage structured task plans with step tracking and status updates."
     description: str = "Create and manage structured task plans with step tracking and status management"
     
     parameters: dict = {
