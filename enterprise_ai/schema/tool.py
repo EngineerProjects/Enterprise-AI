@@ -21,29 +21,31 @@ class Function(BaseModel):
     def validate_arguments(cls, v):
         """Ensure arguments is properly formatted."""
         if isinstance(v, dict):
-            return json.dumps(v)
+            # Keep as dict - don't convert to string
+            return v
         elif isinstance(v, str):
-            # Validate that it's valid JSON
+            # Try to parse as JSON
             try:
-                json.loads(v)
-                return v
+                return json.loads(v)
             except json.JSONDecodeError:
-                return "{}"
+                return {}
         else:
-            return "{}"
+            return {}
 
     def get_arguments_dict(self) -> Dict[str, Any]:
         """Get arguments as a dictionary."""
         if isinstance(self.arguments, dict):
             return self.arguments
-        try:
-            return json.loads(self.arguments)
-        except json.JSONDecodeError:
-            return {}
+        elif isinstance(self.arguments, str):
+            try:
+                return json.loads(self.arguments)
+            except json.JSONDecodeError:
+                return {}
+        return {}
 
     def set_arguments_dict(self, args: Dict[str, Any]) -> None:
         """Set arguments from a dictionary."""
-        self.arguments = json.dumps(args)
+        self.arguments = args
 
 
 class ToolCall(BaseModel):

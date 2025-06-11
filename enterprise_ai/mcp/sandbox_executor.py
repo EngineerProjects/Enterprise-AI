@@ -367,8 +367,11 @@ class SandboxToolExecutor:
         """Get or create sandbox client based on mode."""
         if mode == SandboxMode.UNIFIED:
             if not self._unified_sandbox:
-                self._unified_sandbox = BaseSandboxClient(self.sandbox_settings)
-                await self._unified_sandbox.start()
+                # Use LocalSandboxClient instead of BaseSandboxClient (which is an abstract class)
+                from enterprise_ai.sandbox.client import LocalSandboxClient
+                self._unified_sandbox = LocalSandboxClient()
+                # Create sandbox with the settings
+                await self._unified_sandbox.create(self.sandbox_settings)
                 
                 if self.verbose:
                     logger.info("Created unified sandbox")
@@ -377,8 +380,11 @@ class SandboxToolExecutor:
         
         elif mode == SandboxMode.INDIVIDUAL:
             if tool_name not in self._individual_sandboxes:
-                self._individual_sandboxes[tool_name] = BaseSandboxClient(self.sandbox_settings)
-                await self._individual_sandboxes[tool_name].start()
+                # Use LocalSandboxClient instead of BaseSandboxClient
+                from enterprise_ai.sandbox.client import LocalSandboxClient
+                self._individual_sandboxes[tool_name] = LocalSandboxClient()
+                # Create sandbox with the settings
+                await self._individual_sandboxes[tool_name].create(self.sandbox_settings)
             
             return self._individual_sandboxes[tool_name]
         
@@ -542,12 +548,12 @@ class SandboxToolExecutor:
         
         # Clean up unified sandbox
         if self._unified_sandbox:
-            await self._unified_sandbox.stop()
+            await self._unified_sandbox.cleanup()
             self._unified_sandbox = None
         
         # Clean up individual sandboxes
         for sandbox in self._individual_sandboxes.values():
-            await sandbox.stop()
+            await sandbox.cleanup()
         self._individual_sandboxes.clear()
         
         if self.verbose:

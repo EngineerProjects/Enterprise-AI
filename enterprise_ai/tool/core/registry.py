@@ -426,19 +426,36 @@ class ToolRegistry:
             capability for capability, tools in self._capabilities.items() if name in tools
         ]
 
+        # Extract description properly from Pydantic models
+        description = ""
+        if hasattr(tool_cls, "model_fields") and "description" in tool_cls.model_fields:
+            # Pydantic model - get from field default
+            description = tool_cls.model_fields["description"].default or ""
+        else:
+            # Regular class - get from attribute
+            description = getattr(tool_cls, "description", "")
+        
+        # Extract parameters properly from Pydantic models
+        parameters = {}
+        if hasattr(tool_cls, "model_fields") and "parameters" in tool_cls.model_fields:
+            # Pydantic model - get from field default
+            parameters = tool_cls.model_fields["parameters"].default or {}
+        else:
+            # Regular class - get from attribute
+            parameters = getattr(tool_cls, "parameters", {})
+
         return {
             "name": name,
-            "description": getattr(tool_cls, "description", ""),
+            "description": description,
             "versions": versions,
             "latest_version": latest_version,
             "categories": categories,
             "capabilities": capabilities,
-            "parameters": getattr(tool_cls, "parameters", {}),
+            "parameters": parameters,
             "requires_initialization": getattr(tool_cls, "requires_initialization", False),
             "dependencies": getattr(tool_cls, "dependencies", []),
             "authorization_required": getattr(tool_cls, "authorization_required", False),
         }
-
 
 # Singleton registry instance
 _registry = ToolRegistry()

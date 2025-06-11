@@ -95,7 +95,21 @@ class ToolMCP:
                     
                     # Get the execute method
                     if hasattr(tool_instance, 'execute') and callable(tool_instance.execute):
+                        # Register with class name (e.g., 'WebSearch')
                         tools[tool_name] = tool_instance.execute
+                        
+                        # Also register with snake_case name if tool has a name attribute
+                        if hasattr(tool_instance, 'name') and isinstance(tool_instance.name, str):
+                            instance_name = tool_instance.name
+                            if instance_name != tool_name:
+                                tools[instance_name] = tool_instance.execute
+                                logger.debug("Registered tool alias: %s -> %s", instance_name, tool_name)
+                        
+                        # Also add normalized version of class name (e.g., 'web_search')
+                        snake_name = self._normalize_tool_name(tool_name)
+                        if snake_name != tool_name:
+                            tools[snake_name] = tool_instance.execute
+                            logger.debug("Registered normalized name: %s -> %s", snake_name, tool_name)
                     else:
                         logger.error("Tool %s has no execute method", tool_name)
                         
@@ -106,6 +120,13 @@ class ToolMCP:
             logger.error("Failed to load tools from registry: %s", e)
             
         return tools
+        
+    def _normalize_tool_name(self, name: str) -> str:
+        """Convert CamelCase to snake_case for consistent tool naming."""
+        import re
+        # Convert CamelCase to snake_case
+        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
+        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool function directly."""
@@ -137,6 +158,11 @@ class ToolMCP:
 
         results = []
         self._execution_count += len(tool_calls)
+        
+        # Update tool executors with current tools
+        self.tool_executor.tools = self._tools
+        if self.sandbox_executor:
+            self.sandbox_executor.tools = self._tools
         
         try:
             # Determine if we should use sandbox based on config and tool types
@@ -304,6 +330,83 @@ class ToolMCP:
             stats["sandbox_stats"] = self.sandbox_executor.get_execution_stats()
             
         return stats
+
+    def get_tool_definitions(self) -> List[Dict[str, Any]]:
+        """
+        Get tool definitions for all available tools in a format suitable for LLMs.
+        
+        Returns:
+            List of tool definitions in the format expected by LLM providers
+        """
+        from enterprise_ai.tool.core.registry import ToolRegistry
+        from enterprise_ai.schema.tool import ToolDefinition
+        
+        registry = ToolRegistry()
+        tool_definitions = []
+        
+        # Get the actual tool keys from the MCP
+        tool_keys = self.get_available_tools()
+        
+        # Build definitions for each tool
+        for tool_name in tool_keys:
+            try:
+                # Try to get more info from registry if available
+                tool_class = None
+                # First try with exact name
+                tool_class = registry.get_tool_class(tool_name)
+                
+                # If not found and name is lowercase with underscores, try with CamelCase
+                if not tool_class and "_" in tool_name:
+                    # Convert snake_case to CamelCase
+                    camel_name = "".join(word.capitalize() for word in tool_name.split("_"))
+                    tool_class = registry.get_tool_class(camel_name)
+                    
+                if tool_class:
+                    # Get tool info from registry
+                    tool_info = registry.get_tool_info(tool_class.__name__)
+                    
+                    # Try to get parameters directly from class instance if possible
+                    tool_instance = None
+                    try:
+                        tool_instance = tool_class()
+                    except Exception as e:
+                        logger.debug(f"Could not instantiate tool {tool_name}: {e}")
+                    
+                    # Get parameters with priority: instance > class > registry > fallback
+                    if tool_instance and hasattr(tool_instance, 'parameters') and tool_instance.parameters:
+                        parameters = tool_instance.parameters
+                    elif hasattr(tool_class, 'parameters') and getattr(tool_class, 'parameters', None):
+                        parameters = getattr(tool_class, 'parameters')
+                    else:
+                        parameters = tool_info.get("parameters", {})
+                        
+                    description = tool_info.get("description", f"Tool: {tool_name}")
+                else:
+                    # Fallback to minimal definition
+                    parameters = {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    }
+                    description = f"Tool: {tool_name}"
+                    
+                # Create a tool definition with the EXACT name from MCP
+                tool_def = {
+                    "type": "function",
+                    "function": {
+                        "name": tool_name,  # Use exact name from MCP
+                        "description": description,
+                        "parameters": parameters
+                    }
+                }
+                
+                # Add the tool definition
+                tool_definitions.append(tool_def)
+                
+            except Exception as e:
+                logger.error("Error creating definition for tool %s: %s", tool_name, e)
+        
+        return tool_definitions
 
     def reset_stats(self) -> None:
         """Reset execution statistics."""
