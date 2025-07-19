@@ -2,11 +2,13 @@
 Enterprise AI Team - Message Router.
 
 Implements routing of messages between agents in a team.
+Enhanced with @mention support for direct agent communication.
 """
 
-from typing import Dict, List, Optional, Any, Union, Callable
+from typing import Dict, List, Optional, Any, Union, Callable, Tuple
 
 from enterprise_ai.team.communication.protocol import TeamMessage, CommunicationProtocol
+from enterprise_ai.team.communication.mentions import MentionParser
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("team.communication.router")
@@ -18,8 +20,9 @@ class MessageRouter:
     
     This handles:
     1. Routing messages to appropriate agents
-    2. Managing message delivery and acknowledgment
+    2. Managing message delivery and acknowledgment  
     3. Providing callback hooks for message processing
+    4. Parsing and routing @mention-based messages
     """
     
     def __init__(self, protocol: Optional[CommunicationProtocol] = None):
@@ -30,6 +33,7 @@ class MessageRouter:
             protocol: Communication protocol
         """
         self.protocol = protocol or CommunicationProtocol()
+        self.mention_parser = MentionParser()
         self.agent_callbacks = {}  # Map of agent_name -> callback function
         self.message_queue = {}    # Map of agent_name -> list of pending messages
         self.delivered_messages = {}  # Map of message_id -> delivery status
@@ -45,6 +49,9 @@ class MessageRouter:
         self.agent_callbacks[agent_name] = callback
         self.message_queue[agent_name] = []
         
+        # Update mention parser with current agent list
+        self.mention_parser.update_valid_agents(list(self.agent_callbacks.keys()))
+        
         logger.info(f"Registered agent '{agent_name}' with router")
     
     def unregister_agent(self, agent_name: str) -> None:
@@ -59,6 +66,9 @@ class MessageRouter:
             
         if agent_name in self.message_queue:
             del self.message_queue[agent_name]
+        
+        # Update mention parser with current agent list
+        self.mention_parser.update_valid_agents(list(self.agent_callbacks.keys()))
             
         logger.info(f"Unregistered agent '{agent_name}' from router")
     
@@ -95,6 +105,77 @@ class MessageRouter:
             logger.warning(f"Recipient '{message.recipient}' not registered, message dropped")
             
         return message_id
+    
+    def send_message_with_mentions(self, sender: str, content: str) -> List[str]:
+        """
+        Send a message with @mention parsing and routing.
+        
+        Args:
+            sender: Sender agent name
+            content: Message content (may contain @mentions)
+            
+        Returns:
+            List of message IDs for all routed messages
+        """
+        # Parse the message for mentions
+        parsed = self.mention_parser.parse_message(content)
+        
+        # If no mentions, send as regular message to manager (teams should always have a manager)
+        if not parsed.has_mentions:
+            regular_msg = TeamMessage(
+                sender=sender,
+                recipient="manager",
+                content=content,
+                msg_type="message"
+            )
+            return [self.send_message(regular_msg)]
+        
+        # Validate mentions against registered agents
+        valid_agents, invalid_agents = self.validate_mentions(parsed)
+        
+        # Log invalid mentions
+        if invalid_agents:
+            logger.warning(f"Invalid @mentions from '{sender}': {invalid_agents} - these agents don't exist in the team")
+        
+        # Create and send routed messages from valid mentions only
+        routed_messages = self.mention_parser.create_routed_messages(sender, parsed, validate=False)  # Don't validate again
+        
+        # Filter messages to only include valid recipients
+        valid_messages = []
+        for msg in routed_messages:
+            if msg.recipient == "team" or msg.recipient in self.agent_callbacks:
+                valid_messages.append(msg)
+            else:
+                logger.warning(f"Skipping message to invalid recipient: {msg.recipient}")
+        
+        message_ids = [self.send_message(msg) for msg in valid_messages]
+        
+        logger.info(f"Routed {len(valid_messages)} mention-based messages from '{sender}'")
+        if invalid_agents:
+            logger.info(f"Ignored {len(invalid_agents)} invalid mentions: {invalid_agents}")
+        
+        return message_ids
+    
+    def validate_mentions(self, parsed_message) -> Tuple[List[str], List[str]]:
+        """
+        Validate mentioned agents against registered team members.
+        
+        Args:
+            parsed_message: ParsedMessage object with mentions
+            
+        Returns:
+            Tuple of (valid_agents, invalid_agents)
+        """
+        valid_agents = []
+        invalid_agents = []
+        
+        for agent_name in parsed_message.mentioned_agents:
+            if agent_name in self.agent_callbacks or agent_name == "manager":
+                valid_agents.append(agent_name)
+            else:
+                invalid_agents.append(agent_name)
+        
+        return valid_agents, invalid_agents
     
     def _queue_message(self, agent_name: str, message: TeamMessage, message_id: str) -> None:
         """

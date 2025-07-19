@@ -67,7 +67,7 @@ def create_agent(
         llm_defaults = {
             "provider": "ollama",
             "model_name": "llama3.2",
-            "timeout": 60.0,
+            "timeout": 500.0,  # Increased timeout for local models
             "verbose": verbose
         }
         
@@ -84,9 +84,8 @@ def create_agent(
     # Create MCP if not provided
     if mcp is None:
         mcp_defaults = {
-            "timeout": 30.0,
-            "auto_load_tools": True,
-            "verbose": verbose
+            "timeout": 60.0,  # Keep MCP timeout reasonable for tool execution
+            "auto_load_tools": True
         }
         
         if mcp_config:

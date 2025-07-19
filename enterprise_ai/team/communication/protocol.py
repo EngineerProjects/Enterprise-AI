@@ -21,7 +21,7 @@ class TeamMessage:
     sender: str
     recipient: str
     content: str
-    msg_type: str = "message"  # "message", "task", "result", "broadcast"
+    msg_type: str = "message"  # "message", "task", "result", "broadcast", "peer_message"
     timestamp: datetime = None
     metadata: Dict[str, Any] = None
     
@@ -88,6 +88,17 @@ class TeamMessage:
             msg_type="broadcast",
             metadata=metadata or {}
         )
+    
+    @classmethod
+    def create_peer_message(cls, sender: str, recipient: str, content: str, metadata: Optional[Dict[str, Any]] = None) -> 'TeamMessage':
+        """Create a peer-to-peer message."""
+        return cls(
+            sender=sender,
+            recipient=recipient,
+            content=content,
+            msg_type="peer_message",
+            metadata=metadata or {}
+        )
 
 
 class CommunicationProtocol:
@@ -124,6 +135,8 @@ class CommunicationProtocol:
             return f"[RESULT from {message.sender}]\n{message.content}"
         elif message.msg_type == "broadcast":
             return f"[BROADCAST from {message.sender}]\n{message.content}"
+        elif message.msg_type == "peer_message":
+            return f"[MESSAGE from @{message.sender}]\n{message.content}"
         else:
             return f"[MESSAGE from {message.sender}]\n{message.content}"
     
