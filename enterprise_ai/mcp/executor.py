@@ -28,7 +28,7 @@ class ToolMCP:
     and returning clean, structured results.
     """
 
-    def __init__(self, timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True):
+    def __init__(self, timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True, tools: Optional[List[str]] = None):
         """
         Initialize SimpleMCP.
         
@@ -36,6 +36,7 @@ class ToolMCP:
             timeout: Default timeout for tool execution
             sandbox_config: Optional sandbox configuration for manual control
             auto_load_tools: Whether to automatically load tools from registry
+            tools: Specific list of tools to load (overrides auto_load_tools if provided)
         """
         self.timeout = timeout
         self.sandbox_config = sandbox_config or DEFAULT_SANDBOX_CONFIG
@@ -61,21 +62,31 @@ class ToolMCP:
                 verbose=False
             )
         
-        # Load available tools from registry if requested
-        if auto_load_tools:
+        # Load available tools from registry based on parameters
+        if tools is not None:
+            # Load only specified tools
+            try:
+                self.registry = ToolRegistry()
+                self._tools = self._load_specific_tools(tools)
+                logger.info("ToolMCP initialized with %d specific tools: %s", len(self._tools), list(self._tools.keys()))
+            except Exception as e:
+                logger.error("Failed to load specific tools: %s", e)
+                logger.info("ToolMCP initialized without tools due to error")
+        elif auto_load_tools:
+            # Load all available tools from registry
             try:
                 self.registry = ToolRegistry()
                 self._tools = self._load_tools_from_registry()
                 
                 if self._tools:
-                    logger.info("SimpleMCP initialized with %d tools", len(self._tools))
+                    logger.info("ToolMCP initialized with %d tools", len(self._tools))
                 else:
                     logger.error("No tools loaded from registry")
             except Exception as e:
                 logger.error("Failed to load tools from registry: %s", e)
-                logger.info("SimpleMCP initialized without auto-loading tools")
+                logger.info("ToolMCP initialized without auto-loading tools")
         else:
-            logger.info("SimpleMCP initialized without auto-loading tools")
+            logger.info("ToolMCP initialized without auto-loading tools")
 
     def _load_tools_from_registry(self) -> Dict[str, Callable]:
         """Load tool functions from the existing registry."""
@@ -118,6 +129,61 @@ class ToolMCP:
                     
         except Exception as e:
             logger.error("Failed to load tools from registry: %s", e)
+            
+        return tools
+    
+    def _load_specific_tools(self, tool_names: List[str]) -> Dict[str, Callable]:
+        """Load only the specified tools from registry."""
+        tools = {}
+        
+        if not hasattr(self, 'registry'):
+            return tools
+        
+        try:
+            # Get all available tools from registry first
+            all_tools = self._load_tools_from_registry()
+            
+            # Filter to only requested tools
+            for tool_name in tool_names:
+                if tool_name in all_tools:
+                    tools[tool_name] = all_tools[tool_name]
+                else:
+                    # Try to find tool with different naming conventions
+                    found = False
+                    
+                    # Try snake_case to CamelCase conversion
+                    camel_name = "".join(word.capitalize() for word in tool_name.split("_"))
+                    if camel_name in all_tools:
+                        tools[tool_name] = all_tools[camel_name]  # Store with requested name
+                        found = True
+                    
+                    # Try CamelCase to snake_case conversion
+                    if not found:
+                        snake_name = self._normalize_tool_name(tool_name)
+                        if snake_name in all_tools:
+                            tools[tool_name] = all_tools[snake_name]  # Store with requested name
+                            found = True
+                    
+                    # Try exact match in all available tools (case insensitive)
+                    if not found:
+                        for available_tool in all_tools:
+                            if available_tool.lower() == tool_name.lower():
+                                tools[tool_name] = all_tools[available_tool]
+                                found = True
+                                break
+                    
+                    if not found:
+                        logger.warning("Requested tool '%s' not found in registry", tool_name)
+            
+            # Log summary
+            missing_tools = set(tool_names) - set(tools.keys())
+            if missing_tools:
+                logger.warning("Tools not found: %s", list(missing_tools))
+            
+            logger.debug("Successfully loaded specific tools: %s", list(tools.keys()))
+            
+        except Exception as e:
+            logger.error("Failed to load specific tools: %s", e)
             
         return tools
         
@@ -439,6 +505,6 @@ class ToolMCP:
 
 
 # Factory function for easy creation
-def create_simple_mcp(timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True) -> ToolMCP:
-    """Create a SimpleMCP instance with optional sandbox configuration."""
-    return ToolMCP(timeout=timeout, sandbox_config=sandbox_config, auto_load_tools=auto_load_tools)
+def create_simple_mcp(timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True, tools: Optional[List[str]] = None) -> ToolMCP:
+    """Create a SimpleMCP instance with optional sandbox configuration and specific tools."""
+    return ToolMCP(timeout=timeout, sandbox_config=sandbox_config, auto_load_tools=auto_load_tools, tools=tools)

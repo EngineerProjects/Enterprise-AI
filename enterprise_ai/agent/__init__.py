@@ -14,12 +14,37 @@ from enterprise_ai.agent.reasoning.react import ReActPattern
 from enterprise_ai.agent.reasoning.cot import ChainOfThoughtPattern
 from enterprise_ai.agent.reasoning.swe import SoftwareEngineeringPattern
 
+# Profile system
+from enterprise_ai.agent.profile import (
+    ProfileManager,
+    AgentProfile,
+    AgentRoleInfo,
+    AgentCapacity,
+    AgentStatus,
+    CapacityManager,
+    CapacityMetrics,
+    WorkloadLevel,
+)
+
 __all__ = [
+    # Core agent classes
     'Agent',
     'create_agent',
     'AgentRole',
+    
+    # Reasoning patterns
     'ReasoningPattern',
     'ReActPattern',
     'ChainOfThoughtPattern',
     'SoftwareEngineeringPattern',
+    
+    # Profile system
+    'ProfileManager',
+    'AgentProfile',
+    'AgentRoleInfo',
+    'AgentCapacity',
+    'AgentStatus',
+    'CapacityManager',
+    'CapacityMetrics',
+    'WorkloadLevel',
 ]

@@ -45,6 +45,14 @@ from enterprise_ai.schema.image import (
     ImageMetadata,
 )
 
+# Agent profile schemas
+from enterprise_ai.schema.agent_profile import (
+    AgentProfile,
+    AgentRoleInfo,
+    AgentCapacity,
+    AgentStatus,
+)
+
 from enterprise_ai.schema.tool_utils import ToolConverter
 
 # Export all public schemas
@@ -80,6 +88,12 @@ __all__ = [
     "ImageInfo",
     "ImageFormat", 
     "ImageMetadata",
+    
+    # Agent profile schemas
+    "AgentProfile",
+    "AgentRoleInfo",
+    "AgentCapacity", 
+    "AgentStatus",
 
     # Utility classes
     "ToolConverter",
