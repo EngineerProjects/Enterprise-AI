@@ -22,7 +22,6 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
 from enterprise_ai.logger import get_optimized_logger
 
@@ -242,7 +241,6 @@ class LineEditParams(BaseModel):
 
 
 # MAIN TOOL CLASS (Significantly simplified and modularized)
-@register_tool(category="file", capabilities=["file_access", "text_editing"])
 class FileEditor(BaseTool):
     """
     Optimized file editor with modular design and improved maintainability.

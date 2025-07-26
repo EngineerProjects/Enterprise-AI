@@ -10,7 +10,10 @@ from bs4 import BeautifulSoup
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-from enterprise_ai.config import get_config
+from enterprise_ai.defaults import (
+    DEFAULT_RESEARCH_RESULTS_PER_SEARCH,
+    get_config_value
+)
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, ToolResultMetadata  # Using unified ToolResult
@@ -22,7 +25,6 @@ from enterprise_ai.tool.research.search import (
     SearchItem,
     WebSearchEngine,
 )
-from enterprise_ai.tool.core.registry import register_tool
 
 logger = get_optimized_logger("tool.research.web_search")
 
@@ -30,7 +32,6 @@ logger = get_optimized_logger("tool.research.web_search")
 DEFAULT_RATE_LIMIT = 2  # requests per second
 DEFAULT_RATE_LIMIT_PERIOD = 60  # seconds between resets
 DEFAULT_MAX_REQUESTS = 100  # maximum requests in period
-
 
 class SearchResult(BaseModel):
     """Represents a single search result returned by a search engine."""
@@ -60,7 +61,6 @@ class SearchResult(BaseModel):
             self.description = self.snippet
         return self
 
-
 class SearchMetadata(ToolResultMetadata):
     """Metadata about the search operation."""
 
@@ -71,7 +71,6 @@ class SearchMetadata(ToolResultMetadata):
     engines_tried: List[str] = Field(
         default_factory=list, description="Search engines that were tried"
     )
-
 
 class SearchResponse(ToolResult):
     """Structured response from the web search tool using unified ToolResult."""
@@ -151,7 +150,6 @@ class SearchResponse(ToolResult):
         """Backward compatibility property."""
         return self.result
 
-
 class RateLimiter:
     """Rate limiter to prevent hitting API rate limits."""
 
@@ -176,13 +174,12 @@ class RateLimiter:
 
             self.request_times.append(time.time())
 
-
 class WebContentFetcher:
     """Utility class for fetching web content."""
 
     def __init__(self) -> None:
-        rate_limit = get_config("search.rate_limit", DEFAULT_RATE_LIMIT)
-        period = get_config("search.rate_limit_period", DEFAULT_RATE_LIMIT_PERIOD)
+        rate_limit = get_config_value("search.rate_limit", DEFAULT_RATE_LIMIT)
+        period = get_config_value("search.rate_limit_period", DEFAULT_RATE_LIMIT_PERIOD)
         self.rate_limiter = RateLimiter(rate_limit, period)
         self.session = requests.Session()
         self.session.headers.update({
@@ -249,8 +246,6 @@ class WebContentFetcher:
             logger.warning("Error fetching content from %s: %s", url, e)
             return None
 
-
-@register_tool(category="research", capabilities=["search", "network_access"])
 class WebSearch(BaseTool):
     """
     Search the web for real-time information using multiple search engines.
@@ -368,7 +363,7 @@ class WebSearch(BaseTool):
         self.search_engines = {}
         self.content_fetcher = None
         self.results_cache = {}
-        self.cache_expiry = get_config("search.cache_expiry", 300)
+        self.cache_expiry = get_config_value("search.cache_expiry", 300)
 
         logger.debug("WebSearch tool initialized")
 
@@ -416,8 +411,8 @@ class WebSearch(BaseTool):
                 )
 
             num_results = int(kwargs.get("num_results", 5))
-            lang = kwargs.get("lang") or get_config("search.lang", "en")
-            country = kwargs.get("country") or get_config("search.country", "us")
+            lang = kwargs.get("lang") or get_config_value("search.lang", "en")
+            country = kwargs.get("country") or get_config_value("search.country", "us")
             fetch_content = kwargs.get("fetch_content", False)
             search_engine = kwargs.get("search_engine", "auto")
 
@@ -600,8 +595,8 @@ class WebSearch(BaseTool):
 
     def _get_engine_order(self) -> List[str]:
         """Determines the order in which to try search engines."""
-        preferred = get_config("search.engine", "google").lower()
-        fallbacks = get_config("search.fallback_engines", [])
+        preferred = get_config_value("search.engine", "google").lower()
+        fallbacks = get_config_value("search.fallback_engines", [])
 
         if isinstance(fallbacks, str):
             fallbacks = [fallbacks]

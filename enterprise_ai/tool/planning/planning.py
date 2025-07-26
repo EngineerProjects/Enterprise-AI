@@ -6,13 +6,10 @@ from pydantic import Field
 
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.logger import get_logger
 
 logger = get_logger("tool.planning.planning")
 
-
-@register_tool(category="planning", capabilities=["planning", "task_management"])
 class PlanningTool(BaseTool):
     """Planning tool for creating and managing structured task plans."""
 

@@ -8,12 +8,13 @@ management for the tool system, eliminating redundancy with the schema system.
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolState, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, CLIResult, ToolFailure, ToolResultMetadata
 from enterprise_ai.tool.core.collection import ToolCollection
-from enterprise_ai.tool.core.registry import (
-    register_tool,
-    get_registry,
-    ToolRegistry,
-    search_tools,
-    create_tool,
+
+# Use simple loader instead of complex registry
+from enterprise_ai.tool.simple_loader import (
+    get_all_tools,
+    get_tool_by_name,
+    get_tool_names,
+    create_tool_instance
 )
 
 # Import new configuration management system
@@ -49,12 +50,11 @@ __all__ = [
     # Collection classes
     "ToolCollection",
     
-    # Registry classes and functions
-    "register_tool",
-    "get_registry", 
-    "ToolRegistry",
-    "search_tools",
-    "create_tool",
+    # Simple loader functions (replaced registry)
+    "get_all_tools",
+    "get_tool_by_name",
+    "get_tool_names",
+    "create_tool_instance",
     
     # Configuration management system
     "ConfigManager",

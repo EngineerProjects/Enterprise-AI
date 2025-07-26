@@ -8,13 +8,14 @@ from typing import Optional, Dict, Any, Union
 
 from enterprise_ai.agent.base import Agent
 from enterprise_ai.agent.role import AgentRole
-from enterprise_ai.agent.reasoning.base import ReasoningPattern
+
 from enterprise_ai.agent.reasoning.react import ReActPattern
 from enterprise_ai.agent.reasoning.cot import ChainOfThoughtPattern
 from enterprise_ai.agent.reasoning.swe import SoftwareEngineeringPattern
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.llm.factory import create_provider
 from enterprise_ai.mcp.executor import ToolMCP
+from enterprise_ai.defaults import get_default_llm_config, get_default_tool_config
 from enterprise_ai.schema.memory import ConversationMemory, InMemoryConversation
 from enterprise_ai.logger import get_optimized_logger
 
@@ -62,31 +63,26 @@ def create_agent(
     elif not isinstance(role, AgentRole):
         raise ValueError("Role must be a string or AgentRole instance")
     
-    # Create LLM if not provided
+    # Create LLM if not provided using smart defaults
     if llm is None:
-        llm_defaults = {
-            "provider": "ollama",
-            "model_name": "llama3.2",
-            "timeout": 500.0,  # Increased timeout for local models
-            "verbose": verbose
-        }
+        # Get default configuration for the provider
+        default_provider = "ollama"
+        llm_defaults = get_default_llm_config(default_provider)
+        llm_defaults.update({"verbose": verbose})
         
         if llm_config:
             llm_defaults.update(llm_config)
             
-        provider = llm_defaults.pop("provider")
+        provider = llm_defaults.pop("provider", default_provider)
         model_name = llm_defaults.pop("model_name")
             
         llm = create_provider(provider, model_name, **llm_defaults)
         if verbose:
             logger.info(f"Created LLM provider: {provider}/{model_name}")
             
-    # Create MCP if not provided
+    # Create MCP if not provided using smart defaults
     if mcp is None:
-        mcp_defaults = {
-            "timeout": 60.0,  # Keep MCP timeout reasonable for tool execution
-            "auto_load_tools": True
-        }
+        mcp_defaults = get_default_tool_config()
         
         if mcp_config:
             mcp_defaults.update(mcp_config)

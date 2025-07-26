@@ -12,7 +12,6 @@ from enterprise_ai.exceptions import EnterpriseAIError
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult  # Using unified ToolResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import SearchResult, WebSearch
 
 logger = get_optimized_logger("tool.research.deep_research")
@@ -73,19 +72,18 @@ FALLBACK_CONTENT_LIMIT = 500
 INSIGHT_MARKER_PATTERN = re.compile(r"^\s*(?:\d+\.|-|\*|•)\s*(.*)")
 RELEVANCE_SCORE_PATTERN = re.compile(r"relevance.*?:.*?(\d\.?\d*)", re.IGNORECASE)
 
-
 def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs):
     """Lazy import and execute LLM completion with configurable model."""
     try:
         from enterprise_ai.llm import complete, CompletionOptions
         from enterprise_ai.schema import Message  # Updated import
-        from enterprise_ai.config import get_config
+        from enterprise_ai.defaults import get_config_value
         
-        # Use provided model/provider or fall back to config defaults
-        provider = provider_name or get_config("llm.default_provider", "ollama")
-        model = model_name or get_config("llm.default_model", "llama3.2")
+        # Use provided model/provider or fall back to smart defaults
+        provider = provider_name or get_config_value("llm.default_provider", "ollama")
+        model = model_name or get_config_value("llm.default_model", "llama3.2")
 
-        timeout = kwargs.get('timeout') or get_config("llm.timeout", 120.0)
+        timeout = kwargs.get('timeout') or get_config_value("llm.timeout", 120.0)
         
         # Log what we're using for debugging
         logger.debug("Using LLM provider: %s, model: %s", provider, model)
@@ -112,7 +110,6 @@ def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs)
         
         return FallbackResponse('{"analysis": "LLM analysis temporarily unavailable", "relevance": 0.5}')
 
-
 class ResearchInsight(BaseModel):
     """A single insight discovered during research."""
 
@@ -130,7 +127,6 @@ class ResearchInsight(BaseModel):
         source = self.source_title or self.source_url
         return f"{self.content} [Source: {source}]"
 
-
 class ResearchContext(BaseModel):
     """Research context for tracking research progress."""
 
@@ -144,7 +140,6 @@ class ResearchContext(BaseModel):
     visited_urls: Set[str] = Field(default_factory=set, description="URLs visited during research")
     current_depth: int = Field(default=0, description="Current depth of research exploration", ge=0)
     max_depth: int = Field(default=2, description="Maximum depth of research to reach", ge=1)
-
 
 class ResearchSummary(ToolResult):
     """Comprehensive summary of deep research results using unified ToolResult."""
@@ -209,8 +204,6 @@ class ResearchSummary(ToolResult):
         """Backward compatibility property."""
         return self.result
 
-
-@register_tool(category="research", capabilities=["search", "network_access", "analysis"])
 class DeepResearch(BaseTool):
     """
     Advanced research tool that explores topics through iterative, multi-level research.
@@ -314,9 +307,9 @@ class DeepResearch(BaseTool):
         """
         model_fields = self.__class__.model_fields
 
-        # Load execution timeout from config for tool config
-        from enterprise_ai.config import get_config
-        default_timeout = get_config("execution.timeout", 180.0)
+        # Load execution timeout with package-friendly defaults
+        from enterprise_ai.defaults import get_config_value
+        default_timeout = get_config_value("execution.timeout", 180.0)
 
         super().__init__(
             name=name or model_fields["name"].default,

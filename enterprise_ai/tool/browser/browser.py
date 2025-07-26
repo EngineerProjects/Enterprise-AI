@@ -12,16 +12,18 @@ from browser_use.dom.service import DomService
 from pydantic import Field, field_validator
 from pydantic_core.core_schema import ValidationInfo
 
-from enterprise_ai.config import get_config
+from enterprise_ai.defaults import (
+    DEFAULT_BROWSER_HEADLESS,
+    DEFAULT_BROWSER_DISABLE_SECURITY,
+    get_config_value
+)
 from enterprise_ai.schema import Message
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.research.web_search import WebSearch
 
 logger = get_optimized_logger("tool.browser.browser_use")
-
 
 def llm_prompt(goal: str, content: str, max_content_length: int) -> str:
     """Create a prompt for content extraction."""
@@ -46,18 +48,17 @@ Please extract the relevant information and format it as JSON with the following
 }}
 """
 
-
 def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs):
     """Lazy import and execute LLM completion with configurable model."""
     try:
         from enterprise_ai.llm import complete, CompletionOptions
-        from enterprise_ai.config import get_config
+        from enterprise_ai.defaults import get_config_value
         
-        # Use provided model/provider or fall back to config defaults
-        provider = provider_name or get_config("llm.default_provider", "ollama")
-        model = model_name or get_config("llm.default_model", "llama3.2")
+        # Use provided model/provider or fall back to smart defaults
+        provider = provider_name or get_config_value("llm.default_provider", "ollama")
+        model = model_name or get_config_value("llm.default_model", "llama3.2")
 
-        timeout = kwargs.get('timeout') or get_config("llm.timeout", 120.0)
+        timeout = kwargs.get('timeout') or get_config_value("llm.timeout", 120.0)
         
         # Log what we're using for debugging
         logger.debug("Using LLM provider: %s, model: %s", provider, model)
@@ -84,8 +85,6 @@ def _get_llm_completion(messages, model_name=None, provider_name=None, **kwargs)
         
         return FallbackResponse('{"extracted_content": {"text": "Content extraction temporarily unavailable", "metadata": {"source": "fallback", "relevance": "extraction failed"}}}')
 
-
-@register_tool(category="browser", capabilities=["network_access", "web_automation"])
 class BrowserUseTool(BaseTool):
     """
     Browser automation tool that enables web interaction and content extraction.
@@ -280,10 +279,10 @@ class BrowserUseTool(BaseTool):
         if self.browser is None:
             logger.info("Initializing browser")
 
-            # Get configuration from config system
-            headless = get_config("browser_config.headless", False)
-            disable_security = get_config("browser_config.disable_security", True)
-            extra_args = get_config("browser_config.extra_chromium_args", [])
+            # Get configuration with package-friendly defaults
+            headless = get_config_value("browser_config.headless", DEFAULT_BROWSER_HEADLESS)
+            disable_security = get_config_value("browser_config.disable_security", DEFAULT_BROWSER_DISABLE_SECURITY)
+            extra_args = get_config_value("browser_config.extra_chromium_args", [])
 
             # Build browser configuration
             browser_config_kwargs: Dict[str, Any] = {

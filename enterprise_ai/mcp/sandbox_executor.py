@@ -15,7 +15,7 @@ from enterprise_ai.schema import ToolCall
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.core.base import ToolCapability, SandboxMode, ExecutionMode
 from enterprise_ai.sandbox.client import BaseSandboxClient
-from enterprise_ai.config.sandbox import SandboxSettings
+from enterprise_ai.sandbox.settings import SandboxSettings
 
 logger = get_optimized_logger("mcp.sandbox_executor")
 

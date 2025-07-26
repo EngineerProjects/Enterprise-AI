@@ -15,12 +15,10 @@ from pydantic import BaseModel, Field
 
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("tool.file.search")
-
 
 class SearchResult(BaseModel):
     """Search result model."""
@@ -30,8 +28,6 @@ class SearchResult(BaseModel):
     context_before: Optional[List[str]] = None
     context_after: Optional[List[str]] = None
 
-
-@register_tool(category="file", capabilities=["file_access", "code_search"])
 class CodeSearchTool(BaseTool):
     """
     Advanced code and text search tool with pattern matching and context support.

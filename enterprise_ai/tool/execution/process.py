@@ -15,12 +15,10 @@ from pydantic import BaseModel, Field
 
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("tool.execution.process")
-
 
 class ProcessInfo(BaseModel):
     """Process information model."""
@@ -33,7 +31,6 @@ class ProcessInfo(BaseModel):
     create_time: Optional[float] = None
     command: Optional[str] = None
 
-
 class SessionInfo(BaseModel):
     """Terminal session information model."""
     pid: int
@@ -42,8 +39,6 @@ class SessionInfo(BaseModel):
     start_time: str
     duration: str
 
-
-@register_tool(category="execution", capabilities=["process_management", "system_monitoring"])
 class ProcessManagerTool(BaseTool):
     """
     Comprehensive process management tool with system monitoring capabilities.

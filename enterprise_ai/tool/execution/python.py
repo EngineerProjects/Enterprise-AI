@@ -24,11 +24,9 @@ from enterprise_ai.tool.core.base import (
     SandboxMode
 )
 from enterprise_ai.tool.core.result import ToolResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("tool.execution.python")
-
 
 @dataclass
 class PythonExecutionSession:
@@ -60,7 +58,6 @@ class PythonExecutionSession:
         except (TypeError, ValueError):
             # Store string representation for complex objects
             self.variables[name] = str(value)
-
 
 class PythonSessionManager:
     """Enhanced session manager for Python executions."""
@@ -104,7 +101,6 @@ class PythonSessionManager:
         ]
         for sid in old_sessions:
             del self.sessions[sid]
-
 
 class EnhancedCodeAnalyzer:
     """Enhanced code analysis for better sandbox decision making."""
@@ -195,8 +191,6 @@ class EnhancedCodeAnalyzer:
         
         return imports
 
-
-@register_tool(category="execution", capabilities=["code_execution", "data_analysis"])
 class PythonExecute(BaseTool):
     """
     Enhanced Python code execution tool with session management, advanced safety analysis, and optimization.

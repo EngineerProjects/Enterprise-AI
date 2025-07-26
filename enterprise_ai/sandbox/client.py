@@ -6,14 +6,16 @@ simplifying sandbox creation and usage.
 """
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, Protocol
+from typing import Any, Dict, Optional, Protocol, TYPE_CHECKING
 
 from enterprise_ai.logger import get_logger
-from enterprise_ai.config.sandbox import SandboxSettings
-from enterprise_ai.sandbox.core.sandbox import DockerSandbox
+from enterprise_ai.sandbox.settings import SandboxSettings
+
+# Lazy import to avoid requiring docker at import time
+if TYPE_CHECKING:
+    from enterprise_ai.sandbox.core.sandbox import DockerSandbox
 
 logger = get_logger("sandbox.client")
-
 
 class SandboxFileOperations(Protocol):
     """Protocol for sandbox file operations."""
@@ -55,7 +57,6 @@ class SandboxFileOperations(Protocol):
             content: Content to write.
         """
         ...
-
 
 class BaseSandboxClient(ABC):
     """Base sandbox client interface."""
@@ -101,13 +102,12 @@ class BaseSandboxClient(ABC):
     async def cleanup(self) -> None:
         """Cleans up resources."""
 
-
 class LocalSandboxClient(BaseSandboxClient):
     """Local sandbox client implementation."""
 
     def __init__(self) -> None:
         """Initializes local sandbox client."""
-        self.sandbox: Optional[DockerSandbox] = None
+        self.sandbox: Optional["DockerSandbox"] = None
 
     async def create(
         self,
@@ -123,6 +123,9 @@ class LocalSandboxClient(BaseSandboxClient):
         Raises:
             RuntimeError: If sandbox creation fails.
         """
+        # Lazy import DockerSandbox only when needed
+        from enterprise_ai.sandbox.core.sandbox import DockerSandbox
+        
         self.sandbox = DockerSandbox(config, volume_bindings)
         await self.sandbox.create()
         logger.info("Created sandbox using LocalSandboxClient")
@@ -174,7 +177,6 @@ class LocalSandboxClient(BaseSandboxClient):
         try:
             # For now, we'll execute tools directly without sandbox isolation
             # This is a simplified implementation that should be enhanced later
-            from enterprise_ai.tool.core.registry import get_registry
             
             registry = get_registry()
             tool_instance = await registry.create_tool(tool_name, initialize=True)
@@ -273,7 +275,6 @@ class LocalSandboxClient(BaseSandboxClient):
             await self.sandbox.cleanup()
             self.sandbox = None
             logger.info("Cleaned up sandbox resources")
-
 
 def create_sandbox_client() -> LocalSandboxClient:
     """Creates a sandbox client.

@@ -12,7 +12,7 @@ from typing import Any, Callable, Dict, List, Optional, Set
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.schema import ToolCall
 from enterprise_ai.tool.core.result import ToolResult
-from enterprise_ai.tool.core.registry import ToolRegistry
+from enterprise_ai.tool.simple_loader import get_all_tools, get_tool_by_name
 from enterprise_ai.tool.core.base import ToolCapability, ExecutionMode
 from enterprise_ai.mcp.sandbox_config import SandboxConfig, DEFAULT_SANDBOX_CONFIG
 from enterprise_ai.mcp.sandbox_executor import SimpleMCPExecutor, SandboxToolExecutor
@@ -28,21 +28,24 @@ class ToolMCP:
     and returning clean, structured results.
     """
 
-    def __init__(self, timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True, tools: Optional[List[str]] = None):
+    def __init__(
+        self, 
+        timeout: float = 30.0, 
+        sandbox_config: Optional[SandboxConfig] = None, 
+        tools: Optional[List[str]] = None
+    ):
         """
-        Initialize SimpleMCP.
+        Initialize ToolMCP with simplified configuration.
         
         Args:
             timeout: Default timeout for tool execution
-            sandbox_config: Optional sandbox configuration for manual control
-            auto_load_tools: Whether to automatically load tools from registry
-            tools: Specific list of tools to load (overrides auto_load_tools if provided)
+            sandbox_config: Optional sandbox configuration
+            tools: Specific list of tools to load (loads all if None)
         """
         self.timeout = timeout
         self.sandbox_config = sandbox_config or DEFAULT_SANDBOX_CONFIG
         self._execution_count = 0
         self._failed_count = 0
-        self._tools = {}
         
         # Initialize tool executor
         self.tool_executor = SimpleMCPExecutor(
@@ -62,137 +65,52 @@ class ToolMCP:
                 verbose=False
             )
         
-        # Load available tools from registry based on parameters
-        if tools is not None:
-            # Load only specified tools
-            try:
-                self.registry = ToolRegistry()
-                self._tools = self._load_specific_tools(tools)
-                logger.info("ToolMCP initialized with %d specific tools: %s", len(self._tools), list(self._tools.keys()))
-            except Exception as e:
-                logger.error("Failed to load specific tools: %s", e)
-                logger.info("ToolMCP initialized without tools due to error")
-        elif auto_load_tools:
-            # Load all available tools from registry
-            try:
-                self.registry = ToolRegistry()
-                self._tools = self._load_tools_from_registry()
-                
-                if self._tools:
-                    logger.info("ToolMCP initialized with %d tools", len(self._tools))
-                else:
-                    logger.error("No tools loaded from registry")
-            except Exception as e:
-                logger.error("Failed to load tools from registry: %s", e)
-                logger.info("ToolMCP initialized without auto-loading tools")
+        # Load tools using simplified system
+        if tools:
+            self._tools = self._load_specific_tools(tools)
         else:
-            logger.info("ToolMCP initialized without auto-loading tools")
+            self._tools = self._load_all_tools()
+            
+        logger.info(f"ToolMCP initialized with {len(self._tools)} tools")
 
-    def _load_tools_from_registry(self) -> Dict[str, Callable]:
-        """Load tool functions from the existing registry."""
+    def _load_all_tools(self) -> Dict[str, Callable]:
+        """Load all available tools using simplified loader."""
         tools = {}
         
-        if not hasattr(self, 'registry'):
-            return tools
-        
         try:
-            # Get all tool classes from registry
-            tool_classes = self.registry.get_all_tool_classes()
+            tool_classes = get_all_tools()
             
             for tool_name, tool_class in tool_classes.items():
                 try:
-                    # Create tool instance
                     tool_instance = tool_class()
-                    
-                    # Get the execute method
-                    if hasattr(tool_instance, 'execute') and callable(tool_instance.execute):
-                        # Register with class name (e.g., 'WebSearch')
+                    if hasattr(tool_instance, 'execute'):
                         tools[tool_name] = tool_instance.execute
-                        
-                        # Also register with snake_case name if tool has a name attribute
-                        if hasattr(tool_instance, 'name') and isinstance(tool_instance.name, str):
-                            instance_name = tool_instance.name
-                            if instance_name != tool_name:
-                                tools[instance_name] = tool_instance.execute
-                                logger.debug("Registered tool alias: %s -> %s", instance_name, tool_name)
-                        
-                        # Also add normalized version of class name (e.g., 'web_search')
-                        snake_name = self._normalize_tool_name(tool_name)
-                        if snake_name != tool_name:
-                            tools[snake_name] = tool_instance.execute
-                            logger.debug("Registered normalized name: %s -> %s", snake_name, tool_name)
-                    else:
-                        logger.error("Tool %s has no execute method", tool_name)
-                        
+                        logger.debug(f"Loaded tool: {tool_name}")
                 except Exception as e:
-                    logger.error("Failed to load tool %s: %s", tool_name, e)
-                    
+                    logger.warning(f"Failed to load tool {tool_name}: {e}")
+            
+            logger.info(f"Loaded {len(tools)} tools via simple loader")
         except Exception as e:
-            logger.error("Failed to load tools from registry: %s", e)
+            logger.error(f"Failed to load tools: {e}")
             
         return tools
     
     def _load_specific_tools(self, tool_names: List[str]) -> Dict[str, Callable]:
-        """Load only the specified tools from registry."""
+        """Load specific tools using simplified loader."""
         tools = {}
         
-        if not hasattr(self, 'registry'):
-            return tools
+        for tool_name in tool_names:
+            try:
+                tool_class = get_tool_by_name(tool_name)
+                tool_instance = tool_class()
+                if hasattr(tool_instance, 'execute'):
+                    tools[tool_name] = tool_instance.execute
+                    logger.debug(f"Loaded specific tool: {tool_name}")
+            except Exception as e:
+                logger.warning(f"Failed to load tool {tool_name}: {e}")
         
-        try:
-            # Get all available tools from registry first
-            all_tools = self._load_tools_from_registry()
-            
-            # Filter to only requested tools
-            for tool_name in tool_names:
-                if tool_name in all_tools:
-                    tools[tool_name] = all_tools[tool_name]
-                else:
-                    # Try to find tool with different naming conventions
-                    found = False
-                    
-                    # Try snake_case to CamelCase conversion
-                    camel_name = "".join(word.capitalize() for word in tool_name.split("_"))
-                    if camel_name in all_tools:
-                        tools[tool_name] = all_tools[camel_name]  # Store with requested name
-                        found = True
-                    
-                    # Try CamelCase to snake_case conversion
-                    if not found:
-                        snake_name = self._normalize_tool_name(tool_name)
-                        if snake_name in all_tools:
-                            tools[tool_name] = all_tools[snake_name]  # Store with requested name
-                            found = True
-                    
-                    # Try exact match in all available tools (case insensitive)
-                    if not found:
-                        for available_tool in all_tools:
-                            if available_tool.lower() == tool_name.lower():
-                                tools[tool_name] = all_tools[available_tool]
-                                found = True
-                                break
-                    
-                    if not found:
-                        logger.warning("Requested tool '%s' not found in registry", tool_name)
-            
-            # Log summary
-            missing_tools = set(tool_names) - set(tools.keys())
-            if missing_tools:
-                logger.warning("Tools not found: %s", list(missing_tools))
-            
-            logger.debug("Successfully loaded specific tools: %s", list(tools.keys()))
-            
-        except Exception as e:
-            logger.error("Failed to load specific tools: %s", e)
-            
+        logger.info(f"Loaded {len(tools)} specific tools")
         return tools
-        
-    def _normalize_tool_name(self, name: str) -> str:
-        """Convert CamelCase to snake_case for consistent tool naming."""
-        import re
-        # Convert CamelCase to snake_case
-        s1 = re.sub('(.)([A-Z][a-z]+)', r'\1_\2', name)
-        return re.sub('([a-z0-9])([A-Z])', r'\1_\2', s1).lower()
 
     def register_tool(self, name: str, func: Callable) -> None:
         """Register a tool function directly."""
@@ -399,104 +317,66 @@ class ToolMCP:
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """
-        Get tool definitions for all available tools in a format suitable for LLMs.
+        Get tool definitions using simplified approach.
         
         Returns:
             List of tool definitions in the format expected by LLM providers
         """
-        from enterprise_ai.tool.core.registry import ToolRegistry
-        from enterprise_ai.schema.tool import ToolDefinition
+        definitions = []
         
-        registry = ToolRegistry()
-        tool_definitions = []
+        # Get available tool classes for introspection
+        try:
+            tool_classes = get_all_tools()
+        except Exception as e:
+            logger.error(f"Failed to get tool classes: {e}")
+            return definitions
         
-        # Get the actual tool keys from the MCP
-        tool_keys = self.get_available_tools()
-        
-        # Build definitions for each tool
-        for tool_name in tool_keys:
+        # Build definitions for each available tool
+        for tool_name in self.get_available_tools():
             try:
-                # Try to get more info from registry if available
+                # Find the tool class by name
                 tool_class = None
-                # First try with exact name
-                tool_class = registry.get_tool_class(tool_name)
+                for class_name, cls in tool_classes.items():
+                    if class_name == tool_name:
+                        tool_class = cls
+                        break
                 
-                # If not found and name is lowercase with underscores, try with CamelCase
-                if not tool_class and "_" in tool_name:
-                    # Convert snake_case to CamelCase
-                    camel_name = "".join(word.capitalize() for word in tool_name.split("_"))
-                    tool_class = registry.get_tool_class(camel_name)
-                    
                 if tool_class:
-                    # Get tool info from registry
-                    tool_info = registry.get_tool_info(tool_class.__name__)
+                    # Create instance for introspection
+                    tool_instance = tool_class()
                     
-                    # Try to get parameters directly from class instance if possible
-                    tool_instance = None
-                    try:
-                        tool_instance = tool_class()
-                    except Exception as e:
-                        logger.debug(f"Could not instantiate tool {tool_name}: {e}")
+                    # Get description (prefer short_description)
+                    description = getattr(tool_instance, 'short_description', None)
+                    if not description:
+                        description = getattr(tool_instance, 'description', f"Tool: {tool_name}")
+                        if isinstance(description, str) and '\n' in description:
+                            description = description.split('\n')[0]  # First line only
                     
-                    # Get parameters with priority: instance > class > registry > fallback
-                    if tool_instance and hasattr(tool_instance, 'parameters') and tool_instance.parameters:
-                        parameters = tool_instance.parameters
-                    elif hasattr(tool_class, 'parameters') and getattr(tool_class, 'parameters', None):
-                        parameters = getattr(tool_class, 'parameters')
-                    else:
-                        parameters = tool_info.get("parameters", {})
-                        
-                    # Try to get description with proper priority hierarchy
-                    if tool_instance and hasattr(tool_instance, 'short_description') and tool_instance.short_description:
-                        # Use short_description attribute if available
-                        description = tool_instance.short_description
-                    elif hasattr(tool_class, 'short_description') and getattr(tool_class, 'short_description', None):
-                        # Use class short_description if available
-                        description = getattr(tool_class, 'short_description')
-                    elif tool_instance and hasattr(tool_instance, 'description') and tool_instance.description:
-                        # If no short description but regular description exists on instance
-                        full_desc = tool_instance.description
-                        # Extract first line only for concise LLM tool description
-                        if isinstance(full_desc, str):
-                            description = full_desc.strip().split('\n')[0]
-                        else:
-                            description = str(full_desc)
-                    elif hasattr(tool_class, 'description') and getattr(tool_class, 'description', None):
-                        # If no short description but regular description exists on class
-                        full_desc = getattr(tool_class, 'description')
-                        if isinstance(full_desc, str):
-                            description = full_desc.strip().split('\n')[0]
-                        else:
-                            description = str(full_desc)
-                    else:
-                        # Fall back to registry info or generic description
-                        description = tool_info.get("description", f"Tool: {tool_name}")
-                else:
-                    # Fallback to minimal definition
-                    parameters = {
+                    # Get parameters
+                    parameters = getattr(tool_instance, 'parameters', {
                         "type": "object",
                         "properties": {},
                         "required": []
-                    }
-                    description = f"Tool: {tool_name}"
+                    })
                     
-                # Create a tool definition with the EXACT name from MCP
-                tool_def = {
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,  # Use exact name from MCP
-                        "description": description,
-                        "parameters": parameters
+                    # Create tool definition
+                    definition = {
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "description": description,
+                            "parameters": parameters
+                        }
                     }
-                }
-                
-                # Add the tool definition
-                tool_definitions.append(tool_def)
-                
+                    
+                    definitions.append(definition)
+                else:
+                    logger.warning(f"Could not find tool class for {tool_name}")
+                    
             except Exception as e:
-                logger.error("Error creating definition for tool %s: %s", tool_name, e)
+                logger.error(f"Error creating definition for tool {tool_name}: {e}")
         
-        return tool_definitions
+        return definitions
 
     def reset_stats(self) -> None:
         """Reset execution statistics."""
@@ -505,6 +385,10 @@ class ToolMCP:
 
 
 # Factory function for easy creation
-def create_simple_mcp(timeout: float = 30.0, sandbox_config: Optional[SandboxConfig] = None, auto_load_tools: bool = True, tools: Optional[List[str]] = None) -> ToolMCP:
-    """Create a SimpleMCP instance with optional sandbox configuration and specific tools."""
-    return ToolMCP(timeout=timeout, sandbox_config=sandbox_config, auto_load_tools=auto_load_tools, tools=tools)
+def create_simple_mcp(
+    timeout: float = 30.0, 
+    sandbox_config: Optional[SandboxConfig] = None, 
+    tools: Optional[List[str]] = None
+) -> ToolMCP:
+    """Create a ToolMCP instance with simplified configuration."""
+    return ToolMCP(timeout=timeout, sandbox_config=sandbox_config, tools=tools)

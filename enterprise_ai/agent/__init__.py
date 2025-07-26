@@ -9,22 +9,13 @@ from enterprise_ai.agent.base import Agent
 from enterprise_ai.agent.factory import create_agent
 from enterprise_ai.agent.role import AgentRole
 
-from enterprise_ai.agent.reasoning.base import ReasoningPattern
+# Reasoning patterns (self-contained classes)
 from enterprise_ai.agent.reasoning.react import ReActPattern
 from enterprise_ai.agent.reasoning.cot import ChainOfThoughtPattern
 from enterprise_ai.agent.reasoning.swe import SoftwareEngineeringPattern
 
-# Profile system
-from enterprise_ai.agent.profile import (
-    ProfileManager,
-    AgentProfile,
-    AgentRoleInfo,
-    AgentCapacity,
-    AgentStatus,
-    CapacityManager,
-    CapacityMetrics,
-    WorkloadLevel,
-)
+# Profile system - simplified approach
+from enterprise_ai.agent.profile import ProfileManager
 
 __all__ = [
     # Core agent classes
@@ -32,19 +23,11 @@ __all__ = [
     'create_agent',
     'AgentRole',
     
-    # Reasoning patterns
-    'ReasoningPattern',
+    # Reasoning patterns (self-contained)
     'ReActPattern',
     'ChainOfThoughtPattern',
     'SoftwareEngineeringPattern',
     
-    # Profile system
+    # Profile system (simplified)
     'ProfileManager',
-    'AgentProfile',
-    'AgentRoleInfo',
-    'AgentCapacity',
-    'AgentStatus',
-    'CapacityManager',
-    'CapacityMetrics',
-    'WorkloadLevel',
 ]

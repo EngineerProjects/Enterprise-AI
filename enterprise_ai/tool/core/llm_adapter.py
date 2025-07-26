@@ -14,10 +14,8 @@ from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import ToolDefinition, ToolCall, ToolResult
 from enterprise_ai.schema.tool_utils import ToolConverter
 from enterprise_ai.tool.core.base import BaseTool
-from enterprise_ai.tool.core.registry import get_registry
 
 logger = get_logger("tool.llm_adapter")
-
 
 class LLMToolAdapter:
     """
@@ -78,9 +76,9 @@ class LLMToolAdapter:
         def tool_function(**kwargs: Any) -> Union[str, Dict[str, Any]]:
             """Synchronous function wrapper for the tool."""
             try:
-                # Import config dynamically to get current timeout setting
-                from enterprise_ai.config import get_config
-                execution_timeout = get_config("execution.timeout", 120.0)
+                # Use package-friendly defaults
+                from enterprise_ai.defaults import get_config_value
+                execution_timeout = get_config_value("execution.timeout", 120.0)
                 
                 # Simple and reliable execution approach
                 if asyncio.iscoroutinefunction(tool_instance.execute):
@@ -298,10 +296,8 @@ class LLMToolAdapter:
         except Exception as e:
             logger.warning("Error cleaning up tool %s: %s", name, e)
 
-
 # Global adapter instance
 _global_adapter = LLMToolAdapter()
-
 
 async def get_llm_tools(categories: Optional[List[str]] = None, force_refresh: bool = False) -> Dict[str, Callable]:
     """
@@ -319,7 +315,6 @@ async def get_llm_tools(categories: Optional[List[str]] = None, force_refresh: b
     
     return _global_adapter.get_tool_functions()
 
-
 async def get_llm_tool_definitions(categories: Optional[List[str]] = None, force_refresh: bool = False) -> List[ToolDefinition]:
     """
     Get tool definitions for LLM providers.
@@ -336,11 +331,9 @@ async def get_llm_tool_definitions(categories: Optional[List[str]] = None, force
     
     return _global_adapter.get_tool_definitions()
 
-
 def get_adapter() -> LLMToolAdapter:
     """Get the global tool adapter instance."""
     return _global_adapter
-
 
 async def cleanup_adapter() -> None:
     """Clean up the global adapter."""

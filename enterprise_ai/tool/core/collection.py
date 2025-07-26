@@ -10,11 +10,9 @@ from typing import Any, Dict, List, Optional, Set, Union, Type
 
 from enterprise_ai.logger import get_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolCapability, ToolConfig
-from enterprise_ai.tool.core.registry import get_registry
 from enterprise_ai.tool.core.llm_adapter import LLMToolAdapter
 
 logger = get_logger("tool.core.collection")
-
 
 class ToolCollection:
     """

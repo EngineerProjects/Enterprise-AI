@@ -9,14 +9,11 @@ from typing import Any, Dict, List, Optional, Set, Union
 
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.tool.core.config_manager import get_config_manager, ConfigManager
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("tool.core.config_tool")
 
-
-@register_tool(category="core", capabilities=["system_config", "configuration"])
 class ConfigurationTool(BaseTool):
     """
     Configuration management tool for Enterprise AI system configuration.

@@ -19,7 +19,7 @@ from docker.errors import NotFound
 from docker.models.containers import Container
 
 from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.config.sandbox import SandboxSettings
+from enterprise_ai.sandbox.settings import SandboxSettings
 from enterprise_ai.sandbox.core.exceptions import SandboxTimeoutError
 from enterprise_ai.sandbox.core.terminal import AsyncDockerizedTerminal
 

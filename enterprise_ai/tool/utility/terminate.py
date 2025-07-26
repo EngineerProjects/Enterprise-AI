@@ -4,13 +4,11 @@ from typing import Any, Dict, Optional, Set, Union
 
 from enterprise_ai.tool.core.base import BaseTool, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.logger import get_logger
 
 logger = get_logger("tool.utility.terminate")
 
 
-@register_tool(category="utility", capabilities=["utility", "task_control"])
 class TerminateTool(BaseTool):
     """
     Tool to signal the completion or termination of a task or conversation.

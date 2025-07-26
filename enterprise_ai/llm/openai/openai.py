@@ -26,7 +26,14 @@ from tenacity import (
     wait_random_exponential,
 )
 
-from enterprise_ai.config import get_config
+from enterprise_ai.defaults import (
+    DEFAULT_OPENAI_MODEL,
+    DEFAULT_OPENAI_TIMEOUT,
+    DEFAULT_LLM_TEMPERATURE,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TOP_P,
+    get_config_value
+)
 from enterprise_ai.constants import (
     DEFAULT_TEMPERATURE,
     DEFAULT_MAX_TOKENS,
@@ -70,26 +77,26 @@ class OpenAIProvider(LLMProvider):
         verbose: bool = False,
         **kwargs: Any,
     ):
-        """Initialize the OpenAI provider."""
-        # Configuration
-        self.model_name = model_name or get_config("llm.openai.model", "gpt-4o-mini")
+        """Initialize the OpenAI provider with package-friendly configuration."""
+        # Use explicit parameters with smart defaults (no config file required)
+        self.model_name = model_name or DEFAULT_OPENAI_MODEL
         self.api_type = api_type
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL")
         self.api_version = api_version or os.getenv("OPENAI_API_VERSION")
-        self._timeout = timeout or DEFAULT_TIMEOUT
+        self._timeout = timeout or DEFAULT_OPENAI_TIMEOUT
         self.max_input_tokens = max_input_tokens
 
-        # Initialize base class
+        # Initialize base class with explicit parameters
         super().__init__(
             model_name=self.model_name,
             verbose=verbose,
             api_key=self.api_key,
             api_type=api_type,
             base_url=self.base_url,
-            temperature=temperature or get_config("llm.openai.temperature", DEFAULT_TEMPERATURE),
-            max_tokens=max_tokens or get_config("llm.openai.max_tokens", DEFAULT_MAX_TOKENS),
-            top_p=top_p or get_config("llm.openai.top_p", DEFAULT_TOP_P),
+            temperature=temperature or DEFAULT_LLM_TEMPERATURE,
+            max_tokens=max_tokens or DEFAULT_LLM_MAX_TOKENS,
+            top_p=top_p or DEFAULT_LLM_TOP_P,
             **kwargs,
         )
 

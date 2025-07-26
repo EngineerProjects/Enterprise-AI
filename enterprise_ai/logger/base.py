@@ -7,7 +7,7 @@ import os
 from pathlib import Path
 from typing import Dict, Optional
 
-from enterprise_ai.config import get_config
+from enterprise_ai.defaults import DEFAULT_LOG_LEVEL, get_config_value
 
 # Cache for loggers
 _loggers: Dict[str, logging.Logger] = {}
@@ -27,12 +27,12 @@ def setup_logger(
     Returns:
         Configured logger instance
     """
-    # Use configuration if not explicitly provided
+    # Use smart defaults if not explicitly provided
     if level is None:
-        level = get_config("logging.level", "INFO")
+        level = get_config_value("logging.level", DEFAULT_LOG_LEVEL)
 
     if log_file is None:
-        log_file = get_config("logging.file", "")
+        log_file = get_config_value("logging.file", "")
 
     # Set up the logger
     logger = logging.getLogger(name)
@@ -46,13 +46,13 @@ def setup_logger(
     logger.setLevel(numeric_level)
 
     # Create formatter
-    log_format = get_config(
+    log_format = get_config_value(
         "logging.format", "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     formatter = logging.Formatter(log_format)
 
     # Add console handler if enabled
-    if get_config("logging.enable_console", True):
+    if get_config_value("logging.enable_console", True):
         console_handler = logging.StreamHandler()
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)

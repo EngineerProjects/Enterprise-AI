@@ -116,17 +116,13 @@ __all__ = [
 try:
     from .factory import (
         create_empty_team,
-        create_agent_for_team,
-        create_manager_agent
+        create_team
     )
-    from .manager import ManagerAgent
     from .memory.distributed import DistributedMemory
     
     __all__.extend([
         'create_empty_team', 
-        'create_agent_for_team',
-        'create_manager_agent',
-        'ManagerAgent',
+        'create_team',
         'DistributedMemory'
     ])
 except ImportError:

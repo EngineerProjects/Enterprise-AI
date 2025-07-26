@@ -19,12 +19,10 @@ from pydantic import BaseModel, Field
 
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.sandbox.client import BaseSandboxClient, create_sandbox_client
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("tool.file.filesystem")
-
 
 class FileInfo(BaseModel):
     """File information model."""
@@ -40,7 +38,6 @@ class FileInfo(BaseModel):
     last_line: Optional[int] = None
     append_position: Optional[int] = None
 
-
 class MultiFileResult(BaseModel):
     """Result for multiple file operations."""
     path: str
@@ -49,7 +46,6 @@ class MultiFileResult(BaseModel):
     is_image: Optional[bool] = None
     error: Optional[str] = None
 
-
 class FileResult(BaseModel):
     """Enhanced file result with metadata."""
     content: str
@@ -57,7 +53,6 @@ class FileResult(BaseModel):
     is_image: bool
     size: Optional[int] = None
     encoding: Optional[str] = None
-
 
 class PathSecurityValidator:
     """Advanced path validation with security checks like Desktop Commander."""
@@ -157,7 +152,6 @@ class PathSecurityValidator:
         except Exception:
             return False
 
-
 class MimeTypeDetector:
     """Advanced MIME type detection like Desktop Commander."""
     
@@ -252,8 +246,6 @@ class MimeTypeDetector:
             ext = Path(mime_type_or_path).suffix.lower()
             return ext in self.IMAGE_EXTENSIONS
 
-
-@register_tool(category="file", capabilities=["file_access", "file_management"])
 class FileSystemTool(BaseTool):
     """
     Comprehensive file system operations tool with Desktop Commander enhancements.

@@ -21,11 +21,9 @@ from enterprise_ai.tool.core.base import (
     SandboxMode
 )
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
-from enterprise_ai.tool.core.registry import register_tool
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("tool.execution.bash")
-
 
 @dataclass
 class ExecutionSession:
@@ -61,7 +59,6 @@ class ExecutionSession:
         """Terminate process - placeholder for compatibility."""
         # Since we don't store process objects, just mark as completed
         self.complete_session("Process terminated")
-
 
 class SessionManager:
     """Global session manager like Desktop Commander."""
@@ -129,7 +126,6 @@ class SessionManager:
                 logger.debug(f"Error terminating session {session.pid}: {e}")
         
         self.sessions.clear()
-
 
 class CommandValidator:
     """Enhanced command validation like Desktop Commander."""
@@ -201,7 +197,6 @@ class CommandValidator:
         # Get first word
         parts = command_line.strip().split()
         return parts[0] if parts else ""
-
 
 class _EnhancedBashSession:
     """Enhanced bash session with Desktop Commander features."""
@@ -538,8 +533,6 @@ class _EnhancedBashSession:
         except Exception as e:
             logger.warning(f"Sync cleanup completed with warnings: {e}")
 
-
-@register_tool(category="execution", capabilities=["code_execution", "system_access"])
 class Bash(BaseTool):
     """
     Enhanced bash command execution tool with Desktop Commander session management and safety controls.

@@ -1,13 +1,14 @@
 """
 Enterprise AI Agent - ReAct Reasoning Pattern.
 
-Implements the Reasoning + Acting pattern that alternates between thinking and tool usage.
+Self-contained ReAct pattern without inheritance overhead.
 """
 
 from typing import List, Optional, Dict, Any, AsyncIterator
 
+from enterprise_ai.llm.base import LLMProvider
+from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.agent.config import MAX_REACT_ITERATIONS
-from enterprise_ai.agent.reasoning.base import ReasoningPattern
 from enterprise_ai.agent.prompts.reasoning.react import REACT_SYSTEM_GUIDANCE, REACT_TOOL_GUIDANCE
 from enterprise_ai.schema import Message, ToolCall
 from enterprise_ai.schema.memory import ConversationMemory
@@ -17,21 +18,24 @@ from enterprise_ai.logger import get_optimized_logger
 logger = get_optimized_logger("agent.reasoning.react")
 
 
-class ReActPattern(ReasoningPattern):
+class ReActPattern:
     """
-    Reasoning and Acting pattern that alternates between thinking and tool usage.
+    Self-contained Reasoning and Acting pattern.
     
-    This pattern allows the agent to:
-    1. Analyze the problem
-    2. Decide when to use tools
-    3. Execute tools and incorporate results
-    4. Continue this cycle until the task is complete
+    Alternates between thinking and tool usage without complex inheritance.
     """
     
     def __init__(self):
         """Initialize the ReAct pattern."""
-        super().__init__()
-        # No hardcoded prompts here - they're imported from the prompts module
+        self.llm = None
+        self.mcp = None
+        self.verbose = False
+    
+    def configure(self, llm: LLMProvider, mcp: ToolMCP, verbose: bool = False) -> None:
+        """Configure the pattern with LLM and MCP."""
+        self.llm = llm
+        self.mcp = mcp
+        self.verbose = verbose
     
     async def process(self, messages: List[MessageProtocol], memory: ConversationMemory) -> str:
         """

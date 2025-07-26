@@ -14,7 +14,15 @@ from typing import Any, Dict, List, Optional, Set, Iterator, AsyncIterator, Unio
 
 import httpx
 
-from enterprise_ai.config import get_config
+from enterprise_ai.defaults import (
+    DEFAULT_OLLAMA_MODEL, 
+    DEFAULT_OLLAMA_BASE_URL, 
+    DEFAULT_OLLAMA_TIMEOUT,
+    DEFAULT_LLM_TEMPERATURE,
+    DEFAULT_LLM_MAX_TOKENS,
+    DEFAULT_LLM_TOP_P,
+    get_config_value
+)
 from enterprise_ai.constants import (
     DEFAULT_TEMPERATURE,
     DEFAULT_MAX_TOKENS,
@@ -60,24 +68,24 @@ class OllamaProvider(LLMProvider):
         verbose: bool = False,
         **kwargs: Any,
     ):
-        """Initialize the Ollama provider with API-compliant configuration."""
-        # Configuration
-        model = model_name or get_config("llm.ollama.model", DEFAULT_OLLAMA_MODEL)
-        url = base_url or OllamaConfigHelper.get_base_url_from_env(OLLAMA_API_BASE)
+        """Initialize the Ollama provider with package-friendly configuration."""
+        # Use explicit parameters with smart defaults (no config file required)
+        model = model_name or DEFAULT_OLLAMA_MODEL
+        url = base_url or DEFAULT_OLLAMA_BASE_URL
         self._base_url = normalize_base_url(url)
         
-        env_timeout = OllamaConfigHelper.get_timeout_from_env(DEFAULT_TIMEOUT)
-        self._timeout = validate_timeout(timeout or env_timeout)
+        # Use explicit timeout or default (no config file dependency)
+        self._timeout = validate_timeout(timeout or DEFAULT_OLLAMA_TIMEOUT)
         self._explicit_capabilities = capabilities
 
-        # Initialize base class
+        # Initialize base class with explicit parameters
         super().__init__(
             model_name=model,
             verbose=verbose,
             base_url=self._base_url,
-            temperature=temperature or get_config("llm.ollama.temperature", DEFAULT_TEMPERATURE),
-            max_tokens=max_tokens or get_config("llm.ollama.max_tokens", DEFAULT_MAX_TOKENS),
-            top_p=top_p or get_config("llm.ollama.top_p", DEFAULT_TOP_P),
+            temperature=temperature or DEFAULT_LLM_TEMPERATURE,
+            max_tokens=max_tokens or DEFAULT_LLM_MAX_TOKENS,
+            top_p=top_p or DEFAULT_LLM_TOP_P,
             **kwargs,
         )
 

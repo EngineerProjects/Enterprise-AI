@@ -1,11 +1,13 @@
 """
 Enterprise AI Agent - Software Engineering Reasoning Pattern.
 
-Implements the Software Engineering pattern focused on code tasks.
+Self-contained SWE pattern based on ReAct but optimized for code tasks.
 """
 
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, AsyncIterator
 
+from enterprise_ai.llm.base import LLMProvider
+from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.agent.config import MAX_REACT_ITERATIONS
 from enterprise_ai.agent.reasoning.react import ReActPattern
 from enterprise_ai.agent.prompts.reasoning.swe import SWE_SYSTEM_GUIDANCE, SWE_TOOL_GUIDANCE
@@ -19,15 +21,9 @@ logger = get_optimized_logger("agent.reasoning.swe")
 
 class SoftwareEngineeringPattern(ReActPattern):
     """
-    Software Engineering reasoning pattern specialized for code-related tasks.
+    Software Engineering pattern that extends ReAct for code tasks.
     
-    This pattern extends ReAct with:
-    1. Code-specific context and task breakdown
-    2. Priority for code-related tools
-    3. Specialized response formatting for code
-    
-    It inherits the tool usage capabilities from ReAct but is optimized for
-    software development workflows.
+    Uses ReAct's tool capabilities but adds code-specific guidance.
     """
     
     async def process(self, messages: List[MessageProtocol], memory: ConversationMemory) -> str:
