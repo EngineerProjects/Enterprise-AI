@@ -23,7 +23,6 @@ from enterprise_ai.schema.memory import (
     ConversationMemory,
     InMemoryConversation,
     SlidingWindowConversation,
-    ConversationMemoryFactory,
     MemoryConfig,
 )
 
@@ -72,7 +71,6 @@ __all__ = [
     "ConversationMemory",
     "InMemoryConversation", 
     "SlidingWindowConversation",
-    "ConversationMemoryFactory",
     "MemoryConfig",
     
     # Tool schemas

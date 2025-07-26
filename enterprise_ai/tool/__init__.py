@@ -47,10 +47,7 @@ def get_available_tools():
     from enterprise_ai.tool.simple_loader import get_all_tools
     return get_all_tools()
 
-def get_tool_by_name(name: str):
-    """Get a specific tool by name with lazy loading."""
-    from enterprise_ai.tool.simple_loader import get_tool_by_name
-    return get_tool_by_name(name)
+# Note: get_tool_by_name is already imported from enterprise_ai.tool.core above
 
 # Lazy imports for individual tools (only import when needed)
 def _lazy_import_tool(module_path: str, class_name: str):

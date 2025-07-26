@@ -548,7 +548,22 @@ class DeepResearch(BaseTool):
             context.visited_urls.add(result.url)
 
             if not result.raw_content:
-                logger.debug("Skipping result with no content: %s", result.url)
+                # Optional: Try enhanced content extraction if no content available
+                logger.debug("No content from search, trying enhanced extraction: %s", result.url)
+                enhanced_content = await self._enhanced_content_extraction(result.url)
+                if enhanced_content:
+                    logger.debug("Enhanced extraction successful: %s chars", len(enhanced_content))
+                    insights = await self._analyze_content(
+                        content=enhanced_content[:10000],
+                        url=result.url,
+                        title=result.title,
+                        query=original_query,
+                    )
+                    all_insights.extend(insights)
+                    context.insights.extend(insights)
+                    logger.info("Extracted %s insights from enhanced content: %s", len(insights), result.url)
+                else:
+                    logger.debug("Enhanced extraction failed, skipping: %s", result.url)
                 continue
 
             insights = await self._analyze_content(
@@ -707,6 +722,37 @@ class DeepResearch(BaseTool):
             source_title=title,
             relevance_score=FALLBACK_RELEVANCE_SCORE,
         )
+
+    async def _enhanced_content_extraction(self, url: str) -> Optional[str]:
+        """
+        Enhanced content extraction for URLs with no content.
+        
+        Uses the optimized extraction system as a fallback when 
+        search results don't have content.
+        """
+        try:
+            # Lazy load the enhanced content extractor
+            from enterprise_ai.tool.research.content_extractor import EnterpriseContentExtractor
+            
+            extractor = EnterpriseContentExtractor(
+                timeout=20,  # Reasonable timeout for deep research
+                enable_js_extraction=True  # Enable all methods for better results
+            )
+            
+            result = await extractor.extract(url)
+            if result.success and result.content:
+                logger.debug(f"Enhanced extraction via {result.method}: {len(result.content)} chars")
+                return result.content
+            else:
+                logger.debug(f"Enhanced extraction failed: {result.error}")
+                return None
+                
+        except ImportError:
+            logger.debug("Enhanced content extractor not available")
+            return None
+        except Exception as e:
+            logger.debug(f"Enhanced extraction error: {e}")
+            return None
 
     async def cleanup(self) -> None:
         """Clean up resources used by the deep research tool."""

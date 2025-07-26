@@ -175,7 +175,7 @@ class RateLimiter:
             self.request_times.append(time.time())
 
 class WebContentFetcher:
-    """Utility class for fetching web content."""
+    """Utility class for fetching web content with optimized extraction."""
 
     def __init__(self) -> None:
         rate_limit = get_config_value("search.rate_limit", DEFAULT_RATE_LIMIT)
@@ -185,9 +185,31 @@ class WebContentFetcher:
         self.session.headers.update({
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
         })
+        
+        # Lazy load optimized content extractor
+        self._content_extractor = None
+        self._extraction_method = None
+
+    def _get_content_extractor(self):
+        """Lazy load the optimized content extractor."""
+        if self._content_extractor is None:
+            try:
+                # Try to use the optimized modular extraction system
+                from enterprise_ai.tool.research.content_extractor import EnterpriseContentExtractor
+                self._content_extractor = EnterpriseContentExtractor(
+                    timeout=15,  # Fast timeout for web search
+                    enable_js_extraction=False  # Disable slow methods for search
+                )
+                self._extraction_method = "optimized"
+                logger.info("Using optimized content extraction for web search")
+            except ImportError as e:
+                logger.warning(f"Optimized extractor not available ({e}), using basic extraction")
+                self._extraction_method = "basic"
+        
+        return self._content_extractor
 
     async def fetch_content(self, url: str, timeout: int = 10) -> Optional[str]:
-        """Fetch and extract the main content from a webpage."""
+        """Fetch and extract content using optimized extraction with fallback."""
         # Validate URL
         try:
             parsed = urlparse(url)
@@ -198,10 +220,28 @@ class WebContentFetcher:
             logger.warning("Could not parse URL: %s", url)
             return None
 
-        try:
-            await self.rate_limiter.acquire()
-            logger.debug("Fetching content from: %s", url)
+        await self.rate_limiter.acquire()
+        logger.debug("Fetching content from: %s", url)
 
+        # Try optimized extraction first
+        extractor = self._get_content_extractor()
+        if extractor and self._extraction_method == "optimized":
+            try:
+                result = await extractor.extract(url)
+                if result.success and result.content:
+                    logger.debug(f"Optimized extraction success: {len(result.content)} chars via {result.method}")
+                    return result.content[:100000]  # Limit to 100KB
+                else:
+                    logger.debug(f"Optimized extraction failed: {result.error}, falling back to basic")
+            except Exception as e:
+                logger.debug(f"Optimized extraction error: {e}, falling back to basic")
+
+        # Fallback to basic extraction
+        return await self._fetch_content_basic(url, timeout)
+
+    async def _fetch_content_basic(self, url: str, timeout: int = 10) -> Optional[str]:
+        """Basic content extraction using BeautifulSoup (fallback)."""
+        try:
             response = await asyncio.get_event_loop().run_in_executor(
                 None, lambda: self.session.get(url, timeout=timeout)
             )
@@ -239,7 +279,7 @@ class WebContentFetcher:
                 logger.warning("Could not extract text from %s", url)
                 return None
 
-            logger.debug("Successfully extracted content from %s (%s chars)", url, len(extracted_text))
+            logger.debug("Basic extraction success: %s chars", len(extracted_text))
             return extracted_text[:100000]  # Limit to 100KB
 
         except Exception as e:

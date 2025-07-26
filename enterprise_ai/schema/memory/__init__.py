@@ -10,7 +10,6 @@ from typing import Any, Dict, Optional
 
 from enterprise_ai.schema.memory.base import ConversationMemory
 from enterprise_ai.schema.memory.implementations import (
-    ConversationMemoryFactory,
     InMemoryConversation,
     SlidingWindowConversation,
 )
@@ -53,7 +52,6 @@ class MemoryConfig:
 
 __all__ = [
     "ConversationMemory",
-    "ConversationMemoryFactory", 
     "InMemoryConversation",
     "SlidingWindowConversation",
     "MemoryConfig",

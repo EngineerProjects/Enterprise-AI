@@ -112,19 +112,4 @@ __all__ = [
     "create_team"
 ]
 
-# Legacy compatibility - try to import if exists
-try:
-    from .factory import (
-        create_empty_team,
-        create_team
-    )
-    from .memory.distributed import DistributedMemory
-    
-    __all__.extend([
-        'create_empty_team', 
-        'create_team',
-        'DistributedMemory'
-    ])
-except ImportError:
-    # Legacy components not available - that's fine
-    pass
+# Note: Legacy factory module has been replaced by the simple create_team function above
