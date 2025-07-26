@@ -131,41 +131,56 @@ Enterprise-AI includes **15+ specialized tools** across multiple categories:
 
 ```python
 import asyncio
-from enterprise_ai.agent.core.base import LLMAgent
-from enterprise_ai.team.core.base import BaseTeam
+from enterprise_ai.agent import Agent
+from enterprise_ai.team import Team, create_dev_team
 from enterprise_ai.llm.providers.ollama import OllamaProvider
 
 async def main():
     # Initialize LLM provider
     llm = OllamaProvider(model="llama3.1")
     
-    # Create specialized agents
-    developer = LLMAgent(
+    # Create agents with Agent module (agent profile auto-detects capabilities)
+    manager = Agent(
+        name="Tech Lead",
+        role_type="manager_with_tools", 
+        llm_provider=llm,
+        use_tools=True
+    )
+    
+    developer = Agent(
         name="Senior Developer",
         role_type="developer_with_tools",
         llm_provider=llm,
         use_tools=True
     )
     
-    researcher = LLMAgent(
+    researcher = Agent(
         name="Research Specialist", 
         role_type="researcher_with_tools",
         llm_provider=llm,
         use_tools=True
     )
     
-    # Create collaborative team
-    team = BaseTeam(name="AI Development Team")
+    # Create team with mandatory manager
+    team = Team("AI Development Team", manager)
+    
+    # Add specialists (roles auto-detected from agent profiles)
     team.add_member(developer)
     team.add_member(researcher)
     
-    # Execute complex task
-    result = await team.assign_task({
-        "description": "Research and implement a Python web scraper",
-        "requirements": ["Fast execution", "Error handling", "Documentation"]
-    })
+    # Execute task - team coordinates automatically
+    result = await team.execute_task(
+        "Research and implement a Python web scraper with error handling and documentation"
+    )
     
     print(f"Task completed: {result}")
+
+# Alternative: Use convenience factory
+async def factory_example():
+    # Create development team with factory
+    team = create_dev_team("Backend Team", manager, [developer, researcher])
+    result = await team.execute_task("Build a REST API")
+    print(f"Result: {result}")
 
 # Run the example
 asyncio.run(main())
