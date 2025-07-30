@@ -80,9 +80,11 @@ def get_all_tools() -> Dict[str, Type[BaseTool]]:
         # Utility tools
         from enterprise_ai.tool.utility.terminate import TerminateTool
         from enterprise_ai.tool.utility.mime_types import MimeTypeTool
+        from enterprise_ai.tool.utility.config_tool import ConfigurationTool
         tools.update({
             'terminate': TerminateTool,
             'mime_types': MimeTypeTool,
+            'configuration': ConfigurationTool,
         })
     except ImportError as e:
         logger.warning(f"Could not import utility tools: {e}")

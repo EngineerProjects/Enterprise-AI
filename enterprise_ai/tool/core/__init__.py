@@ -28,7 +28,7 @@ from enterprise_ai.tool.core.config_manager import (
     validate_path_config,
     is_command_blocked_config,
 )
-from enterprise_ai.tool.core.config_tool import ConfigurationTool
+from enterprise_ai.tool.utility.config_tool import ConfigurationTool
 
 # Import schema components for consistency
 from enterprise_ai.schema.tool import ToolCall, ToolDefinition, Function

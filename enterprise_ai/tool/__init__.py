@@ -22,11 +22,31 @@ from enterprise_ai.tool.core import (
 # Import unified result system
 from enterprise_ai.tool.core.result import ToolResult, CLIResult, ToolFailure, ToolResultMetadata
 
+# Import enhanced tool discovery system
+from enterprise_ai.tool.discovery import (
+    AutomaticToolDiscovery,
+    ToolDefinition,
+    DiscoveryResult,
+    get_tool_discovery,
+    discover_tools,
+    get_llm_tool_definitions,
+    get_tool_definition,
+)
+
 # Import LLM integration
 from enterprise_ai.tool.core.llm_adapter import (
     LLMToolAdapter,
     get_llm_tools,
     get_llm_tool_definitions,
+)
+
+# Import smart logging system
+from enterprise_ai.tool.logging import (
+    SmartToolLogger,
+    ToolExecutionContext,
+    get_smart_logger,
+    log_source_used,
+    log_tool_outcome,
 )
 
 # Import configuration management system
@@ -39,7 +59,7 @@ from enterprise_ai.tool.core.config_manager import (
     validate_path_config,
     is_command_blocked_config,
 )
-from enterprise_ai.tool.core.config_tool import ConfigurationTool
+from enterprise_ai.tool.utility.config_tool import ConfigurationTool
 
 # Tool modules (lazy loaded to avoid import errors with optional dependencies)
 def get_available_tools():
@@ -98,6 +118,9 @@ def get_terminate_tool():
 def get_mime_type_tool():
     return _lazy_import_tool('enterprise_ai.tool.utility.mime_types', 'MimeTypeTool')
 
+def get_config_tool():
+    return _lazy_import_tool('enterprise_ai.tool.utility.config_tool', 'ConfigurationTool')
+
 __all__ = [
     # Core components (simplified)
     "BaseTool",
@@ -117,6 +140,15 @@ __all__ = [
     "ToolFailure",
     "ToolResultMetadata",
     
+    # Enhanced tool discovery system (NEW)
+    "AutomaticToolDiscovery",
+    "ToolDefinition",
+    "DiscoveryResult", 
+    "get_tool_discovery",
+    "discover_tools",
+    "get_llm_tool_definitions",
+    "get_tool_definition",
+    
     # LLM Integration
     "LLMToolAdapter",
     "get_llm_tools",
@@ -131,6 +163,13 @@ __all__ = [
     "set_config_value", 
     "validate_path_config",
     "is_command_blocked_config",
+    
+    # Smart Logging System (NEW)
+    "SmartToolLogger",
+    "ToolExecutionContext", 
+    "get_smart_logger",
+    "log_source_used",
+    "log_tool_outcome",
     
     # Lazy loading functions (NEW - replaces direct imports)
     "get_available_tools",

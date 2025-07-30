@@ -10,7 +10,6 @@ from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.schema import Message
 from enterprise_ai.schema.memory import ConversationMemory, InMemoryConversation
-from enterprise_ai.schema.memory import ConversationMemory, InMemoryConversation
 from enterprise_ai.agent.role import AgentRole
 
 from enterprise_ai.logger import get_optimized_logger

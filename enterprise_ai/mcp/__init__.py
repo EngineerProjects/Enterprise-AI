@@ -2,9 +2,27 @@
 Simplified MCP Module for Enterprise AI.
 
 Focused on tool execution only - leverages existing tool infrastructure.
+Enhanced with user-friendly sandbox configuration system.
 """
 
-from enterprise_ai.mcp.executor import ToolMCP, create_simple_mcp
+from enterprise_ai.mcp.executor import (
+    ToolMCP, 
+    create_simple_mcp,
+    create_local_mcp,
+    create_execution_sandbox_mcp,
+    create_file_sandbox_mcp,
+    create_full_sandbox_mcp,
+)
+from enterprise_ai.mcp.enhanced_sandbox import (
+    EnhancedSandboxConfig,
+    create_local_config,
+    create_execution_sandbox,
+    create_file_sandbox,
+    create_full_sandbox,
+    create_custom_sandbox,
+    get_config_by_name,
+    TOOL_GROUPS,
+)
 from enterprise_ai.mcp.sandbox_config import (
     SandboxConfig, 
     create_sandbox_config,
@@ -18,17 +36,34 @@ from enterprise_ai.mcp.sandbox_executor import (
 )
 
 __all__ = [
+    # Core MCP functionality
     "ToolMCP", 
     "create_simple_mcp",
+    
+    # Enhanced MCP factory functions
+    "create_local_mcp",
+    "create_execution_sandbox_mcp",
+    "create_file_sandbox_mcp", 
+    "create_full_sandbox_mcp",
+    
+    # Enhanced Sandbox Configuration
+    "EnhancedSandboxConfig",
+    "create_local_config",
+    "create_execution_sandbox",
+    "create_file_sandbox",
+    "create_full_sandbox",
+    "create_custom_sandbox",
+    "get_config_by_name",
+    "TOOL_GROUPS",
 
-    # Sandbox Configuration
+    # Legacy Sandbox Configuration (backward compatibility)
     "SandboxConfig",
     "create_sandbox_config", 
     "DEFAULT_SANDBOX_CONFIG",
     "SAFE_SANDBOX_CONFIG", 
     "STRICT_SANDBOX_CONFIG",
 
-    # Sandbox Executor
+    # Sandbox Executors
     "SimpleMCPExecutor",
     "SandboxToolExecutor"
 ]

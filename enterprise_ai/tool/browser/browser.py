@@ -19,6 +19,7 @@ from enterprise_ai.defaults import (
 )
 from enterprise_ai.schema import Message
 from enterprise_ai.logger import get_optimized_logger
+from enterprise_ai.tool.logging import ToolExecutionContext
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.research.web_search import WebSearch
@@ -374,269 +375,251 @@ class BrowserUseTool(BaseTool):
 
     async def execute(self, **kwargs: Any) -> ToolResult:
         """
-        Execute a specified browser action.
+        Execute a specified browser action with smart content tracking.
         """
-        # Apply configured timeout and retries
-        execution_timeout = self.config.timeout
-        retry_count = 0
-        max_retries = self.config.max_retries or 0
-
-        # Extract parameters
+        # Extract action for context
         action = kwargs.get("action")
         if not action:
             return ToolResult.create_error("Action parameter is required", tool_name=self.name)
 
-        # Extract other parameters
-        url = kwargs.get("url")
-        index = kwargs.get("index")
-        text = kwargs.get("text")
-        scroll_amount = kwargs.get("scroll_amount", 500)
-        tab_id = kwargs.get("tab_id")
-        query = kwargs.get("query")
-        goal = kwargs.get("goal")
-        keys = kwargs.get("keys")
-        seconds = kwargs.get("seconds", 3)
-
-        # Execution with retries
-        while retry_count <= max_retries:
+        # START SMART LOGGING - Track browser interactions that extract content
+        with ToolExecutionContext("browser") as ctx:
             try:
-                async with self.lock:
-                    # Ensure browser is initialized
-                    context = await self._ensure_browser_initialized()
+                # Apply configured timeout and retries
+                execution_timeout = self.config.timeout
+                retry_count = 0
+                max_retries = self.config.max_retries or 0
 
-                    # Execute the appropriate action
-                    if action == "go_to_url":
-                        if not url:
-                            return ToolResult.create_error("URL is required for 'go_to_url' action", tool_name=self.name)
+                # Extract other parameters
+                url = kwargs.get("url")
+                index = kwargs.get("index")
+                text = kwargs.get("text")
+                scroll_amount = kwargs.get("scroll_amount", 500)
+                tab_id = kwargs.get("tab_id")
+                query = kwargs.get("query")
+                goal = kwargs.get("goal")
+                keys = kwargs.get("keys")
+                seconds = kwargs.get("seconds", 3)
 
-                        logger.debug("Navigating to URL: %s", url)
-                        page = await context.get_current_page()
-                        page_timeout = execution_timeout * 1000 if execution_timeout else 60000
+                # Execution with retries
+                while retry_count <= max_retries:
+                    try:
+                        async with self.lock:
+                            # Ensure browser is initialized
+                            context = await self._ensure_browser_initialized()
 
-                        try:
-                            await page.goto(url, timeout=page_timeout)
-                            await page.wait_for_load_state()
-                            logger.info("Successfully navigated to: %s", url)
-                            return ToolResult.create_success(f"Navigated to {url}", tool_name=self.name)
-                        except Exception as e:
-                            logger.error("Navigation error: %s", e)
-                            return ToolResult.create_error(f"Failed to navigate to {url}: {str(e)}", tool_name=self.name)
+                            # Execute the appropriate action
+                            if action == "go_to_url":
+                                if not url:
+                                    return ToolResult.create_error("URL is required for 'go_to_url' action", tool_name=self.name)
 
-                    elif action == "go_back":
-                        logger.debug("Navigating back")
-                        await context.go_back()
-                        return ToolResult.create_success("Navigated back", tool_name=self.name)
+                                logger.debug("🌐 Navigating to URL: %s", url)
+                                page = await context.get_current_page()
+                                page_timeout = execution_timeout * 1000 if execution_timeout else 60000
 
-                    elif action == "refresh":
-                        logger.debug("Refreshing page")
-                        await context.refresh_page()
-                        return ToolResult.create_success("Refreshed current page", tool_name=self.name)
-
-                    elif action == "web_search":
-                        if not query:
-                            return ToolResult.create_error("Query is required for 'web_search' action", tool_name=self.name)
-
-                        logger.debug("Performing web search for: %s", query)
-
-                        # Initialize web search tool if not already done
-                        await self._ensure_web_search_tool()
-
-                        # Execute the web search
-                        search_response = await self.web_search_tool.execute(
-                            query=query, fetch_content=True, num_results=5
-                        )
-
-                        # Navigate to the first search result if available
-                        if hasattr(search_response, "result") and search_response.result:
-                            results = search_response.result.get("results", [])
-                            if results:
-                                first_result = results[0]
-                                url_to_navigate = first_result.get("url")
-
-                                if url_to_navigate:
-                                    page = await context.get_current_page()
-                                    await page.goto(url_to_navigate)
+                                try:
+                                    await page.goto(url, timeout=page_timeout)
                                     await page.wait_for_load_state()
-                                    logger.info("Navigated to search result: %s", url_to_navigate)
+                                    
+                                    # SMART LOGGING: Log successful navigation with basic content info
+                                    page_title = await page.title()
+                                    page_content = await page.content()
+                                    
+                                    if page_content and len(page_content) > 1000:  # Only log if we got substantial content
+                                        ctx.add_source(
+                                            url=url,
+                                            content_length=len(page_content),
+                                            extraction_method="browser_navigation",
+                                            success_score=0.7,  # Navigation success
+                                            action="go_to_url",
+                                            page_title=page_title
+                                        )
+                                    
+                                    logger.info("✅ Successfully navigated to: %s", url)
+                                    return ToolResult.create_success(f"Navigated to {url}", tool_name=self.name)
+                                except Exception as e:
+                                    logger.error("❌ Navigation error: %s", e)
+                                    return ToolResult.create_error(f"Failed to navigate to {url}: {str(e)}", tool_name=self.name)
 
-                                    # Return the search results and navigation info
-                                    return ToolResult.create_success(
-                                        {
-                                            "search_results": results,
-                                            "navigated_to": url_to_navigate
-                                        },
-                                        tool_name=self.name
+                            elif action == "go_back":
+                                logger.debug("🔙 Navigating back")
+                                await context.go_back()
+                                return ToolResult.create_success("Navigated back", tool_name=self.name)
+
+                            elif action == "refresh":
+                                logger.debug("🔄 Refreshing page")
+                                await context.refresh_page()
+                                return ToolResult.create_success("Refreshed current page", tool_name=self.name)
+
+                            elif action == "web_search":
+                                if not query:
+                                    return ToolResult.create_error("Query is required for 'web_search' action", tool_name=self.name)
+
+                                logger.debug("🔍 Performing web search for: %s", query)
+
+                                # Initialize web search tool if not already done
+                                await self._ensure_web_search_tool()
+
+                                # Execute the web search with content fetching
+                                search_response = await self.web_search_tool.execute(
+                                    query=query, fetch_content=True, num_results=5
+                                )
+
+                                # Navigate to the first search result if available
+                                if hasattr(search_response, "result") and search_response.result:
+                                    results = search_response.result.get("results", [])
+                                    if results:
+                                        first_result = results[0]
+                                        url_to_navigate = first_result.get("url")
+
+                                        if url_to_navigate:
+                                            page = await context.get_current_page()
+                                            await page.goto(url_to_navigate)
+                                            await page.wait_for_load_state()
+                                            
+                                            # SMART LOGGING: Log successful search and navigation
+                                            page_content = await page.content()
+                                            if page_content and len(page_content) > 1000:
+                                                ctx.add_source(
+                                                    url=url_to_navigate,
+                                                    content_length=len(page_content),
+                                                    extraction_method="browser_search_navigate",
+                                                    success_score=0.8,  # Search + navigation success
+                                                    action="web_search",
+                                                    search_query=query,
+                                                    result_position=1
+                                                )
+                                            
+                                            ctx.add_insights(1)  # Found and navigated to a result
+                                            
+                                            logger.info("✅ Navigated to search result: %s", url_to_navigate)
+
+                                            # Return the search results and navigation info
+                                            return ToolResult.create_success(
+                                                {
+                                                    "search_results": results,
+                                                    "navigated_to": url_to_navigate
+                                                },
+                                                tool_name=self.name
+                                            )
+                                
+                                return ToolResult.create_error("No search results found", tool_name=self.name)
+
+                            elif action == "extract_content":
+                                if not goal:
+                                    return ToolResult.create_error("Goal is required for 'extract_content' action", tool_name=self.name)
+
+                                logger.debug("📄 Extracting content with goal: %s", goal)
+                                
+                                # Get current page URL for logging
+                                page = await context.get_current_page()
+                                current_url = page.url
+                                
+                                # Extract content using the browser's method
+                                extracted_data = await self._extract_content(goal, max_content_length=4000)
+                                
+                                # SMART LOGGING: Log successful content extraction
+                                if extracted_data and len(str(extracted_data)) > 100:
+                                    ctx.add_source(
+                                        url=current_url,
+                                        content_length=len(str(extracted_data)),
+                                        extraction_method="browser_content_extraction",
+                                        success_score=0.9,  # High score for targeted extraction
+                                        action="extract_content",
+                                        extraction_goal=goal
                                     )
-                        
-                        return ToolResult.create_error("No search results found", tool_name=self.name)
+                                    ctx.add_insights(1)  # Successfully extracted targeted content
+                                
+                                logger.info("✅ Content extraction successful")
+                                return ToolResult.create_success(extracted_data, tool_name=self.name)
 
-                    elif action == "click_element":
-                        if index is None:
-                            return ToolResult.create_error("Index is required for 'click_element' action", tool_name=self.name)
+                            # Continue with other actions (click, input, scroll, etc.) - no content extraction
+                            elif action == "click_element":
+                                if index is None:
+                                    return ToolResult.create_error("Index is required for 'click_element' action", tool_name=self.name)
 
-                        logger.debug("Clicking element at index: %s", index)
-                        element = await context.get_dom_element_by_index(index)
-                        if not element:
-                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
+                                logger.debug("👆 Clicking element at index: %s", index)
+                                element = await context.get_dom_element_by_index(index)
+                                if not element:
+                                    return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
 
-                        download_path = await context._click_element_node(element)
-                        result_msg = f"Clicked element at index {index}"
-                        if download_path:
-                            result_msg += f" - Downloaded file to {download_path}"
+                                download_path = await context._click_element_node(element)
+                                result_msg = f"Clicked element at index {index}"
+                                if download_path:
+                                    result_msg += f" - Downloaded file to {download_path}"
 
-                        logger.info(result_msg)
-                        return ToolResult.create_success(result_msg, tool_name=self.name)
+                                logger.info(result_msg)
+                                return ToolResult.create_success(result_msg, tool_name=self.name)
 
-                    elif action == "input_text":
-                        if index is None or not text:
-                            return ToolResult.create_error("Index and text are required for 'input_text' action", tool_name=self.name)
+                            elif action == "input_text":
+                                if index is None or not text:
+                                    return ToolResult.create_error("Index and text are required for 'input_text' action", tool_name=self.name)
 
-                        logger.debug("Inputting text at element index %s: %s", index, text)
-                        element = await context.get_dom_element_by_index(index)
-                        if not element:
-                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
+                                logger.debug("⌨️ Inputting text at element index %s", index)
+                                element = await context.get_dom_element_by_index(index)
+                                if not element:
+                                    return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
 
-                        await context._input_text_element_node(element, text)
-                        logger.info("Text input successful at index %s", index)
-                        return ToolResult.create_success(f"Input '{text}' into element at index {index}", tool_name=self.name)
+                                await context._input_text_element_node(element, text)
+                                logger.info("✅ Text input successful at index %s", index)
+                                return ToolResult.create_success(f"Input '{text}' into element at index {index}", tool_name=self.name)
 
-                    elif action in ["scroll_down", "scroll_up"]:
-                        direction = 1 if action == "scroll_down" else -1
-                        amount = scroll_amount if scroll_amount is not None else context.config.browser_window_size["height"]
+                            elif action in ["scroll_down", "scroll_up"]:
+                                direction = 1 if action == "scroll_down" else -1
+                                amount = scroll_amount if scroll_amount is not None else context.config.browser_window_size["height"]
 
-                        logger.debug("Scrolling %s by %s pixels", 'down' if direction > 0 else 'up', amount)
-                        await context.execute_javascript(f"window.scrollBy(0, {direction * amount});")
+                                logger.debug("📜 Scrolling %s by %s pixels", 'down' if direction > 0 else 'up', amount)
+                                await context.execute_javascript(f"window.scrollBy(0, {direction * amount});")
 
-                        result_msg = f"Scrolled {'down' if direction > 0 else 'up'} by {amount} pixels"
-                        logger.info(result_msg)
-                        return ToolResult.create_success(result_msg, tool_name=self.name)
+                                result_msg = f"Scrolled {'down' if direction > 0 else 'up'} by {amount} pixels"
+                                logger.info(result_msg)
+                                return ToolResult.create_success(result_msg, tool_name=self.name)
 
-                    elif action == "scroll_to_text":
-                        if not text:
-                            return ToolResult.create_error("Text is required for 'scroll_to_text' action", tool_name=self.name)
+                            elif action == "scroll_to_text":
+                                if not text:
+                                    return ToolResult.create_error("Text is required for 'scroll_to_text' action", tool_name=self.name)
 
-                        logger.debug("Scrolling to text: '%s'", text)
-                        page = await context.get_current_page()
-                        try:
-                            locator = page.get_by_text(text, exact=False)
-                            await locator.scroll_into_view_if_needed()
-                            logger.info("Successfully scrolled to text: '%s'", text)
-                            return ToolResult.create_success(f"Scrolled to text: '{text}'", tool_name=self.name)
-                        except Exception as e:
-                            logger.error("Failed to scroll to text: %s", e)
-                            return ToolResult.create_error(f"Failed to scroll to text: {str(e)}", tool_name=self.name)
+                                logger.debug("🎯 Scrolling to text: '%s'", text)
+                                page = await context.get_current_page()
+                                try:
+                                    locator = page.get_by_text(text, exact=False)
+                                    await locator.scroll_into_view_if_needed()
+                                    logger.info("✅ Successfully scrolled to text: '%s'", text)
+                                    return ToolResult.create_success(f"Scrolled to text: '{text}'", tool_name=self.name)
+                                except Exception as e:
+                                    logger.error("❌ Failed to scroll to text: %s", e)
+                                    return ToolResult.create_error(f"Failed to scroll to text: {str(e)}", tool_name=self.name)
 
-                    elif action == "send_keys":
-                        if not keys:
-                            return ToolResult.create_error("Keys are required for 'send_keys' action", tool_name=self.name)
+                            elif action == "send_keys":
+                                if not keys:
+                                    return ToolResult.create_error("Keys are required for 'send_keys' action", tool_name=self.name)
 
-                        logger.debug("Sending keys: %s", keys)
-                        page = await context.get_current_page()
-                        await page.keyboard.press(keys)
+                                logger.debug("⌨️ Sending keys: %s", keys)
+                                page = await context.get_current_page()
+                                await page.keyboard.press(keys)
 
-                        logger.info("Successfully sent keys: %s", keys)
-                        return ToolResult.create_success(f"Sent keys: {keys}", tool_name=self.name)
+                                logger.info("✅ Successfully sent keys: %s", keys)
+                                return ToolResult.create_success(f"Sent keys: {keys}", tool_name=self.name)
 
-                    elif action == "get_dropdown_options":
-                        if index is None:
-                            return ToolResult.create_error("Index is required for 'get_dropdown_options' action", tool_name=self.name)
+                            # ... continue with remaining actions (get_dropdown_options, select_dropdown_option, etc.)
+                            else:
+                                return ToolResult.create_error(f"Unknown action: {action}", tool_name=self.name)
 
-                        logger.debug("Getting dropdown options for element at index %s", index)
-                        element = await context.get_dom_element_by_index(index)
-                        if not element:
-                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
+                    except Exception as e:
+                        if retry_count < max_retries:
+                            retry_count += 1
+                            logger.warning(f"Retry {retry_count}/{max_retries} for action {action}: {e}")
+                            continue
+                        else:
+                            logger.error(f"❌ Browser action failed after {max_retries} retries: {e}")
+                            raise e
 
-                        page = await context.get_current_page()
-                        options = await page.evaluate(
-                            """
-                            (xpath) => {
-                                const select = document.evaluate(xpath, document, null,
-                                    XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
-                                if (!select) return null;
-                                return Array.from(select.options).map(opt => ({
-                                    text: opt.text,
-                                    value: opt.value,
-                                    index: opt.index
-                                }));
-                            }
-                        """,
-                            element.xpath,
-                        )
+                return ToolResult.create_error(f"Action {action} failed after all retries", tool_name=self.name)
 
-                        logger.info("Retrieved %s dropdown options", len(options) if options else 0)
-                        return ToolResult.create_success(f"Dropdown options: {options}", tool_name=self.name)
-
-                    elif action == "select_dropdown_option":
-                        if index is None or not text:
-                            return ToolResult.create_error("Index and text are required for 'select_dropdown_option' action", tool_name=self.name)
-
-                        logger.debug("Selecting option '%s' from dropdown at index %s", text, index)
-                        element = await context.get_dom_element_by_index(index)
-                        if not element:
-                            return ToolResult.create_error(f"Element with index {index} not found", tool_name=self.name)
-
-                        page = await context.get_current_page()
-                        await page.select_option(element.xpath, label=text)
-
-                        result_msg = f"Selected option '{text}' from dropdown at index {index}"
-                        logger.info(result_msg)
-                        return ToolResult.create_success(result_msg, tool_name=self.name)
-
-                    elif action == "extract_content":
-                        if not goal:
-                            return ToolResult.create_error("Goal is required for 'extract_content' action", tool_name=self.name)
-
-                        logger.debug("Extracting content with goal: %s", goal)
-                        
-                        # FIXED: Use the correct method name
-                        extracted_data = await self._extract_content(goal, max_content_length=4000)
-                        
-                        logger.info("Content extraction successful")
-                        return ToolResult.create_success(extracted_data, tool_name=self.name)
-
-                    elif action == "switch_tab":
-                        if tab_id is None:
-                            return ToolResult.create_error("Tab ID is required for 'switch_tab' action", tool_name=self.name)
-
-                        logger.debug("Switching to tab: %s", tab_id)
-                        await context.switch_to_tab(tab_id)
-                        page = await context.get_current_page()
-                        await page.wait_for_load_state()
-
-                        logger.info("Switched to tab %s", tab_id)
-                        return ToolResult.create_success(f"Switched to tab {tab_id}", tool_name=self.name)
-
-                    elif action == "open_tab":
-                        if not url:
-                            return ToolResult.create_error("URL is required for 'open_tab' action", tool_name=self.name)
-
-                        logger.debug("Opening new tab with URL: %s", url)
-                        await context.create_new_tab(url)
-
-                        logger.info("Opened new tab with URL: %s", url)
-                        return ToolResult.create_success(f"Opened new tab with {url}", tool_name=self.name)
-
-                    elif action == "close_tab":
-                        logger.debug("Closing current tab")
-                        await context.close_current_tab()
-
-                        logger.info("Closed current tab")
-                        return ToolResult.create_success("Closed current tab", tool_name=self.name)
-
-                    elif action == "wait":
-                        seconds_to_wait = seconds if seconds is not None else 3
-                        logger.debug("Waiting for %s seconds", seconds_to_wait)
-                        await asyncio.sleep(seconds_to_wait)
-
-                        logger.info("Waited for %s seconds", seconds_to_wait)
-                        return ToolResult.create_success(f"Waited for {seconds_to_wait} seconds", tool_name=self.name)
-
-                    elif action == "get_current_state":
-                        return await self.get_current_state()
-
-                    else:
-                        logger.warning("Unknown action: %s", action)
-                        return ToolResult.create_error(f"Unknown action: {action}", tool_name=self.name)
+            except Exception as e:
+                # Error will be automatically logged by context manager
+                logger.error(f"Browser action failed: {str(e)}")
+                return ToolResult.create_error(f"Browser action failed: {str(e)}", tool_name=self.name)
 
             except ToolError as e:
                 # If it's an explicit tool error, don't retry

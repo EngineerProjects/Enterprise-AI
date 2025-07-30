@@ -25,6 +25,7 @@ from enterprise_ai.tool.core.base import (
 )
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.logger import get_optimized_logger
+from enterprise_ai.tool.logging import ToolExecutionContext
 
 logger = get_optimized_logger("tool.execution.python")
 
@@ -541,82 +542,203 @@ except Exception as e:
             sys.stderr = original_stderr
 
     async def execute(self, **kwargs: Any) -> ToolResult:
-        """Enhanced execution with intelligent routing and session management."""
+        """Enhanced execution with intelligent routing and smart execution tracking."""
+        
         code = kwargs.get("code")
         if not code:
             return ToolResult.create_error(error="Code parameter is required", tool_name=self.name)
 
-        # Ensure all parameters have the correct types
-        try:
-            timeout = int(kwargs.get("timeout", self.config.timeout))
-            sandbox_preference = kwargs.get("sandbox_mode", "auto")
-            session_id = kwargs.get("session_id")
-            
-            # Handle boolean parameters that might be strings
-            persist_variables = kwargs.get("persist_variables", False)
-            if isinstance(persist_variables, str):
-                persist_variables = persist_variables.lower() == "true"
+        # START SMART LOGGING - Track Python code execution outcomes
+        with ToolExecutionContext("python_execute") as ctx:
+            try:
+                # Ensure all parameters have the correct types
+                try:
+                    timeout = int(kwargs.get("timeout", self.config.timeout))
+                    sandbox_preference = kwargs.get("sandbox_mode", "auto")
+                    session_id = kwargs.get("session_id")
+                    
+                    # Handle boolean parameters that might be strings
+                    persist_variables = kwargs.get("persist_variables", False)
+                    if isinstance(persist_variables, str):
+                        persist_variables = persist_variables.lower() == "true"
+                        
+                    show_analysis = kwargs.get("show_analysis", False)
+                    if isinstance(show_analysis, str):
+                        show_analysis = show_analysis.lower() == "true"
+                        
+                    # Handle session_id that might be "None" string
+                    if session_id == "None" or session_id == "null":
+                        session_id = None
+                except (ValueError, TypeError) as e:
+                    return ToolResult.create_error(
+                        error=f"Parameter type error: {str(e)}",
+                        tool_name=self.name
+                    )
                 
-            show_analysis = kwargs.get("show_analysis", False)
-            if isinstance(show_analysis, str):
-                show_analysis = show_analysis.lower() == "true"
+                # Update stats
+                self.execution_stats['total_executions'] += 1
                 
-            # Handle session_id that might be "None" string
-            if session_id == "None" or session_id == "null":
-                session_id = None
-        except (ValueError, TypeError) as e:
-            return ToolResult.create_error(
-                error=f"Parameter type error: {str(e)}",
-                tool_name=self.name
-            )
+                # Analyze code for smart logging
+                code_analysis = self._analyze_code_for_logging(code)
+                
+                # Intelligent execution decision
+                use_sandbox, decision_info = self._should_use_sandbox_execution(code, sandbox_preference)
+                
+                # Session management
+                if session_id:
+                    session = self.session_manager.get_session(session_id)
+                    if not session:
+                        session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
+                else:
+                    session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
+                
+                # Execute the code
+                if use_sandbox:
+                    self.execution_stats['sandbox_executions'] += 1
+                    logger.info("🐳 Executing Python code in sandbox")
+                    result = await self._execute_in_sandbox(code, timeout, session)
+                else:
+                    self.execution_stats['local_executions'] += 1
+                    logger.info("🏠 Executing Python code locally")
+                    result = await self._execute_locally(code, timeout, session)
+                
+                # SMART LOGGING: Only log successful executions with meaningful outcomes
+                if result.success:
+                    output_content = ""
+                    if hasattr(result, 'result') and isinstance(result.result, dict):
+                        output_content = result.result.get('output', '') or result.result.get('stdout', '')
+                    elif hasattr(result, 'result'):
+                        output_content = str(result.result)
+                    
+                    # Determine if this execution produced meaningful insights
+                    insights_count = 0
+                    execution_metadata = {
+                        'execution_mode': 'sandbox' if use_sandbox else 'local',
+                        'code_type': code_analysis.get('code_type', 'general'),
+                        'lines_of_code': len(code.split('\n')),
+                        'session_id': session.session_id if session else None
+                    }
+                    
+                    # Count insights based on code analysis and output
+                    if code_analysis.get('has_data_processing'):
+                        insights_count += 1
+                        execution_metadata['data_processing'] = True
+                    
+                    if code_analysis.get('has_file_operations'):
+                        insights_count += 1
+                        execution_metadata['file_operations'] = True
+                    
+                    if code_analysis.get('has_visualization'):
+                        insights_count += 1
+                        execution_metadata['created_visualization'] = True
+                    
+                    if code_analysis.get('has_analysis'):
+                        insights_count += 1
+                        execution_metadata['performed_analysis'] = True
+                        
+                    # Check output for meaningful results
+                    if output_content and len(output_content.strip()) > 50:
+                        insights_count += 1
+                        execution_metadata['output_length'] = len(output_content)
+                    
+                    # Track the execution if it generated meaningful work
+                    if insights_count > 0:
+                        ctx.add_insights(insights_count)
+                        
+                        # Add as a "source" if it processes files or data
+                        if code_analysis.get('has_file_operations') or code_analysis.get('has_data_processing'):
+                            ctx.add_source(
+                                url=f"python_execution_{session.session_id if session else 'anonymous'}",
+                                content_length=len(output_content),
+                                extraction_method="python_execution",
+                                success_score=0.8,
+                                **execution_metadata
+                            )
+                    
+                    logger.info(
+                        f"✅ Python execution SUCCESS: "
+                        f"{insights_count} insights, "
+                        f"{len(code.split())} lines, "
+                        f"{'sandbox' if use_sandbox else 'local'}"
+                    )
+                else:
+                    logger.error(f"❌ Python execution FAILED: {result.error}")
+                
+                # Enhanced result with analysis
+                if result.success and hasattr(result, 'result') and isinstance(result.result, dict):
+                    result.result['execution_analysis'] = decision_info
+                    if show_analysis:
+                        result.result['code_analysis'] = decision_info.get('analysis', {})
+                    result.result['session_management'] = {
+                        'session_id': session.session_id,
+                        'persist_variables': persist_variables,
+                        'variables_available': len(session.variables) > 0
+                    }
+                
+                # Update average execution time
+                runtime = session.get_runtime()
+                current_avg = self.execution_stats['average_execution_time']
+                count = self.execution_stats['total_executions']
+                self.execution_stats['average_execution_time'] = (current_avg * (count - 1) + runtime) / count
+                
+                return result
+                
+            except Exception as e:
+                self.execution_stats['failed_executions'] += 1
+                logger.error(f"Enhanced execution failed: {str(e)}")
+                return ToolResult.create_error(
+                    error=f"Enhanced execution failed: {str(e)}",
+                    tool_name=self.name
+                )
+
+    def _analyze_code_for_logging(self, code: str) -> Dict[str, Any]:
+        """
+        Analyze Python code to determine what kind of work it's doing.
         
-        # Update stats
-        self.execution_stats['total_executions'] += 1
+        This helps determine if the execution is worth logging.
+        """
+        code_lower = code.lower()
         
-        # Intelligent execution decision
-        use_sandbox, decision_info = self._should_use_sandbox_execution(code, sandbox_preference)
+        analysis = {
+            'code_type': 'general',
+            'has_data_processing': False,
+            'has_file_operations': False,
+            'has_visualization': False,
+            'has_analysis': False,
+            'has_imports': False
+        }
         
-        # Session management
-        if session_id:
-            session = self.session_manager.get_session(session_id)
-            if not session:
-                session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
-        else:
-            session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
+        # Check for data processing
+        data_keywords = ['pandas', 'numpy', 'dataframe', 'df.', 'array', 'csv', 'json', 'data']
+        if any(keyword in code_lower for keyword in data_keywords):
+            analysis['has_data_processing'] = True
+            analysis['code_type'] = 'data_processing'
         
-        try:
-            if use_sandbox:
-                self.execution_stats['sandbox_executions'] += 1
-                result = await self._execute_in_sandbox(code, timeout, session)
-            else:
-                self.execution_stats['local_executions'] += 1
-                result = await self._execute_locally(code, timeout, session)
-            
-            # Enhanced result with analysis
-            if result.success and hasattr(result, 'result') and isinstance(result.result, dict):
-                result.result['execution_analysis'] = decision_info
-                if show_analysis:
-                    result.result['code_analysis'] = decision_info.get('analysis', {})
-                result.result['session_management'] = {
-                    'session_id': session.session_id,
-                    'persist_variables': persist_variables,
-                    'variables_available': len(session.variables) > 0
-                }
-            
-            # Update average execution time
-            runtime = session.get_runtime()
-            current_avg = self.execution_stats['average_execution_time']
-            count = self.execution_stats['total_executions']
-            self.execution_stats['average_execution_time'] = (current_avg * (count - 1) + runtime) / count
-            
-            return result
-            
-        except Exception as e:
-            self.execution_stats['failed_executions'] += 1
-            return ToolResult.create_error(
-                error=f"Enhanced execution failed: {str(e)}",
-                tool_name=self.name
-            )
+        # Check for file operations
+        file_keywords = ['open(', 'read', 'write', 'file', 'csv', 'json', 'pickle', 'save']
+        if any(keyword in code_lower for keyword in file_keywords):
+            analysis['has_file_operations'] = True
+            if analysis['code_type'] == 'general':
+                analysis['code_type'] = 'file_processing'
+        
+        # Check for visualization
+        viz_keywords = ['plot', 'matplotlib', 'seaborn', 'plotly', 'chart', 'graph', 'visualization']
+        if any(keyword in code_lower for keyword in viz_keywords):
+            analysis['has_visualization'] = True
+            analysis['code_type'] = 'visualization'
+        
+        # Check for analysis/computation
+        analysis_keywords = ['calculate', 'compute', 'analyze', 'statistics', 'mean', 'std', 'correlation']
+        if any(keyword in code_lower for keyword in analysis_keywords):
+            analysis['has_analysis'] = True
+            if analysis['code_type'] == 'general':
+                analysis['code_type'] = 'analysis'
+        
+        # Check for imports
+        if 'import ' in code_lower or 'from ' in code_lower:
+            analysis['has_imports'] = True
+        
+        return analysis
 
     async def cleanup(self) -> None:
         """Enhanced cleanup with session management."""

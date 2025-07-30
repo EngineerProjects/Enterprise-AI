@@ -6,15 +6,19 @@ Leverages existing tool infrastructure for clean, simple tool execution.
 
 import asyncio
 import inspect
+import json
 import time
-from typing import Any, Callable, Dict, List, Optional, Set
+from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 from enterprise_ai.logger import get_optimized_logger
+from enterprise_ai.tool.logging import get_smart_logger
 from enterprise_ai.schema import ToolCall
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.simple_loader import get_all_tools, get_tool_by_name
+from enterprise_ai.tool.discovery import get_tool_discovery, DiscoveryResult
 from enterprise_ai.tool.core.base import ToolCapability, ExecutionMode
 from enterprise_ai.mcp.sandbox_config import SandboxConfig, DEFAULT_SANDBOX_CONFIG
+from enterprise_ai.mcp.enhanced_sandbox import EnhancedSandboxConfig, create_local_config
 from enterprise_ai.mcp.sandbox_executor import SimpleMCPExecutor, SandboxToolExecutor
 
 logger = get_optimized_logger("new_mcp.executor")
@@ -31,21 +35,39 @@ class ToolMCP:
     def __init__(
         self, 
         timeout: float = 30.0, 
-        sandbox_config: Optional[SandboxConfig] = None, 
+        sandbox_config: Optional[Union[SandboxConfig, EnhancedSandboxConfig]] = None, 
         tools: Optional[List[str]] = None
     ):
         """
-        Initialize ToolMCP with simplified configuration.
+        Initialize ToolMCP with enhanced sandbox configuration and smart logging.
         
         Args:
             timeout: Default timeout for tool execution
-            sandbox_config: Optional sandbox configuration
+            sandbox_config: Sandbox configuration (legacy SandboxConfig or new EnhancedSandboxConfig)
             tools: Specific list of tools to load (loads all if None)
         """
         self.timeout = timeout
-        self.sandbox_config = sandbox_config or DEFAULT_SANDBOX_CONFIG
         self._execution_count = 0
         self._failed_count = 0
+        
+        # Initialize smart logging
+        self.smart_logger = get_smart_logger()
+        self.session_id = None
+        
+        # Handle both old and new sandbox configurations
+        if isinstance(sandbox_config, EnhancedSandboxConfig):
+            self.enhanced_sandbox_config = sandbox_config
+            # Convert to old format for backward compatibility
+            if sandbox_config.enabled:
+                # Determine which tools should be sandboxed
+                # We'll set this after loading tools
+                self.sandbox_config = SandboxConfig(enabled=True)
+            else:
+                self.sandbox_config = DEFAULT_SANDBOX_CONFIG
+        else:
+            # Legacy configuration or None
+            self.sandbox_config = sandbox_config or DEFAULT_SANDBOX_CONFIG
+            self.enhanced_sandbox_config = create_local_config()  # Default to local
         
         # Initialize tool executor
         self.tool_executor = SimpleMCPExecutor(
@@ -53,6 +75,23 @@ class ToolMCP:
             execution_timeout=timeout,
             verbose=False
         )
+        
+        # Load tools first so we can determine sandbox routing
+        if tools:
+            self._tools = self._load_specific_tools(tools)
+        else:
+            self._tools = self._load_all_tools()
+        
+        # Configure sandboxed tools based on enhanced config
+        if isinstance(sandbox_config, EnhancedSandboxConfig) and sandbox_config.enabled:
+            available_tools = set(self._tools.keys())
+            sandboxed_tools = sandbox_config.get_sandboxed_tools(available_tools)
+            
+            # Update sandbox config with determined tools
+            self.sandbox_config.dangerous_tools = sandboxed_tools
+            
+            logger.info(f"Enhanced sandbox enabled: {len(sandboxed_tools)} tools will run in sandbox")
+            logger.info(f"Sandbox summary: {sandbox_config.get_summary()}")
         
         # Initialize sandbox executor if enabled
         self.sandbox_executor = None
@@ -64,35 +103,104 @@ class ToolMCP:
                 enable_sandbox_routing=True,
                 verbose=False
             )
-        
-        # Load tools using simplified system
-        if tools:
-            self._tools = self._load_specific_tools(tools)
-        else:
-            self._tools = self._load_all_tools()
             
-        logger.info(f"ToolMCP initialized with {len(self._tools)} tools")
+        logger.info(f"🔧 ToolMCP initialized with {len(self._tools)} tools")
+        if self.enhanced_sandbox_config.enabled:
+            logger.info(f"Sandbox configuration: {self.enhanced_sandbox_config.get_summary()}")
+        else:
+            logger.info("Sandbox: Disabled (all tools run locally)")
+            
+        # Start smart logging session
+        self.session_id = self.smart_logger.start_mcp_session()
 
     def _load_all_tools(self) -> Dict[str, Callable]:
-        """Load all available tools using simplified loader."""
+        """Load all available tools using enhanced discovery system with deduplication."""
         tools = {}
         
         try:
-            tool_classes = get_all_tools()
+            # STEP 1: Load from simple_loader first (authoritative names)
+            logger.info("Loading tools from simple_loader (authoritative names)...")
+            simple_tools = get_all_tools()
+            loaded_classes = set()  # Track which classes we've already loaded
             
-            for tool_name, tool_class in tool_classes.items():
+            for tool_name, tool_class in simple_tools.items():
                 try:
                     tool_instance = tool_class()
                     if hasattr(tool_instance, 'execute'):
                         tools[tool_name] = tool_instance.execute
-                        logger.debug(f"Loaded tool: {tool_name}")
+                        loaded_classes.add(tool_class)  # Remember this class
+                        logger.debug(f"Loaded authoritative tool: {tool_name}")
                 except Exception as e:
-                    logger.warning(f"Failed to load tool {tool_name}: {e}")
+                    logger.warning(f"Failed to load simple_loader tool {tool_name}: {e}")
             
-            logger.info(f"Loaded {len(tools)} tools via simple loader")
+            logger.info(f"Loaded {len(tools)} tools from simple_loader")
+            
+            # STEP 2: Use enhanced discovery for additional tools (not already loaded)
+            logger.info("Discovering additional tools via enhanced discovery...")
+            discovery = get_tool_discovery()
+            discovery_result = discovery.discover_all_tools()
+            
+            if discovery_result.errors:
+                logger.warning(f"Tool discovery had {len(discovery_result.errors)} errors")
+                for error in discovery_result.errors[:3]:  # Log first 3 errors
+                    logger.warning(f"Discovery error: {error}")
+            
+            additional_tools_count = 0
+            
+            # Add tools from discovery that we don't already have
+            for tool_name, tool_def in discovery_result.tools.items():
+                try:
+                    # Import and check the tool class
+                    module_parts = tool_def.class_path.rsplit('.', 1)
+                    if len(module_parts) == 2:
+                        module_name, class_name = module_parts
+                        module = __import__(module_name, fromlist=[class_name])
+                        tool_class = getattr(module, class_name)
+                        
+                        # Skip if we already have this class loaded (prevents duplicates)
+                        if tool_class in loaded_classes:
+                            logger.debug(f"Skipping duplicate class {tool_class.__name__} (already loaded)")
+                            continue
+                        
+                        # Skip if we already have a tool with this name
+                        if tool_name in tools:
+                            logger.debug(f"Skipping duplicate name {tool_name}")
+                            continue
+                        
+                        # Add this new tool
+                        tool_instance = tool_class()
+                        if hasattr(tool_instance, 'execute'):
+                            tools[tool_name] = tool_instance.execute
+                            loaded_classes.add(tool_class)
+                            additional_tools_count += 1
+                            logger.debug(f"Loaded additional tool: {tool_name}")
+                        else:
+                            logger.warning(f"Discovery tool {tool_name} has no execute method")
+                            
+                except Exception as e:
+                    logger.warning(f"Failed to instantiate discovered tool {tool_name}: {e}")
+            
+            logger.info(f"Added {additional_tools_count} additional tools from discovery")
+            logger.info(f"Total unique tools loaded: {len(tools)}")
+            
         except Exception as e:
-            logger.error(f"Failed to load tools: {e}")
+            logger.error(f"Enhanced tool loading failed: {e}")
             
+            # FALLBACK: Use only simple_loader if enhanced discovery fails
+            logger.info("Using fallback: simple_loader only")
+            try:
+                simple_tools = get_all_tools()
+                for tool_name, tool_class in simple_tools.items():
+                    try:
+                        tool_instance = tool_class()
+                        if hasattr(tool_instance, 'execute'):
+                            tools[tool_name] = tool_instance.execute
+                            logger.debug(f"Loaded fallback tool: {tool_name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to load fallback tool {tool_name}: {e}")
+            except Exception as e:
+                logger.error(f"Even fallback tool loading failed: {e}")
+        
         return tools
     
     def _load_specific_tools(self, tool_names: List[str]) -> Dict[str, Callable]:
@@ -317,78 +425,615 @@ class ToolMCP:
 
     def get_tool_definitions(self) -> List[Dict[str, Any]]:
         """
-        Get tool definitions using simplified approach.
+        Get comprehensive tool definitions using enhanced discovery system with deduplication.
         
         Returns:
             List of tool definitions in the format expected by LLM providers
         """
-        definitions = []
-        
-        # Get available tool classes for introspection
         try:
-            tool_classes = get_all_tools()
-        except Exception as e:
-            logger.error(f"Failed to get tool classes: {e}")
-            return definitions
-        
-        # Build definitions for each available tool
-        for tool_name in self.get_available_tools():
-            try:
-                # Find the tool class by name
-                tool_class = None
-                for class_name, cls in tool_classes.items():
-                    if class_name == tool_name:
-                        tool_class = cls
-                        break
-                
-                if tool_class:
-                    # Create instance for introspection
-                    tool_instance = tool_class()
-                    
-                    # Get description (prefer short_description)
-                    description = getattr(tool_instance, 'short_description', None)
-                    if not description:
-                        description = getattr(tool_instance, 'description', f"Tool: {tool_name}")
-                        if isinstance(description, str) and '\n' in description:
-                            description = description.split('\n')[0]  # First line only
-                    
-                    # Get parameters
-                    parameters = getattr(tool_instance, 'parameters', {
-                        "type": "object",
-                        "properties": {},
-                        "required": []
-                    })
-                    
-                    # Create tool definition
-                    definition = {
-                        "type": "function",
-                        "function": {
-                            "name": tool_name,
-                            "description": description,
-                            "parameters": parameters
+            # Use the same deduplication logic as tool loading
+            # Priority: simple_loader names > discovery names
+            
+            # STEP 1: Get authoritative tools from simple_loader
+            logger.debug("Getting tool definitions from simple_loader (authoritative)")
+            simple_tools = get_all_tools()
+            loaded_classes = set()
+            definitions = []
+            
+            # Create definitions for simple_loader tools
+            available_tool_names = set(self.get_available_tools()) 
+            
+            for tool_name, tool_class in simple_tools.items():
+                if tool_name in available_tool_names:  # Only if actually loaded
+                    try:
+                        tool_instance = tool_class()
+                        loaded_classes.add(tool_class)
+                        
+                        # Get description (prefer short_description)
+                        description = getattr(tool_instance, 'short_description', None)
+                        if not description:
+                            description = getattr(tool_instance, 'description', f"Tool: {tool_name}")
+                            if isinstance(description, str) and '\n' in description:
+                                description = description.split('\n')[0]  # First line only
+                        
+                        # Get parameters
+                        parameters = getattr(tool_instance, 'parameters', {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                        })
+                        
+                        # Create tool definition
+                        definition = {
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "description": description,
+                                "parameters": parameters
+                            }
                         }
-                    }
-                    
-                    definitions.append(definition)
-                else:
-                    logger.warning(f"Could not find tool class for {tool_name}")
-                    
+                        definitions.append(definition)
+                        logger.debug(f"Added authoritative definition: {tool_name}")
+                        
+                    except Exception as e:
+                        logger.error(f"Error creating authoritative definition for {tool_name}: {e}")
+            
+            # STEP 2: Add additional tools from discovery (avoiding duplicates)
+            logger.debug("Adding additional tool definitions from discovery")
+            discovery = get_tool_discovery()
+            discovery_definitions = discovery.get_tool_definitions_for_llm()
+            
+            additional_count = 0
+            for defn in discovery_definitions:
+                tool_name = defn["function"]["name"]
+                
+                # Skip if we already have this tool name
+                if any(d["function"]["name"] == tool_name for d in definitions):
+                    logger.debug(f"Skipping duplicate definition name: {tool_name}")
+                    continue
+                
+                # Skip if this tool isn't actually loaded in our MCP
+                if tool_name not in available_tool_names:
+                    logger.debug(f"Skipping unloaded tool definition: {tool_name}")
+                    continue
+                
+                # Check if we can determine the class and if it's already covered
+                try:
+                    # Try to find the tool definition to get its class
+                    tool_def = discovery.get_tool_by_name(tool_name)
+                    if tool_def:
+                        module_parts = tool_def.class_path.rsplit('.', 1)
+                        if len(module_parts) == 2:
+                            module_name, class_name = module_parts
+                            module = __import__(module_name, fromlist=[class_name])
+                            tool_class = getattr(module, class_name)
+                            
+                            # Skip if we already have this class
+                            if tool_class in loaded_classes:
+                                logger.debug(f"Skipping duplicate class in definitions: {tool_class.__name__}")
+                                continue
+                            
+                            loaded_classes.add(tool_class)
+                
+                except Exception:
+                    # If we can't determine the class, just check by name
+                    pass
+                
+                # Add this additional definition
+                definitions.append(defn)
+                additional_count += 1
+                logger.debug(f"Added additional definition: {tool_name}")
+            
+            logger.info(
+                f"Generated {len(definitions)} unique tool definitions "
+                f"({len(definitions) - additional_count} authoritative + {additional_count} additional)"
+            )
+            
+            return definitions
+            
+        except Exception as e:
+            logger.error(f"Enhanced tool definition generation failed: {e}")
+            
+            # FALLBACK: Use the original method
+            logger.info("Using fallback tool definition generation")
+            definitions = []
+            
+            # Get available tool classes for introspection
+            try:
+                tool_classes = get_all_tools()
             except Exception as e:
-                logger.error(f"Error creating definition for tool {tool_name}: {e}")
-        
-        return definitions
+                logger.error(f"Failed to get tool classes: {e}")
+                return definitions
+            
+            # Build definitions for each available tool
+            for tool_name in self.get_available_tools():
+                try:
+                    # Find the tool class by name
+                    tool_class = None
+                    for class_name, cls in tool_classes.items():
+                        if class_name == tool_name:
+                            tool_class = cls
+                            break
+                    
+                    if tool_class:
+                        # Create instance for introspection
+                        tool_instance = tool_class()
+                        
+                        # Get description (prefer short_description)
+                        description = getattr(tool_instance, 'short_description', None)
+                        if not description:
+                            description = getattr(tool_instance, 'description', f"Tool: {tool_name}")
+                            if isinstance(description, str) and '\n' in description:
+                                description = description.split('\n')[0]  # First line only
+                        
+                        # Get parameters
+                        parameters = getattr(tool_instance, 'parameters', {
+                            "type": "object",
+                            "properties": {},
+                            "required": []
+                        })
+                        
+                        # Create tool definition
+                        definition = {
+                            "type": "function",
+                            "function": {
+                                "name": tool_name,
+                                "description": description,
+                                "parameters": parameters
+                            }
+                        }
+                        
+                        definitions.append(definition)
+                    else:
+                        logger.warning(f"Could not find tool class for {tool_name}")
+                        
+                except Exception as e:
+                    logger.error(f"Error creating fallback definition for tool {tool_name}: {e}")
+            
+            return definitions
 
+    def get_sandbox_info(self) -> Dict[str, Any]:
+        """
+        Get comprehensive sandbox information.
+        
+        Returns:
+            Dictionary with sandbox configuration and status
+        """
+        info = {
+            "sandbox_enabled": self.enhanced_sandbox_config.enabled,
+            "sandbox_summary": self.enhanced_sandbox_config.get_summary(),
+        }
+        
+        if self.enhanced_sandbox_config.enabled:
+            available_tools = set(self._tools.keys())
+            sandboxed_tools = self.enhanced_sandbox_config.get_sandboxed_tools(available_tools)
+            local_tools = available_tools - sandboxed_tools
+            
+            info.update({
+                "docker_image": self.enhanced_sandbox_config.docker_image,
+                "tool_groups": self.enhanced_sandbox_config.tool_groups,
+                "sandboxed_tools": sorted(list(sandboxed_tools)),
+                "local_tools": sorted(list(local_tools)),
+                "sandboxed_count": len(sandboxed_tools),
+                "local_count": len(local_tools),
+                "memory_limit": self.enhanced_sandbox_config.memory_limit,
+                "cpu_limit": self.enhanced_sandbox_config.cpu_limit,
+                "timeout": self.enhanced_sandbox_config.timeout,
+                "network_enabled": self.enhanced_sandbox_config.network_enabled,
+                "sandbox_executor_available": self.sandbox_executor is not None,
+            })
+        else:
+            info.update({
+                "docker_image": None,
+                "tool_groups": None,
+                "sandboxed_tools": [],
+                "local_tools": sorted(list(self._tools.keys())),
+                "sandboxed_count": 0,
+                "local_count": len(self._tools),
+                "sandbox_executor_available": False,
+            })
+        
+        return info
+    
+    def print_sandbox_status(self) -> None:
+        """Print a user-friendly sandbox status report."""
+        info = self.get_sandbox_info()
+        
+        print("🔧 Enterprise-AI MCP Sandbox Status")
+        print("=" * 50)
+        print(f"📊 {info['sandbox_summary']}")
+        print(f"🛠️  Total Tools: {len(self._tools)}")
+        
+        if info["sandbox_enabled"]:
+            print(f"🐳 Sandboxed Tools ({info['sandboxed_count']}):")
+            for tool in info["sandboxed_tools"]:
+                print(f"   • {tool}")
+            
+            if info["local_tools"]:
+                print(f"🏠 Local Tools ({info['local_count']}):")
+                for tool in info["local_tools"][:5]:  # Show first 5
+                    print(f"   • {tool}")
+                if len(info["local_tools"]) > 5:
+                    print(f"   ... and {len(info['local_tools']) - 5} more")
+        else:
+            print(f"🏠 All tools run locally (no sandbox)")
+        
+        print("=" * 50)
+    
     def reset_stats(self) -> None:
         """Reset execution statistics."""
         self._execution_count = 0
         self._failed_count = 0
+    
+    def get_session_intelligence(self) -> Dict[str, Any]:
+        """
+        Get intelligent session summary with actionable insights.
+        
+        This replaces raw logs with meaningful analysis and recommendations.
+        """
+        if not self.session_id:
+            return {"error": "No active session"}
+        
+        summary = self.smart_logger.get_session_summary()
+        
+        # Add MCP-specific intelligence
+        intelligence = {
+            "session_overview": summary,
+            "source_citations": self.smart_logger.get_source_citations(),
+            "research_quality": self._assess_research_quality(summary),
+            "efficiency_metrics": self._calculate_efficiency_metrics(summary),
+            "sandbox_usage": self._analyze_sandbox_usage(summary),
+            "recommendations": self._generate_recommendations(summary)
+        }
+        
+        return intelligence
+    
+    def export_research_report(self, query: str = "MCP Session") -> str:
+        """
+        Export a complete research report with proper source citations.
+        
+        Perfect for compliance, auditing, and research documentation.
+        """
+        if not self.session_id:
+            return json.dumps({"error": "No active session"})
+        
+        # Get research provenance
+        provenance = self.smart_logger.get_research_provenance(query)
+        
+        # Format as a clean report
+        report = {
+            "research_session": {
+                "query": query,
+                "session_id": self.session_id,
+                "completed_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+            },
+            "executive_summary": {
+                "sources_consulted": provenance.get("total_sources_consulted", 0),
+                "high_quality_sources": len(provenance.get("high_quality_sources", [])),
+                "tools_used": len(provenance.get("research_tools_used", [])),
+                "total_research_time": f"{provenance.get('total_research_time', 0):.1f} seconds"
+            },
+            "source_analysis": {
+                "citations": provenance.get("citations", []),
+                "source_domains": provenance.get("source_domains", {}),
+                "quality_distribution": self._analyze_source_quality(provenance.get("high_quality_sources", []))
+            },
+            "session_metrics": self.smart_logger.get_session_summary(),
+            "intelligence_summary": self.get_session_intelligence()
+        }
+        
+        return json.dumps(report, indent=2, default=str)
+    
+    def print_session_summary(self) -> None:
+        """Print a user-friendly session summary to console."""
+        
+        if not self.session_id:
+            print("❌ No active MCP session")
+            return
+            
+        summary = self.smart_logger.get_session_summary()
+        
+        print("🔧 Enterprise-AI MCP Session Summary")
+        print("=" * 50)
+        print(f"📊 Session: {summary.get('session_id', 'unknown')}")
+        print(f"⏱️  Duration: {summary.get('duration_minutes', 0):.1f} minutes")
+        print(f"🛠️  Tools Used: {len(summary.get('tools_used', {}))}")
+        print(f"✅ Success Rate: {summary.get('success_rate', 0):.1%}")
+        print(f"📄 Unique Sources: {summary.get('unique_sources', 0)}")
+        
+        # Show sources used (proof of research)
+        citations = self.smart_logger.get_source_citations()
+        if citations:
+            print(f"\n🔍 Sources Used (Proof of Research):")
+            for i, citation in enumerate(citations[:10], 1):  # Show top 10
+                print(f"   {i}. {citation}")
+            
+            if len(citations) > 10:
+                print(f"   ... and {len(citations) - 10} more sources")
+        
+        # Show tool performance
+        print(f"\n📈 Tool Performance:")
+        for tool_name, stats in summary.get('tools_used', {}).items():
+            success_rate = stats.get('successes', 0) / max(1, stats.get('executions', 1))
+            avg_time = stats.get('total_time', 0) / max(1, stats.get('executions', 1))
+            sources_used = stats.get('sources_used', 0)
+            print(f"   • {tool_name}: {success_rate:.1%} success, {avg_time:.1f}s avg, {sources_used} sources")
+        
+        # Show recommendations
+        intelligence = self.get_session_intelligence()
+        recommendations = intelligence.get('recommendations', [])
+        if recommendations:
+            print(f"\n💡 Recommendations:")
+            for rec in recommendations:
+                print(f"   • {rec}")
+        
+        print("=" * 50)
+    
+    def _assess_research_quality(self, summary: Dict) -> Dict[str, Any]:
+        """Assess the quality of research conducted in this session."""
+        
+        research_tools = ["web_search", "deep_research", "browser"]
+        research_stats = {
+            tool: summary.get("tools_used", {}).get(tool, {})
+            for tool in research_tools
+            if tool in summary.get("tools_used", {})
+        }
+        
+        if not research_stats:
+            return {"quality_score": 0, "assessment": "No research conducted"}
+        
+        # Calculate quality based on source diversity and success rate
+        total_sources = summary.get("unique_sources", 0)
+        avg_success_rate = sum(
+            stats.get("successes", 0) / max(1, stats.get("executions", 1))
+            for stats in research_stats.values()
+        ) / len(research_stats)
+        
+        quality_score = min(1.0, (total_sources * 0.3 + avg_success_rate * 0.7))
+        
+        if quality_score > 0.8:
+            assessment = "High quality research with diverse sources"
+        elif quality_score > 0.5:
+            assessment = "Moderate quality research"
+        else:
+            assessment = "Limited research quality - consider more sources"
+        
+        return {
+            "quality_score": quality_score,
+            "assessment": assessment,
+            "sources_found": total_sources,
+            "research_success_rate": avg_success_rate,
+            "research_tools_used": len(research_stats)
+        }
+    
+    def _calculate_efficiency_metrics(self, summary: Dict) -> Dict[str, Any]:
+        """Calculate efficiency metrics for the session."""
+        
+        total_time = summary.get("total_execution_time", 0)
+        total_executions = summary.get("total_executions", 0)
+        success_rate = summary.get("success_rate", 0)
+        
+        return {
+            "avg_execution_time": total_time / max(1, total_executions),
+            "success_rate": success_rate,
+            "time_per_success": total_time / max(1, summary.get("successful_executions", 1)),
+            "efficiency_rating": "high" if success_rate > 0.8 and total_time < 60 else "moderate",
+            "total_tools_executed": total_executions
+        }
+    
+    def _analyze_sandbox_usage(self, summary: Dict) -> Dict[str, Any]:
+        """Analyze how sandbox was used in this session."""
+        
+        sandbox_info = self.get_sandbox_info()
+        
+        return {
+            "sandbox_enabled": sandbox_info.get("sandbox_enabled", False),
+            "sandboxed_tools_count": sandbox_info.get("sandboxed_count", 0),
+            "local_tools_count": sandbox_info.get("local_count", 0),
+            "sandbox_utilization": sandbox_info.get("sandboxed_count", 0) / max(1, len(self._tools)),
+            "docker_image": sandbox_info.get("docker_image", "none")
+        }
+    
+    def _generate_recommendations(self, summary: Dict) -> List[str]:
+        """Generate actionable recommendations based on session analysis."""
+        
+        recommendations = []
+        
+        # Research quality recommendations
+        if summary.get("unique_sources", 0) < 3:
+            recommendations.append("💡 Consider using more diverse sources for better research coverage")
+        
+        # Efficiency recommendations
+        if summary.get("success_rate", 0) < 0.7:
+            recommendations.append("⚠️ High failure rate detected - check tool configurations and inputs")
+        
+        # Time recommendations
+        avg_time = summary.get("total_execution_time", 0) / max(1, summary.get("total_executions", 1))
+        if avg_time > 30:
+            recommendations.append("⏱️ Tools taking longer than expected - consider timeout optimization")
+        
+        # Source diversity recommendations
+        domains = summary.get("sources_by_domain", {})
+        if len(domains) == 1 and list(domains.values())[0] > 3:
+            recommendations.append("🌐 All sources from single domain - try diversifying source types")
+        
+        # Sandbox recommendations
+        sandbox_info = self.get_sandbox_info()
+        if not sandbox_info.get("sandbox_enabled") and summary.get("total_executions", 0) > 5:
+            recommendations.append("🐳 Consider enabling sandbox for better security isolation")
+        
+        if not recommendations:
+            recommendations.append("✅ Session performed well - no specific recommendations")
+        
+        return recommendations
+    
+    def _analyze_source_quality(self, high_quality_sources: List[Dict]) -> Dict[str, Any]:
+        """Analyze the quality distribution of sources used."""
+        
+        if not high_quality_sources:
+            return {"avg_quality": 0, "total_high_quality": 0}
+        
+        total_quality = sum(source.get("quality_score", 0) for source in high_quality_sources)
+        avg_quality = total_quality / len(high_quality_sources)
+        
+        return {
+            "avg_quality": avg_quality,
+            "total_high_quality": len(high_quality_sources),
+            "quality_range": f"{min(s.get('quality_score', 0) for s in high_quality_sources):.2f} - {max(s.get('quality_score', 0) for s in high_quality_sources):.2f}"
+        }
 
 
 # Factory function for easy creation
 def create_simple_mcp(
     timeout: float = 30.0, 
-    sandbox_config: Optional[SandboxConfig] = None, 
+    sandbox_config: Optional[Union[SandboxConfig, EnhancedSandboxConfig]] = None, 
     tools: Optional[List[str]] = None
 ) -> ToolMCP:
-    """Create a ToolMCP instance with simplified configuration."""
+    """Create a ToolMCP instance with enhanced sandbox configuration."""
     return ToolMCP(timeout=timeout, sandbox_config=sandbox_config, tools=tools)
+
+
+# Enhanced factory functions for common use cases
+def create_local_mcp(timeout: float = 30.0, tools: Optional[List[str]] = None) -> ToolMCP:
+    """
+    Create MCP with local execution (no sandbox).
+    
+    Args:
+        timeout: Tool execution timeout
+        tools: Specific tools to load (None = all tools)
+        
+    Returns:
+        ToolMCP configured for local execution
+    """
+    return create_simple_mcp(
+        timeout=timeout,
+        sandbox_config=create_local_config(),
+        tools=tools
+    )
+
+
+def create_execution_sandbox_mcp(
+    docker_image: str = "python:3.12-slim",
+    timeout: float = 60.0,
+    memory_limit: str = "512m",
+    tools: Optional[List[str]] = None,
+    validate_docker: bool = True
+) -> ToolMCP:
+    """
+    Create MCP with sandbox for execution tools (bash, python, process).
+    
+    Args:
+        docker_image: Docker image to use for sandbox
+        timeout: Tool execution timeout  
+        memory_limit: Memory limit for sandbox container
+        tools: Specific tools to load (None = all tools)
+        validate_docker: Whether to validate Docker setup
+        
+    Returns:
+        ToolMCP configured with execution sandbox
+        
+    Example:
+        mcp = create_execution_sandbox_mcp("python:3.11-slim", timeout=120)
+    """
+    from enterprise_ai.mcp.enhanced_sandbox import create_execution_sandbox
+    
+    sandbox_config = create_execution_sandbox(
+        docker_image=docker_image,
+        memory_limit=memory_limit,
+        timeout=int(timeout),
+        validate_docker=validate_docker
+    )
+    
+    return create_simple_mcp(
+        timeout=timeout,
+        sandbox_config=sandbox_config,
+        tools=tools
+    )
+
+
+def create_file_sandbox_mcp(
+    docker_image: str = "python:3.12-slim",
+    timeout: float = 30.0,
+    memory_limit: str = "256m",
+    tools: Optional[List[str]] = None,
+    validate_docker: bool = True
+) -> ToolMCP:
+    """
+    Create MCP with sandbox for file tools.
+    
+    Args:
+        docker_image: Docker image to use for sandbox
+        timeout: Tool execution timeout
+        memory_limit: Memory limit for sandbox container
+        tools: Specific tools to load (None = all tools)
+        validate_docker: Whether to validate Docker setup
+        
+    Returns:
+        ToolMCP configured with file sandbox
+        
+    Example:
+        mcp = create_file_sandbox_mcp("ubuntu:22.04", memory_limit="1g")
+    """
+    from enterprise_ai.mcp.enhanced_sandbox import create_file_sandbox
+    
+    sandbox_config = create_file_sandbox(
+        docker_image=docker_image,
+        memory_limit=memory_limit,
+        timeout=int(timeout),
+        validate_docker=validate_docker
+    )
+    
+    return create_simple_mcp(
+        timeout=timeout,
+        sandbox_config=sandbox_config,
+        tools=tools
+    )
+
+
+def create_full_sandbox_mcp(
+    docker_image: str = "ubuntu:22.04",
+    timeout: float = 120.0,
+    memory_limit: str = "1g",
+    cpu_limit: float = 1.0,
+    network_enabled: bool = False,
+    tools: Optional[List[str]] = None,
+    validate_docker: bool = True
+) -> ToolMCP:
+    """
+    Create MCP with sandbox for all tools.
+    
+    Args:
+        docker_image: Docker image to use for sandbox
+        timeout: Tool execution timeout
+        memory_limit: Memory limit for sandbox container
+        cpu_limit: CPU limit for sandbox container
+        network_enabled: Whether to enable network access in sandbox
+        tools: Specific tools to load (None = all tools)
+        validate_docker: Whether to validate Docker setup
+        
+    Returns:
+        ToolMCP configured with full sandbox
+        
+    Example:
+        mcp = create_full_sandbox_mcp(
+            docker_image="ubuntu:22.04", 
+            network_enabled=True,
+            memory_limit="2g"
+        )
+    """
+    from enterprise_ai.mcp.enhanced_sandbox import create_full_sandbox
+    
+    sandbox_config = create_full_sandbox(
+        docker_image=docker_image,
+        memory_limit=memory_limit,
+        cpu_limit=cpu_limit,
+        timeout=int(timeout),
+        network_enabled=network_enabled,
+        validate_docker=validate_docker
+    )
+    
+    return create_simple_mcp(
+        timeout=timeout,
+        sandbox_config=sandbox_config,
+        tools=tools
+    )

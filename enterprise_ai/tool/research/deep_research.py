@@ -12,6 +12,7 @@ from enterprise_ai.exceptions import EnterpriseAIError
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult  # Using unified ToolResult
+from enterprise_ai.tool.logging import ToolExecutionContext
 from enterprise_ai.tool.research.web_search import SearchResult, WebSearch
 
 logger = get_optimized_logger("tool.research.deep_research")
@@ -342,7 +343,8 @@ class DeepResearch(BaseTool):
             return False
 
     async def execute(self, **kwargs: Any) -> ResearchSummary:
-        """Execute deep research on the given query."""
+        """Execute deep research with comprehensive source tracking."""
+        
         # Extract parameters with proper type conversion
         query = kwargs.get("query")
         if not query:
@@ -376,48 +378,138 @@ class DeepResearch(BaseTool):
                 name=self.name
             )
 
-        logger.info("Starting deep research on query: %s", query)
-        logger.debug("Parameters: max_depth=%s, results_per_search=%s", max_depth, results_per_search)
+        # START SMART LOGGING - Track research provenance across multiple stages
+        with ToolExecutionContext("deep_research") as ctx:
+            try:
+                # Initialize research context
+                context = ResearchContext(query=query, max_depth=max_depth)
+                deadline = time.time() + time_limit_seconds
 
-        # Initialize research context
-        context = ResearchContext(query=query, max_depth=max_depth)
-        deadline = time.time() + time_limit_seconds
+                # Initialize tools if needed
+                if self.search_tool is None:
+                    self.search_tool = WebSearch()
+                    await self.search_tool.initialize()
 
-        try:
-            # Initialize tools if needed
-            if self.search_tool is None:
-                self.search_tool = WebSearch()
-                await self.search_tool.initialize()
+                # Start research process
+                optimized_query = await self._generate_optimized_query(query)
+                logger.info("🔍 Starting deep research: %s → %s", query, optimized_query)
 
-            # Start research process
-            optimized_query = await self._generate_optimized_query(query)
-            logger.info("Optimized query: %s", optimized_query)
+                # Multi-stage research with source tracking
+                await self._research_stage_1(context, ctx, optimized_query, results_per_search, deadline)
+                
+                if max_depth > 1 and context.current_depth < max_depth:
+                    await self._research_stage_2(context, ctx, results_per_search, deadline)
 
-            await self._research_graph(
-                context=context,
-                query=optimized_query,
-                results_count=results_per_search,
-                deadline=deadline,
-            )
+                # Generate final insights and track them
+                final_insights = sorted(context.insights, key=lambda x: x.relevance_score, reverse=True)[:max_insights]
+                ctx.add_insights(len(final_insights))
 
-        except ToolError as e:
-            logger.error("Research error: %s", str(e))
-        except EnterpriseAIError as e:
-            logger.error("Enterprise AI error during research: %s", str(e))
-        except Exception as e:
-            logger.error("Unexpected error during research: %s", str(e))
+                # Prepare final summary
+                summary = ResearchSummary(
+                    query=query,
+                    insights=final_insights,
+                    visited_urls=context.visited_urls,
+                    depth_reached=context.current_depth,
+                    tool_call_id="",
+                    name=self.name
+                )
 
-        # Prepare final summary
-        summary = ResearchSummary(
-            query=query,
-            insights=sorted(context.insights, key=lambda x: x.relevance_score, reverse=True)[:max_insights],
-            visited_urls=context.visited_urls,
-            depth_reached=context.current_depth,
-            tool_call_id="",
-            name=self.name
-        )
+                logger.info(
+                    f"🔬 Deep research complete: {query} | "
+                    f"{len(ctx.sources_used)} sources used | "
+                    f"{len(final_insights)} insights | "
+                    f"depth {context.current_depth}"
+                )
 
-        return summary
+                return summary
+
+            except Exception as e:
+                logger.error(f"Deep research failed: {str(e)}")
+                return ResearchSummary(
+                    query=query,
+                    insights=[],
+                    visited_urls=set(),
+                    depth_reached=0,
+                    error=f"Research failed: {str(e)}",
+                    tool_call_id="",
+                    name=self.name
+                )
+
+    async def _research_stage_1(self, context: ResearchContext, ctx: ToolExecutionContext, 
+                               query: str, results_count: int, deadline: float):
+        """First stage: Initial web search and analysis with smart source tracking."""
+        
+        # Perform initial search
+        search_results = await self._search_web(query, results_count)
+        
+        if not search_results:
+            logger.warning("No search results found for initial query: %s", query)
+            return
+
+        # Analyze each result - only log sources we actually extract insights from
+        for result in search_results:
+            if time.time() >= deadline:
+                break
+                
+            content_analysis = await self._extract_and_analyze_content(result.url, context.query)
+            
+            if content_analysis and content_analysis.get("insights"):
+                # We got actual insights from this source - log it!
+                ctx.add_source(
+                    url=result.url,
+                    content_length=len(content_analysis.get("raw_content", "")),
+                    extraction_method="deep_analysis",
+                    success_score=content_analysis.get("relevance_score", 0.5),
+                    stage="initial_research",
+                    insights_count=len(content_analysis.get("insights", [])),
+                    search_result_position=result.position
+                )
+                
+                context.insights.extend(content_analysis["insights"])
+                context.visited_urls.add(result.url)
+
+    async def _research_stage_2(self, context: ResearchContext, ctx: ToolExecutionContext,
+                               results_count: int, deadline: float):
+        """Second stage: Follow-up research based on initial findings."""
+        
+        # Generate follow-up queries from insights
+        follow_ups = await self._generate_follow_ups(context.insights, context.query, context.query)
+        context.follow_up_queries.extend(follow_ups)
+        
+        # Update depth for stage 2
+        context.current_depth += 1
+        
+        # Research each follow-up
+        for follow_up_query in follow_ups[:2]:  # Limit to top 2 follow-ups
+            if time.time() >= deadline:
+                break
+                
+            results = await self._search_web(follow_up_query, max(1, results_count - 1))
+            
+            for result in results:
+                if time.time() >= deadline:
+                    break
+                    
+                # Skip if we've already analyzed this URL
+                if result.url in context.visited_urls:
+                    continue
+                    
+                content_analysis = await self._extract_and_analyze_content(result.url, context.query)
+                
+                if content_analysis and content_analysis.get("insights"):
+                    ctx.add_source(
+                        url=result.url,
+                        content_length=len(content_analysis.get("raw_content", "")),
+                        extraction_method="follow_up_analysis",
+                        success_score=content_analysis.get("relevance_score", 0.5),
+                        stage="follow_up_research",
+                        original_query=context.query,
+                        follow_up_query=follow_up_query,
+                        insights_count=len(content_analysis.get("insights", []))
+                    )
+                    
+                    context.insights.extend(content_analysis["insights"])
+                    context.visited_urls.add(result.url)
 
     async def _generate_optimized_query(self, query: str) -> str:
         """Generate an optimized search query using the configured LLM."""
@@ -525,6 +617,64 @@ class DeepResearch(BaseTool):
         results = getattr(search_response, "results", [])
         logger.debug("Retrieved %s search results", len(results))
         return results
+    
+    async def _extract_and_analyze_content(self, url: str, original_query: str) -> Optional[Dict[str, Any]]:
+        """
+        Extract and analyze content from a URL, returning insights only if valuable.
+        
+        This method decides whether a source is worth logging.
+        """
+        try:
+            # Skip if we don't have a search tool with content fetching
+            if not self.search_tool or not hasattr(self.search_tool, 'content_fetcher'):
+                return None
+            
+            # Try to get content
+            content_fetcher = getattr(self.search_tool, 'content_fetcher')
+            if not content_fetcher:
+                return None
+                
+            raw_content = await content_fetcher.fetch_content(url)
+            if not raw_content or len(raw_content.strip()) < 200:
+                return None  # Not enough content to analyze
+            
+            # Calculate basic relevance
+            query_words = set(original_query.lower().split())
+            content_words = set(raw_content.lower().split())
+            relevance_score = len(query_words.intersection(content_words)) / max(len(query_words), 1)
+            
+            # Only proceed if content seems relevant
+            if relevance_score < 0.1:
+                return None
+            
+            # Generate insights from content (simplified for this example)
+            insights = []
+            sentences = raw_content.split('.')[:10]  # First 10 sentences
+            
+            for sentence in sentences:
+                if len(sentence.strip()) > 50 and any(word in sentence.lower() for word in query_words):
+                    insight = ResearchInsight(
+                        content=sentence.strip(),
+                        source_url=url,
+                        relevance_score=min(relevance_score + 0.2, 1.0),
+                        insight_type="fact"
+                    )
+                    insights.append(insight)
+            
+            # Only return analysis if we found meaningful insights
+            if insights:
+                return {
+                    "insights": insights,
+                    "raw_content": raw_content,
+                    "relevance_score": relevance_score,
+                    "content_quality": len(raw_content) / 1000  # Simple quality metric
+                }
+            
+            return None  # No valuable insights found
+            
+        except Exception as e:
+            logger.debug(f"Failed to analyze content from {url}: {e}")
+            return None
 
     async def _extract_insights(
         self,

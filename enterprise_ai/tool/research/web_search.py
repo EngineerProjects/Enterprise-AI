@@ -17,6 +17,7 @@ from enterprise_ai.defaults import (
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, ToolResultMetadata  # Using unified ToolResult
+from enterprise_ai.tool.logging import ToolExecutionContext
 from enterprise_ai.tool.research.search import (
     BaiduSearchEngine,
     BingSearchEngine,
@@ -434,157 +435,188 @@ class WebSearch(BaseTool):
                 logger.warning("Failed to initialize %s search engine: %s", name, e)
 
     async def execute(self, **kwargs: Any) -> SearchResponse:
-        """Execute a Web search and return detailed search results."""
-        start_time = time.time()
+        """Execute a Web search with smart source tracking."""
+        
+        # Extract parameters
+        query = kwargs.get("query")
+        if not query:
+            logger.error("Missing required 'query' parameter")
+            return SearchResponse(
+                query="",
+                results=[],
+                error="Query parameter is required",
+                tool_call_id="",
+                name=self.name
+            )
 
-        try:
-            # Extract and validate parameters
-            query = kwargs.get("query")
-            if not query:
-                logger.error("Missing required 'query' parameter")
-                return SearchResponse(
-                    query="",
-                    results=[],
-                    error="Query parameter is required",
-                    tool_call_id="",
-                    name=self.name
-                )
+        num_results = int(kwargs.get("num_results", 5))
+        lang = kwargs.get("lang") or get_config_value("search.lang", "en")
+        country = kwargs.get("country") or get_config_value("search.country", "us")
+        fetch_content = kwargs.get("fetch_content", False)
+        search_engine = kwargs.get("search_engine", "auto")
+        
+        # START SMART LOGGING - Wrap execution in context
+        with ToolExecutionContext("web_search") as ctx:
+            try:
+                # Initialize engines if needed
+                if not self.search_engines:
+                    self._initialize_search_engines()
 
-            num_results = int(kwargs.get("num_results", 5))
-            lang = kwargs.get("lang") or get_config_value("search.lang", "en")
-            country = kwargs.get("country") or get_config_value("search.country", "us")
-            fetch_content = kwargs.get("fetch_content", False)
-            search_engine = kwargs.get("search_engine", "auto")
+                if fetch_content and self.content_fetcher is None:
+                    self.content_fetcher = WebContentFetcher()
 
-            # Initialize engines if needed
-            if not self.search_engines:
-                self._initialize_search_engines()
+                # Check cache (existing logic)
+                cache_key = f"{query}:{num_results}:{lang}:{country}:{fetch_content}"
+                cached_result = self._check_cache(cache_key)
+                if cached_result:
+                    logger.info("🔍 Using cached results for query: %s", query)
+                    return cached_result
 
-            if fetch_content and self.content_fetcher is None:
-                self.content_fetcher = WebContentFetcher()
-
-            # Check cache
-            cache_key = f"{query}:{num_results}:{lang}:{country}:{fetch_content}"
-            cached_result = self._check_cache(cache_key)
-            if cached_result:
-                logger.info("Using cached results for query: %s", query)
-                return cached_result
-
-            # Determine engines to try
-            engines_tried = []
-            if search_engine != "auto":
-                if search_engine in self.search_engines:
-                    engines_to_try = [search_engine]
+                # Determine engines to try
+                engines_tried = []
+                if search_engine != "auto":
+                    if search_engine in self.search_engines:
+                        engines_to_try = [search_engine]
+                    else:
+                        logger.warning("Specified search engine '%s' is not available", search_engine)
+                        return SearchResponse(
+                            query=query,
+                            results=[],
+                            error=f"Specified search engine '{search_engine}' is not available.",
+                            tool_call_id="",
+                            name=self.name
+                        )
                 else:
-                    logger.warning("Specified search engine '%s' is not available", search_engine)
+                    engines_to_try = self._get_engine_order()
+
+                # Perform search
+                search_params = {"lang": lang, "country": country}
+                search_results = []
+
+                for engine_name in engines_to_try:
+                    engines_tried.append(engine_name)
+                    if engine_name not in self.search_engines:
+                        logger.warning("Search engine %s not available, skipping.", engine_name)
+                        continue
+
+                    try:
+                        engine = self.search_engines[engine_name]
+                        search_items = await self._perform_search_with_engine(
+                            engine, query, num_results, search_params
+                        )
+
+                        if search_items:
+                            search_results = [
+                                SearchResult(
+                                    position=i + 1,
+                                    url=item.url,
+                                    title=item.title or f"Result {i + 1}",
+                                    description=item.description or "",
+                                    source=engine_name,
+                                )
+                                for i, item in enumerate(search_items)
+                            ]
+                            break
+                    except Exception as e:
+                        logger.error("Error with %s search engine: %s", engine_name, str(e))
+                        continue
+
+                if not search_results:
+                    logger.warning("No results found with any search engine. Tried: %s", ', '.join(engines_tried))
                     return SearchResponse(
                         query=query,
                         results=[],
-                        error=f"Specified search engine '{search_engine}' is not available.",
+                        error=f"No results found with any search engine. Tried: {', '.join(engines_tried)}",
                         tool_call_id="",
                         name=self.name
                     )
-            else:
-                engines_to_try = self._get_engine_order()
 
-            # Perform search
-            search_params = {"lang": lang, "country": country}
-            results = []
-
-            for engine_name in engines_to_try:
-                engines_tried.append(engine_name)
-                if engine_name not in self.search_engines:
-                    logger.warning("Search engine %s not available, skipping.", engine_name)
-                    continue
-
-                logger.info("Attempting search with %s", engine_name.capitalize())
-
-                try:
-                    engine = self.search_engines[engine_name]
-                    search_items = await self._perform_search_with_engine(
-                        engine, query, num_results, search_params
+                # SMART CONTENT FETCHING - Only log sources we actually extract from
+                processed_results = []
+                successful_extractions = 0
+                
+                for result in search_results:
+                    processed_result = SearchResult(
+                        position=result.position,
+                        url=result.url,
+                        title=result.title,
+                        description=result.description,
+                        source=result.source,
+                        raw_content=None
                     )
+                    
+                    # Try to fetch content if requested
+                    if fetch_content and self.content_fetcher:
+                        try:
+                            content = await self.content_fetcher.fetch_content(result.url)
+                            
+                            if content and len(content.strip()) > 100:  # Minimum viable content
+                                # Calculate quality score
+                                quality_score = self._calculate_content_quality(content)
+                                
+                                # ONLY LOG IF WE SUCCESSFULLY EXTRACTED USEFUL CONTENT
+                                if quality_score > 0.3:  # Threshold for "useful"
+                                    ctx.add_source(
+                                        url=result.url,
+                                        content_length=len(content),
+                                        extraction_method=getattr(self.content_fetcher, '_extraction_method', 'web_parser'),
+                                        success_score=quality_score,
+                                        search_engine=result.source,
+                                        result_position=result.position,
+                                        query=query
+                                    )
+                                    
+                                    processed_result.raw_content = content
+                                    successful_extractions += 1
+                                    
+                        except Exception as e:
+                            logger.debug(f"Failed to extract content from {result.url}: {e}")
+                            # Don't log failed extractions - this is the key improvement!
+                    
+                    processed_results.append(processed_result)
 
-                    if search_items:
-                        results = [
-                            SearchResult(
-                                position=i + 1,
-                                url=item.url,
-                                title=item.title or f"Result {i + 1}",
-                                description=item.description or "",
-                                source=engine_name,
-                            )
-                            for i, item in enumerate(search_items)
-                        ]
-                        break
-                except Exception as e:
-                    logger.error("Error with %s search engine: %s", engine_name, str(e))
-                    continue
+                # Track insights (successful extractions)
+                ctx.add_insights(successful_extractions)
 
-            if not results:
-                logger.warning("No results found with any search engine. Tried: %s", ', '.join(engines_tried))
-                return SearchResponse(
+                # Create response
+                response = SearchResponse(
                     query=query,
-                    results=[],
-                    error=f"No results found with any search engine. Tried: {', '.join(engines_tried)}",
+                    results=processed_results,
                     tool_call_id="",
                     name=self.name,
                     search_metadata=SearchMetadata(
-                        total_results=0,
+                        total_results=len(processed_results),
                         language=lang,
                         country=country,
-                        time_taken=time.time() - start_time,
+                        time_taken=ctx.start_time and (time.time() - ctx.start_time.timestamp()) or 0,
                         engines_tried=engines_tried,
+                        tool_name=self.name,
                     ),
                 )
+                
+                # Cache results
+                if getattr(self.config, "cache_results", True):
+                    self._update_cache(cache_key, response)
 
-            # Fetch content if requested
-            if fetch_content:
-                logger.debug("Fetching content for %s results", len(results))
-                results = await self._fetch_content_for_results(results)
-                logger.info("Content fetched for %s results", len(results))
-
-            # Create response
-            response = SearchResponse(
-                query=query,
-                results=results,
-                tool_call_id="",
-                name=self.name,
-                search_metadata=SearchMetadata(
-                    total_results=len(results),
-                    language=lang,
-                    country=country,
-                    time_taken=time.time() - start_time,
-                    engines_tried=engines_tried,
-                    tool_name=self.name,
-                ),
-            )
-
-            # Cache results
-            if getattr(self.config, "cache_results", True):
-                self._update_cache(cache_key, response)
-                logger.debug("Cached search results for: %s", query)
-
-            return response
-
-        except ToolError as e:
-            logger.error("Tool error during search: %s", e)
-            return SearchResponse(
-                query=kwargs.get("query", ""),
-                results=[],
-                error=str(e),
-                tool_call_id="",
-                name=self.name
-            )
-        except Exception as e:
-            logger.error(f"Unexpected error in web search: {str(e)}", exc_info=True)
-            return SearchResponse(
-                query=kwargs.get("query", ""),
-                results=[],
-                error=f"An unexpected error occurred: {str(e)}",
-                tool_call_id="",
-                name=self.name
-            )
+                # SMART LOGGING SUMMARY (instead of verbose logs)
+                logger.info(
+                    f"🔍 Search complete: {query} | "
+                    f"{len(processed_results)} results | "
+                    f"{successful_extractions} sources extracted"
+                )
+                
+                return response
+                
+            except Exception as e:
+                # Error will be automatically logged by context manager
+                logger.error(f"Search failed: {str(e)}")
+                return SearchResponse(
+                    query=query,
+                    results=[],
+                    error=f"Search failed: {str(e)}",
+                    tool_call_id="",
+                    name=self.name
+                )
 
     def _check_cache(self, cache_key: str) -> Optional[SearchResponse]:
         """Check if results are in cache and not expired."""
@@ -632,6 +664,46 @@ class WebSearch(BaseTool):
                     raw_content=content,
                 )
         return result
+    
+    def _calculate_content_quality(self, content: str) -> float:
+        """
+        Calculate quality score for extracted content.
+        
+        This helps determine if a source is worth logging.
+        """
+        if not content or len(content.strip()) < 50:
+            return 0.0
+        
+        # Basic quality heuristics
+        content_length = len(content.strip())
+        word_count = len(content.split())
+        
+        # Length score (0-0.4)
+        length_score = min(0.4, content_length / 2000)
+        
+        # Word count score (0-0.3)  
+        word_score = min(0.3, word_count / 300)
+        
+        # Structure score (0-0.3) - check for paragraphs, sentences
+        structure_score = 0.0
+        if '\n' in content:
+            structure_score += 0.1
+        if '.' in content and content.count('.') > 2:
+            structure_score += 0.1
+        if any(marker in content.lower() for marker in ['http', 'www', '@']):
+            structure_score += 0.1
+            
+        total_score = length_score + word_score + structure_score
+        
+        # Penalize very short or very repetitive content
+        if content_length < 100:
+            total_score *= 0.5
+        
+        unique_words = len(set(content.lower().split()))
+        if unique_words < word_count * 0.3:  # Too repetitive
+            total_score *= 0.7
+            
+        return min(1.0, total_score)
 
     def _get_engine_order(self) -> List[str]:
         """Determines the order in which to try search engines."""
