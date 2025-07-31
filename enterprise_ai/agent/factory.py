@@ -86,8 +86,19 @@ def create_agent(
         
         if mcp_config:
             mcp_defaults.update(mcp_config)
+        
+        # Filter parameters to only include what ToolMCP accepts
+        mcp_params = {
+            "timeout": mcp_defaults.get("timeout", 30.0),
+        }
+        
+        # Add optional parameters if provided in config
+        if "sandbox_config" in mcp_defaults:
+            mcp_params["sandbox_config"] = mcp_defaults["sandbox_config"]
+        if "tools" in mcp_defaults:
+            mcp_params["tools"] = mcp_defaults["tools"]
             
-        mcp = ToolMCP(**mcp_defaults)
+        mcp = ToolMCP(**mcp_params)
         if verbose:
             logger.info(f"Created MCP with {len(mcp.get_available_tools())} tools")
     

@@ -61,6 +61,7 @@ clean:
 	@echo "Cleaning build artifacts..."
 	@rm -rf build/ dist/ *.egg-info/ .pytest_cache/ .ruff_cache/ .mypy_cache/ htmlcov/ .coverage logs/ workspace/ browser_test_screenshots/ .lh/
 	@find . -type d -name __pycache__ -exec rm -rf {} +
+	@find . -type d -name logs -exec rm -rf {} +
 
 notebook:
 	@echo "Checking for Jupyter Notebook..."

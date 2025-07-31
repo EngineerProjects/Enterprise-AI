@@ -1,8 +1,12 @@
 """
-Requests + Readability extraction method - reliable for main content.
+Enhanced Requests + Readability extraction method with warning suppression.
 """
 
 import asyncio
+import logging
+import warnings
+from contextlib import redirect_stderr
+from io import StringIO
 from typing import List
 
 from .base import HTTPMethod, ExtractionResult
@@ -10,7 +14,7 @@ from ..validation import is_valid_content
 
 
 class ReadabilityMethod(HTTPMethod):
-    """Requests + Readability method for main content extraction."""
+    """Enhanced Requests + Readability method with clean logging."""
     
     @property
     def dependencies(self) -> List[str]:
@@ -18,7 +22,7 @@ class ReadabilityMethod(HTTPMethod):
         return ["aiohttp", "readability", "bs4"]  # bs4 is the import name for beautifulsoup4
     
     async def extract(self, url: str) -> ExtractionResult:
-        """Extract content using Requests + Readability."""
+        """Extract content using Requests + Readability with suppressed warnings."""
         if not self.is_available():
             return self.create_result(url, error="Required packages not installed")
         
@@ -41,10 +45,28 @@ class ReadabilityMethod(HTTPMethod):
                     
                     html = await response.text()
             
-            # Use readability to extract main content
-            doc = Document(html)
-            content_html = doc.summary()
-            title = doc.title()
+            # Suppress readability verbose warnings
+            readability_logger = logging.getLogger('readability.readability')
+            original_level = readability_logger.level
+            
+            try:
+                # Temporarily suppress INFO level messages from readability
+                readability_logger.setLevel(logging.WARNING)
+                
+                # Also capture any stderr output from the library
+                stderr_capture = StringIO()
+                with redirect_stderr(stderr_capture):
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=UserWarning, module="readability")
+                        
+                        # Use readability to extract main content
+                        doc = Document(html)
+                        content_html = doc.summary()
+                        title = doc.title()
+                
+            finally:
+                # Restore original logging level
+                readability_logger.setLevel(original_level)
             
             # Convert HTML to clean text
             soup = BeautifulSoup(content_html, 'html.parser')

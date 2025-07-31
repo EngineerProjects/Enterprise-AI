@@ -183,7 +183,7 @@ class OllamaToolExtractor:
         # Validate extracted tool calls
         validated_calls = []
         for tc in tool_calls:
-            if tc.name and tc.arguments is not None:
+            if tc.function.name and tc.function.arguments is not None:
                 validated_calls.append(tc)
         
         return validated_calls
