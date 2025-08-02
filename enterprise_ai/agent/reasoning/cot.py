@@ -8,7 +8,7 @@ from typing import List, Optional, Dict, Any, AsyncIterator
 
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.mcp.executor import ToolMCP
-from enterprise_ai.agent.prompts.reasoning.cot import COT_PROMPT_TEMPLATE
+from enterprise_ai.agent.prompts.cot import COT_PROMPT_TEMPLATE
 from enterprise_ai.schema.memory import ConversationMemory
 from enterprise_ai.types import MessageProtocol
 from enterprise_ai.logger import get_optimized_logger

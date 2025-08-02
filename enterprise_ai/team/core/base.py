@@ -14,6 +14,7 @@ from enterprise_ai.team.memory.shared import SharedMemory
 from enterprise_ai.team.communication.protocol import TeamMessage, CommunicationProtocol
 from enterprise_ai.team.communication.router import MessageRouter
 from enterprise_ai.team.communication.context import TeamContextBuilder
+from enterprise_ai.team.utils.agent_utils import AgentUtilities
 from enterprise_ai.logger import get_optimized_logger
 
 logger = get_optimized_logger("team")
@@ -53,7 +54,7 @@ class Team:
         self.verbose = verbose
         
         # Register manager with router
-        manager_name = self._get_agent_name(manager)
+        manager_name = AgentUtilities.get_agent_name(manager)
         self.router.register_agent(manager_name, self._create_agent_message_callback(manager))
         
         if verbose:
@@ -66,7 +67,7 @@ class Team:
         Args:
             agent: Agent to add as team specialist
         """
-        agent_name = self._get_agent_name(agent)
+        agent_name = AgentUtilities.get_agent_name(agent)
         specialist = SpecialistRole(agent)
         self.specialists[agent_name] = specialist
         
@@ -186,19 +187,11 @@ class Team:
         if self.verbose:
             logger.info(f"Team '{self.name}' reset")
     
-    def _get_agent_name(self, agent: Agent) -> str:
-        """Extract agent name consistently."""
-        if hasattr(agent, 'profile') and agent.profile and hasattr(agent.profile, 'name'):
-            return agent.profile.name
-        if hasattr(agent, 'name'):
-            return agent.name
-        return agent.__class__.__name__.lower()
-    
     def _create_agent_message_callback(self, agent: Agent) -> callable:
         """Create message callback for an agent."""
         def handle_message(message: TeamMessage) -> None:
             if self.verbose:
-                logger.debug(f"Agent '{self._get_agent_name(agent)}' received message")
+                logger.debug(f"Agent '{AgentUtilities.get_agent_name(agent)}' received message")
         return handle_message
     
     def _inject_team_context_to_agent(self, agent: Agent, team_context: str) -> None:

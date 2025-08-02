@@ -189,16 +189,21 @@ class MessageRouter:
         self.message_queue[agent_name].append(message)
         self.delivered_messages[message_id] = False
         
-        # If agent has a callback, invoke it
+        # If agent has a callback, invoke it with error handling
         if agent_name in self.agent_callbacks:
             try:
                 self.agent_callbacks[agent_name](message)
                 self.delivered_messages[message_id] = True
                 
-                # Remove from queue
-                self.message_queue[agent_name].remove(message)
+                # Remove from queue on successful delivery
+                if message in self.message_queue[agent_name]:
+                    self.message_queue[agent_name].remove(message)
+                    
             except Exception as e:
                 logger.error(f"Error delivering message to agent '{agent_name}': {e}")
+                # Keep message in queue for potential retry
+                # Mark as failed but don't remove from queue
+                self.delivered_messages[message_id] = False
     
     def get_pending_messages(self, agent_name: str) -> List[TeamMessage]:
         """

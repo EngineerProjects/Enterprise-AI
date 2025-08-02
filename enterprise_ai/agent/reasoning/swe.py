@@ -10,7 +10,7 @@ from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.agent.config import MAX_REACT_ITERATIONS
 from enterprise_ai.agent.reasoning.react import ReActPattern
-from enterprise_ai.agent.prompts.reasoning.swe import SWE_SYSTEM_GUIDANCE, SWE_TOOL_GUIDANCE
+from enterprise_ai.agent.prompts.swe import SWE_SYSTEM_GUIDANCE, SWE_TOOL_GUIDANCE
 from enterprise_ai.schema import Message
 from enterprise_ai.schema.memory import ConversationMemory
 from enterprise_ai.types import MessageProtocol

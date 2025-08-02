@@ -39,7 +39,7 @@ async def simple_mcp_usage_test():
         if hasattr(mcp, '_tools') and mcp._tools:
             tools = list(mcp._tools.keys())
             print(f"   ✅ Found {len(tools)} tools")
-            print(f"   🔧 Available: {', '.join(tools[:5])}...")
+            print(f"   🔧 Available: {', '.join(tools)}")
         else:
             print("   ❌ No tools found")
             return False

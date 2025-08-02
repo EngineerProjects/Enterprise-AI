@@ -1,178 +1,254 @@
-# Enterprise-AI Tool Testing Apps
+# Enhanced Reasoning Patterns - Test Examples
 
-Interactive chat applications to test your Enterprise-AI agent's tool usage capabilities.
+This directory contains comprehensive test examples for all enhanced reasoning patterns in the Enterprise AI system.
+
+## 📁 Test Files Overview
+
+### Individual Pattern Tests
+- **`agent_react_test.py`** - Enhanced ReAct reasoning pattern tests
+- **`agent_cot_test.py`** - Enhanced Chain of Thought reasoning pattern tests  
+- **`agent_swe_test.py`** - Enhanced Software Engineering reasoning pattern tests
+- **`agent_metacognitive_test.py`** - Enhanced MetaCognitive reasoning pattern tests
+
+### Comparative Analysis
+- **`agent_comparative_test.py`** - Side-by-side comparison of all patterns
+- **`agent_basic_test.py`** - Basic agent configuration and setup tests
 
 ## 🚀 Quick Start
 
-Choose your preferred testing method:
+### Run Individual Pattern Tests
 
-### Option 1: Use the Launcher (Recommended)
 ```bash
-cd /home/amiche/Projects/AI/Enterprise-AI
-uv run examples/agents/launcher.py
+# Test Enhanced ReAct Pattern
+cd examples/agents
+python agent_react_test.py
+
+# Test Enhanced Chain of Thought Pattern  
+python agent_cot_test.py
+
+# Test Enhanced Software Engineering Pattern
+python agent_swe_test.py
+
+# Test Enhanced MetaCognitive Pattern
+python agent_metacognitive_test.py
 ```
 
-### Option 2: Direct App Launch
+### Run Comparative Analysis
+
 ```bash
-# Streaming chat (shows real-time thinking)
-uv run examples/agents/streaming_tool_chat.py
-
-# Simple chat (traditional Q&A)
-uv run examples/agents/tool_test_chat.py
-
-# Quick automated test
-uv run examples/agents/streaming_tool_chat.py quick
-
-# Integration validation
-uv run examples/agents/final_mcp_integration_test.py
+# Compare all patterns with identical tasks
+python agent_comparative_test.py
 ```
 
-## 📱 Available Apps
+## 🎯 Pattern Selection Guide
 
-### 1. 🌊 Streaming Tool Chat (`streaming_tool_chat.py`)
-- **Best for slow devices**
-- Real-time response streaming
-- Shows agent thinking process
-- Live tool execution feedback
-- 1000s timeouts optimized for slower hardware
+### 🔧 **Enhanced ReAct Pattern** (`reasoning_pattern="react"`)
+**When to Use:**
+- Research and data gathering tasks
+- Tool-intensive operations
+- Iterative problem solving
+- Tasks requiring transparent reasoning traces
 
-### 2. 💬 Simple Tool Chat (`tool_test_chat.py`) 
-- Traditional question/answer format
-- Full responses shown at once
-- Conversation history tracking
-- Good for quick tool testing
+**Strengths:**
+- Explicit Thought-Action-Observation format
+- Excellent tool integration
+- Clear reasoning transparency
+- Error detection and recovery
 
-### 3. ⚡ Quick Test Mode
-- Automated testing of 3 tool scenarios
-- Fast validation without interaction
-- Run with: `streaming_tool_chat.py quick`
+**Example Tasks:**
+- "Research renewable energy trends and create a summary"
+- "Analyze this dataset and find key insights"
+- "Debug this code and fix the issues"
 
-### 4. 🧪 Integration Test (`final_mcp_integration_test.py`)
-- API-level validation only
-- No LLM interaction (fastest)
-- Confirms MCP-Agent integration
+### 🧠 **Enhanced Chain of Thought Pattern** (`reasoning_pattern="cot"`)
+**When to Use:**
+- Complex analytical problems
+- Mathematical calculations
+- Research synthesis
+- Multi-criteria decision analysis
 
-## 🎯 Great Questions to Test Tools
+**Strengths:**
+- Step-by-step analytical breakdown
+- Evidence gathering and verification
+- Logical reasoning progression
+- Comprehensive problem decomposition
 
-### File Operations
+**Example Tasks:**
+- "Analyze the pros and cons of different investment strategies"
+- "Solve this optimization problem step-by-step"
+- "Compare and contrast different marketing approaches"
+
+### 💻 **Enhanced Software Engineering Pattern** (`reasoning_pattern="swe"`)
+**When to Use:**
+- Software development tasks
+- Code review and refactoring
+- Architecture design
+- Technical optimization
+
+**Strengths:**
+- Complete development lifecycle
+- Software engineering best practices
+- Code quality focus
+- Technical problem solving
+
+**Example Tasks:**
+- "Build a REST API for user management"
+- "Review this code and suggest improvements"
+- "Design a microservices architecture"
+
+### 🧠 **Enhanced MetaCognitive Pattern** (`reasoning_pattern="metacognitive"`)
+**When to Use:**
+- Strategic planning
+- Complex project management
+- Crisis management
+- Multi-phase initiatives requiring adaptation
+
+**Strengths:**
+- 6-phase reasoning flow (Planning → Execution → Monitoring → Decision → Reflection → Termination)
+- Self-monitoring and adaptation
+- Strategic thinking
+- Natural human-like reasoning
+
+**Example Tasks:**
+- "Develop a go-to-market strategy for our new product"
+- "Manage this complex software migration project"
+- "Create a crisis response plan for system outages"
+
+## 🧪 Test Scenarios Covered
+
+### ReAct Pattern Tests
+1. **Tool Usage** - Web search and data analysis
+2. **Iterative Reasoning** - Multi-step calculations
+3. **Error Handling** - Code debugging and fixing
+4. **Planning Integration** - Project planning with tools
+5. **Decision Making** - Business decision analysis
+
+### Chain of Thought Tests
+1. **Analytical Reasoning** - Business impact analysis
+2. **Mathematical Reasoning** - Optimization problems
+3. **Research Synthesis** - Technology comparison
+4. **Logical Reasoning** - Logic puzzles and deduction
+5. **Decision Analysis** - Multi-criteria evaluation
+
+### Software Engineering Tests
+1. **Full Development Cycle** - Complete API development
+2. **Code Review** - Quality improvement and refactoring
+3. **Architecture Design** - Microservices design
+4. **Testing Strategy** - Comprehensive test development
+5. **Performance Optimization** - Code and query optimization
+
+### MetaCognitive Tests
+1. **Strategic Planning** - Go-to-market strategy
+2. **Adaptive Problem Solving** - Supply chain optimization
+3. **Project Management** - Enterprise migration projects
+4. **Crisis Management** - System outage response
+5. **Innovation Strategy** - AI transformation planning
+
+## ⚙️ Configuration Examples
+
+### Basic Configuration
+```python
+agent = create_agent(
+    name="TestBot",
+    role_config={"name": "Assistant", "system_prompt": "I help with various tasks."},
+    reasoning_pattern="react",  # or "cot", "swe", "metacognitive"
+    mcp_config={"timeout": 1000.0, "tools": ["web_search", "python_execute"]},
+    llm_config={"model_name": "llama3.2", "timeout": 800.0},
+    verbose=True
+)
 ```
-"Create a file called test.txt with today's date"
-"List all files in the current directory"
-"Show me the contents of the enterprise_ai folder"
-"Create a Python script that prints hello world"
+
+### Advanced Configuration
+```python
+agent = create_agent(
+    name="AdvancedBot",
+    role_config={
+        "name": "Senior Analyst", 
+        "system_prompt": "Expert analyst with comprehensive capabilities."
+    },
+    reasoning_pattern="metacognitive",
+    mcp_config={
+        "timeout": 2000.0,
+        "tools": ["planning", "terminate", "web_search", "python_execute", "file_system"]
+    },
+    llm_config={"model_name": "llama3.2", "timeout": 1500.0, "temperature": 0.7},
+    verbose=True
+)
 ```
 
-### Code Execution
-```
-"Calculate the factorial of 10 using Python"
-"Execute Python code to check if 97 is prime"
-"Run Python to generate 5 random numbers"
-"Calculate 1234 * 5678 using Python"
-```
+## 📊 Expected Output Formats
 
-### Search & Discovery
+### ReAct Pattern Output
 ```
-"Find all Python files in this project"
-"Search for files containing 'agent' in their name"
-"Look for .py files in the enterprise_ai directory"
-```
-
-### System Operations
-```
-"Show running processes"
-"Check the current working directory"
-"List environment variables"
+Thought: I need to research renewable energy trends for 2024.
+Action: web_search[query="renewable energy trends 2024"]
+Observation: Found data showing 23% growth in solar capacity...
+Thought: Now I need to analyze the specific growth drivers.
+Action: web_search[query="solar energy growth drivers 2024"]
+Observation: Key drivers include policy support and cost reduction...
+Thought: I have sufficient data to provide a comprehensive answer.
+Answer: Based on my research, renewable energy trends in 2024 show...
 ```
 
-## ⚙️ Configuration
+### Chain of Thought Pattern Output
+```
+Step 1: To analyze the investment strategies, I need to identify the key criteria for comparison...
+Step 2: Let me gather data on historical performance for each strategy...
+Action: web_search[query="investment strategy performance 2024"]
+Evidence: Historical data shows...
+Step 3: Now I'll analyze risk-return profiles for each option...
+Step 4: Considering the investor's risk tolerance and timeline...
+Conclusion: Based on the systematic analysis, I recommend...
+```
 
-All apps are configured for slow devices:
+### Software Engineering Pattern Output
+```
+Thought: I need to design a REST API following software engineering best practices. Let me start with requirements analysis.
+Action: planning[command="create", plan_id="api_design", steps=["Requirements", "Design", "Implementation", "Testing"]]
+Observation: Plan created successfully...
+Thought: Now I'll implement the core API structure with proper error handling and validation.
+Action: write_file[path="api.py", content="from fastapi import FastAPI..."]
+Observation: File created successfully...
+Answer: I've created a complete REST API with the following features...
+```
 
-- **Tool execution timeout**: 1000 seconds
-- **LLM timeout**: 1000 seconds  
-- **Verbose logging**: Enabled to see tool usage
-- **ReAct reasoning**: Includes tools in LLM prompts
+### MetaCognitive Pattern Output
+```
+PLANNING PHASE: Breaking down the go-to-market strategy into key components...
+EXECUTION PHASE: Implementing market research and competitive analysis...
+MONITORING PHASE: Assessing progress on strategy development...
+DECISION PHASE: Strategy is comprehensive, proceeding to finalization...
+TERMINATION PHASE: Go-to-market strategy completed successfully.
+```
 
-## 🎛️ Chat Commands
+## 🔧 Troubleshooting
 
-While in any chat app:
+### Common Issues
+1. **Import Errors**: Ensure you're running from the correct directory with `sys.path` setup
+2. **Model Not Found**: Verify Ollama is running and llama3.2 model is available
+3. **Tool Errors**: Check that required tools are properly configured in MCP
+4. **Timeout Issues**: Increase timeout values for complex tasks
 
-- `quit` / `exit` - Stop the chat
-- `tools` - List all available tools
-- `history` - Show conversation history (simple chat)
-- `clear` - Clear screen (streaming chat)
+### Performance Tips
+- Use appropriate timeout values based on task complexity
+- Start with simpler patterns (ReAct) before testing complex ones (MetaCognitive)
+- Monitor tool usage and reasoning traces with `verbose=True`
+- Test individual patterns before running comparative tests
 
-## 🔍 What Each App Tests
+## 📈 Next Steps
 
-### Streaming Chat Tests:
-- ✅ Real-time tool discovery
-- ✅ Tool execution with feedback
-- ✅ Agent reasoning process
-- ✅ Error handling during tool use
+1. **Start with Basic Tests**: Run `agent_basic_test.py` to verify setup
+2. **Test Individual Patterns**: Try each pattern with your specific use cases
+3. **Compare Patterns**: Use `agent_comparative_test.py` to understand differences
+4. **Production Integration**: Integrate chosen patterns into your applications
 
-### Simple Chat Tests:
-- ✅ Tool usage in conversation
-- ✅ Response completeness
-- ✅ Conversation continuity
+## 🎯 Production Readiness
 
-### Quick Test Tests:
-- ✅ File operations
-- ✅ Python execution
-- ✅ Basic tool chaining
+All enhanced reasoning patterns are production-ready and provide:
+- ✅ Explicit reasoning traces for debugging
+- ✅ Comprehensive tool integration
+- ✅ Error handling and recovery
+- ✅ Scalable architecture
+- ✅ Enterprise-grade reliability
 
-### Integration Test Tests:
-- ✅ MCP creation and tool loading
-- ✅ Agent-MCP API integration
-- ✅ Tool filtering and selection
-- ✅ Direct tool access verification
-
-## 🐛 Troubleshooting
-
-### Common Issues:
-
-1. **"Agent not initialized"**
-   - Check that Ollama is running
-   - Verify your model (llama3.2) is available
-   - Try the integration test first
-
-2. **Tool timeouts**
-   - Normal for slow devices
-   - Wait for the full 1000s timeout
-   - Consider using smaller test cases
-
-3. **No tool execution**
-   - Ask more specific questions
-   - Try: "Create a file called test.txt"
-   - Avoid vague questions like "what can you do"
-
-4. **Browser tool hangs**
-   - Apps exclude browser tool to prevent this
-   - If needed, use the specific tool filtering
-
-### Performance Tips:
-
-- Use **Streaming Chat** for the best experience on slow devices
-- Ask **specific, actionable questions** rather than general ones
-- **Wait for full completion** - high timeouts are intentional
-- Use **Quick Test** for fast validation
-
-## 📁 Files Created
-
-- `launcher.py` - Main launcher with mode selection
-- `streaming_tool_chat.py` - Real-time streaming chat
-- `tool_test_chat.py` - Simple interactive chat
-- `final_mcp_integration_test.py` - API validation tests
-- `simple_mcp_integration_test.py` - Basic MCP tests
-- `fixed_agent_mcp_test.py` - Improved agent tests
-
-## 🎉 Success Indicators
-
-You'll know your tools are working when:
-
-- ✅ Agent creates files when asked
-- ✅ Python code executes and returns results
-- ✅ File searches return actual file lists
-- ✅ Tool execution shows in verbose logs
-- ✅ Agent reasoning mentions specific tools
-
-Happy testing! 🚀
+Choose the pattern that best fits your use case and start building intelligent applications!

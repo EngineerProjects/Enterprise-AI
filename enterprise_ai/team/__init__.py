@@ -52,6 +52,9 @@ from .communication.protocol import TeamMessage, CommunicationProtocol
 from .communication.router import MessageRouter
 from .communication.context import TeamContextBuilder
 
+# Shared utilities
+from .utils.agent_utils import AgentUtilities
+
 # Simple factory function
 def create_team(name: str, manager, members: list = None):
     """Simple team creation function."""
@@ -107,6 +110,9 @@ __all__ = [
     "CommunicationProtocol",
     "MessageRouter",
     "TeamContextBuilder",
+    
+    # Utilities
+    "AgentUtilities",
     
     # Factory
     "create_team"

@@ -53,3 +53,50 @@ class AgentRole:
             capabilities=capabilities or [],
             description=f"Custom {name} agent"
         )
+    
+    @classmethod
+    def from_config(cls, config: Dict[str, Any]) -> "AgentRole":
+        """
+        Create role from configuration dictionary.
+        
+        Args:
+            config: Dictionary with role configuration
+                   - name: Role name (required)
+                   - system_prompt: System prompt text
+                   - description: Role description
+                   - capabilities: List of capabilities
+                   - metadata: Additional metadata
+                   
+        Returns:
+            AgentRole instance
+        """
+        return cls(
+            name=config["name"],
+            system_prompt=config.get("system_prompt"),
+            capabilities=config.get("capabilities", []),
+            description=config.get("description"),
+            metadata=config.get("metadata", {})
+        )
+    
+    def to_config(self) -> Dict[str, Any]:
+        """Export role to configuration dictionary."""
+        return {
+            "name": self.name,
+            "system_prompt": self.system_prompt,
+            "capabilities": self.capabilities,
+            "description": self.description,
+            "metadata": self.metadata
+        }
+    
+    def update_from_config(self, config: Dict[str, Any]) -> None:
+        """Update role properties from configuration dictionary."""
+        if "name" in config:
+            self.name = config["name"]
+        if "system_prompt" in config:
+            self.system_prompt = config["system_prompt"]
+        if "capabilities" in config:
+            self.capabilities = config["capabilities"]
+        if "description" in config:
+            self.description = config["description"]
+        if "metadata" in config:
+            self.metadata.update(config["metadata"])

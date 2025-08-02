@@ -7,6 +7,7 @@ Simple role-based behavior using agent profiles.
 from abc import ABC, abstractmethod
 from enterprise_ai.agent import Agent
 from enterprise_ai.team.core import TeamRole, TeamTask
+from enterprise_ai.team.utils.agent_utils import AgentUtilities
 
 
 class TeamMember:
@@ -21,12 +22,15 @@ class TeamMember:
     @property
     def available_capacity(self) -> float:
         """Get available capacity (0.0 to 1.0)."""
-        return max(0.0, self.capacity - self.current_load)
+        return AgentUtilities.calculate_available_capacity(self.capacity, self.current_load)
     
     @property
     def is_available(self) -> bool:
         """Check if member has capacity for new tasks."""
-        return self.available_capacity > 0.1
+        from enterprise_ai.team.core.enums import AgentCapacity
+        # For base TeamMember, assume AVAILABLE status if not specified otherwise
+        status = getattr(self, 'status', AgentCapacity.AVAILABLE)
+        return AgentUtilities.check_availability(self.capacity, self.current_load, status)
     
     def update_load(self, load: float) -> None:
         """Update current workload."""

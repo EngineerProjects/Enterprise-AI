@@ -39,15 +39,15 @@ class TeamContextBuilder:
         
         # Get current agent info
         current_agent = team_agents.get(current_agent_name)
-        if not current_agent or not hasattr(current_agent, 'profile') or not current_agent.profile:
+        if not current_agent or not self._has_valid_profile(current_agent):
             return ""
             
-        current_profile = current_agent.profile
+        current_profile = current_agent.profile()
         
-        # Get other team members (exclude current agent)
+        # Get other team members (exclude current agent) - optimized filter
         team_members = {
             name: agent for name, agent in team_agents.items()
-            if name != current_agent_name and hasattr(agent, 'profile') and agent.profile
+            if name != current_agent_name and self._has_valid_profile(agent)
         }
         
         if not team_members:
@@ -64,28 +64,27 @@ class TeamContextBuilder:
             ""
         ]
         
+        # Optimize member info generation
         for name, agent in team_members.items():
-            profile = agent.profile
+            profile = agent.profile()
             
-            # Build member info
-            status = profile.capacity.status.value
-            workload = f"{profile.capacity.workload * 100:.0f}%"
+            # Use more efficient status formatting
             availability = "🟢 Available" if profile.capacity.is_available else "🔴 Busy"
+            workload_pct = f"{profile.capacity.workload * 100:.0f}%"
             
-            member_info = [
+            context_parts.extend([
                 f"**@{name}** - {profile.role.name.title()}",
                 f"  Role: {profile.role.description}",
-                f"  Status: {availability} (Workload: {workload})",
-                f"  Tools: {', '.join(profile.available_tools)}"  # Show ALL tools, no truncation
-            ]
-            
-            context_parts.extend(member_info)
-            context_parts.append("")
+                f"  Status: {availability} (Workload: {workload_pct})",
+                f"  Tools: {', '.join(profile.available_tools)}",
+                ""
+            ])
         
-        # Add communication guidelines
+        # Add communication guidelines with first teammate example
+        first_teammate = next(iter(team_members.keys())) if team_members else 'teammate'
         context_parts.extend([
             "## Team Communication Guidelines:",
-            f"- Always use @agent_name when addressing teammates (e.g., @{list(team_members.keys())[0] if team_members else 'teammate'})",
+            f"- Always use @agent_name when addressing teammates (e.g., @{first_teammate})",
             "- Use @team to broadcast messages to all team members", 
             "- If you receive a message not intended for you, politely redirect it",
             "- Collaborate naturally and ask for help when needed",
@@ -95,6 +94,10 @@ class TeamContextBuilder:
         ])
         
         return "\n".join(context_parts)
+    
+    def _has_valid_profile(self, agent: Any) -> bool:
+        """Helper to check if agent has valid profile - optimized check."""
+        return hasattr(agent, 'profile') and callable(getattr(agent, 'profile', None))
     
     def get_team_member_names(self, team_agents: Dict[str, Any]) -> List[str]:
         """Get list of all team member names."""
@@ -108,14 +111,14 @@ class TeamContextBuilder:
         """Get list of currently available team members."""
         return [
             name for name, agent in team_agents.items()
-            if hasattr(agent, 'profile') and agent.profile and agent.profile.capacity.is_available
+            if self._has_valid_profile(agent) and agent.profile().capacity.is_available
         ]
     
     def get_members_with_tool(self, tool_name: str, team_agents: Dict[str, Any]) -> List[str]:
         """Get team members who have access to a specific tool."""
         return [
             name for name, agent in team_agents.items()
-            if hasattr(agent, 'profile') and agent.profile and agent.profile.has_tool(tool_name)
+            if self._has_valid_profile(agent) and agent.profile().has_tool(tool_name)
         ]
     
     def get_members_by_role_pattern(self, pattern: str, team_agents: Dict[str, Any]) -> List[str]:
@@ -123,5 +126,5 @@ class TeamContextBuilder:
         pattern_lower = pattern.lower()
         return [
             name for name, agent in team_agents.items()
-            if hasattr(agent, 'profile') and agent.profile and agent.profile.matches_role_pattern(pattern_lower)
+            if self._has_valid_profile(agent) and agent.profile().matches_role_pattern(pattern_lower)
         ]

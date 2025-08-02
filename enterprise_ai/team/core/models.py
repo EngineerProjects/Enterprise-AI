@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from enterprise_ai.agent import Agent
 
 from enterprise_ai.team.core.enums import TeamRole, TaskStatus, TaskPriority, AgentCapacity
+from enterprise_ai.team.utils.agent_utils import AgentUtilities
 
 
 @dataclass
@@ -54,7 +55,7 @@ class TeamMember:
     @property
     def is_available(self) -> bool:
         """Check if member has capacity for new tasks."""
-        return (self.capacity - self.current_load) > 0.1 and self.status == AgentCapacity.AVAILABLE
+        return AgentUtilities.check_availability(self.capacity, self.current_load, self.status)
 
 
 @dataclass

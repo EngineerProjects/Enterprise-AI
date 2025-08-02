@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any, AsyncIterator
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.agent.config import MAX_REACT_ITERATIONS
-from enterprise_ai.agent.prompts.reasoning.react import REACT_SYSTEM_GUIDANCE, REACT_TOOL_GUIDANCE
+from enterprise_ai.agent.prompts.react import REACT_SYSTEM_GUIDANCE, REACT_TOOL_GUIDANCE
 from enterprise_ai.schema import Message, ToolCall
 from enterprise_ai.schema.memory import ConversationMemory
 from enterprise_ai.types import MessageProtocol

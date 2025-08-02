@@ -4,7 +4,7 @@ Enterprise AI Agent - Agent Factory.
 Simple factory function for creating agents with minimal configuration.
 """
 
-from typing import Optional, Dict, Any, Union
+from typing import Optional, Dict, Any, Union, List
 
 from enterprise_ai.agent.base import Agent
 from enterprise_ai.agent.role import AgentRole
@@ -24,48 +24,70 @@ logger = get_optimized_logger("agent.factory")
 
 def create_agent(
     name: str,
-    role: Union[str, AgentRole],
+    role: Optional[Union[str, AgentRole]] = None,
+    role_config: Optional[Dict[str, Any]] = None,
     reasoning_pattern: str = "react",
     llm: Optional[LLMProvider] = None,
-    mcp: Optional[ToolMCP] = None,
-    memory: Optional[ConversationMemory] = None,
     llm_config: Optional[Dict[str, Any]] = None,
+    mcp: Optional[ToolMCP] = None,
     mcp_config: Optional[Dict[str, Any]] = None,
+    memory: Optional[ConversationMemory] = None,
     verbose: bool = False,
 ) -> Agent:
     """
-    Create an agent with minimal configuration.
+    Create an agent with minimal configuration or detailed config dictionaries.
+    
+    Supports both simple component-based creation and config-based creation:
+    
+    Config-based (simple):
+        agent = create_agent(
+            name="DataBot",
+            role_config={"name": "Analyst", "system_prompt": "..."},
+            mcp_config={"tools": ["python"], "timeout": 1000},
+            llm_config={"model_name": "llama3.2", "timeout": 1000}
+        )
+    
+    Component-based (advanced):
+        agent = create_agent(name="DataBot", role=custom_role, mcp=custom_mcp, llm=custom_llm)
     
     Args:
         name: Agent name
-        role: Agent role or role name (for creating a basic role)
+        role: Agent role instance or role name string
+        role_config: Configuration dict for creating role (alternative to role param)
         reasoning_pattern: Pattern name ("react", "cot", "swe")
-        llm: LLM provider (created from llm_config if not provided)
-        mcp: MCP executor (created with defaults if not provided)
+        llm: LLM provider instance (created from llm_config if not provided)
+        llm_config: Configuration for creating LLM provider
+        mcp: MCP executor instance (created from mcp_config if not provided)
+        mcp_config: Configuration for creating MCP executor
         memory: Conversation memory (defaults to InMemoryConversation)
-        llm_config: Configuration for creating LLM (if llm not provided)
-        mcp_config: Configuration for creating MCP (if mcp not provided)
         verbose: Enable verbose logging
         
     Returns:
-        Configured Agent instance
+        Configured Agent instance with auto-generated profile
         
     Raises:
-        ValueError: If invalid reasoning pattern specified
+        ValueError: If invalid parameters or missing required config
     """
     # Create or process role
-    if isinstance(role, str):
-        # Create a role from the name - prompt will be auto-generated
+    if role_config and not role:
+        # Create role from configuration dictionary
+        role = AgentRole.from_config(role_config)
+        if verbose:
+            logger.info(f"Created role from config: '{role.name}'")
+    elif isinstance(role, str):
+        # Create a basic role from the name
         role = AgentRole(
             name=role,
             description=f"{role} Agent"
         )
+    elif role is None:
+        raise ValueError("Either 'role' or 'role_config' must be provided")
     elif not isinstance(role, AgentRole):
-        raise ValueError("Role must be a string or AgentRole instance")
+        raise ValueError("Role must be a string, AgentRole instance, or use role_config")
     
-    # Create LLM if not provided using smart defaults
+    # Create LLM if not provided
     if llm is None:
-        # Get default configuration for the provider
+        # Get default configuration and merge with user config
         default_provider = "ollama"
         llm_defaults = get_default_llm_config(default_provider)
         llm_defaults.update({"verbose": verbose})
@@ -80,8 +102,9 @@ def create_agent(
         if verbose:
             logger.info(f"Created LLM provider: {provider}/{model_name}")
             
-    # Create MCP if not provided using smart defaults
+    # Create MCP if not provided
     if mcp is None:
+        # Get defaults and merge with user config
         mcp_defaults = get_default_tool_config()
         
         if mcp_config:
@@ -106,6 +129,12 @@ def create_agent(
     pattern_cls = None
     if reasoning_pattern.lower() == "react":
         pattern_cls = ReActPattern
+    elif reasoning_pattern.lower() == "enhanced_react":
+        from enterprise_ai.agent.reasoning.react import EnhancedReActPattern
+        pattern_cls = EnhancedReActPattern
+    elif reasoning_pattern.lower() == "metacognitive":
+        from enterprise_ai.agent.reasoning.metacognitive import MetaCognitiveEngine
+        pattern_cls = MetaCognitiveEngine
     elif reasoning_pattern.lower() == "cot":
         pattern_cls = ChainOfThoughtPattern
     elif reasoning_pattern.lower() == "swe":
@@ -129,3 +158,50 @@ def create_agent(
         memory=memory,
         verbose=verbose
     )
+
+
+def create_simple_mcp(
+    timeout: float = 30.0,
+    tools: Optional[List[str]] = None,
+    sandbox_config: Optional[Dict[str, Any]] = None
+) -> ToolMCP:
+    """
+    Create a simple MCP instance with specified tools.
+    
+    Args:
+        timeout: Request timeout in seconds
+        tools: List of tool names to enable
+        sandbox_config: Optional sandbox configuration
+        
+    Returns:
+        Configured ToolMCP instance
+    """
+    params = {"timeout": timeout}
+    
+    if tools is not None:
+        params["tools"] = tools
+    if sandbox_config is not None:
+        params["sandbox_config"] = sandbox_config
+        
+    return ToolMCP(**params)
+
+
+def create_simple_llm(
+    model_name: str,
+    provider: str = "ollama",
+    timeout: float = 30.0,
+    **kwargs
+) -> LLMProvider:
+    """
+    Create a simple LLM provider instance.
+    
+    Args:
+        model_name: Model name to use
+        provider: Provider name (default: "ollama")
+        timeout: Request timeout in seconds
+        **kwargs: Additional provider-specific parameters
+        
+    Returns:
+        Configured LLMProvider instance
+    """
+    return create_provider(provider, model_name, timeout=timeout, **kwargs)

@@ -111,9 +111,15 @@ class CommunicationProtocol:
     3. Broadcasting messages to all agents
     """
     
-    def __init__(self):
-        """Initialize communication protocol."""
+    def __init__(self, max_history: int = 1000):
+        """
+        Initialize communication protocol.
+        
+        Args:
+            max_history: Maximum number of messages to keep in history
+        """
         self.message_history = []
+        self.max_history = max_history
     
     def format_team_message(self, message: TeamMessage) -> str:
         """
@@ -125,8 +131,14 @@ class CommunicationProtocol:
         Returns:
             Formatted message string
         """
-        # Store message in history
+        # Store message in history with bounds checking
         self.message_history.append(message)
+        
+        # Cleanup old messages if history is too long
+        if len(self.message_history) > self.max_history:
+            # Keep only the most recent messages
+            self.message_history = self.message_history[-self.max_history:]
+            logger.debug(f"Cleaned up message history, keeping {self.max_history} recent messages")
         
         # Format based on message type
         if message.msg_type == "task":

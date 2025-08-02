@@ -10,6 +10,7 @@ from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.schema import Message
 from enterprise_ai.schema.memory import ConversationMemory, InMemoryConversation
+from enterprise_ai.schema.agent_profile import AgentProfile, AgentStatus
 from enterprise_ai.agent.role import AgentRole
 
 from enterprise_ai.logger import get_optimized_logger
@@ -55,6 +56,11 @@ class Agent:
         self.memory = memory or InMemoryConversation()
         self.verbose = verbose
         
+        # Internal profile state - auto-generated from agent properties
+        self._cached_profile: Optional[AgentProfile] = None
+        self._workload: float = 0.0
+        self._status: AgentStatus = AgentStatus.AVAILABLE
+        
         # Configure the reasoning pattern
         self.reasoning_pattern.configure(llm=llm, mcp=mcp, verbose=verbose)
         
@@ -64,6 +70,135 @@ class Agent:
             
         if verbose:
             logger.info(f"Agent '{name}' initialized with role '{role.name}'")
+    
+    def profile(self) -> AgentProfile:
+        """
+        Get agent profile auto-generated from current agent state.
+        
+        Profile is a read-only view of the agent's current configuration.
+        To update profile, use agent.update_*_config() methods.
+        
+        Returns:
+            AgentProfile with current agent information
+        """
+        # Always generate fresh profile from current state to ensure consistency
+        return AgentProfile.create(
+            name=self.name,
+            role_name=self.role.name,
+            role_description=self.role.description,
+            available_tools=self.get_available_tools(),
+            initial_workload=self._workload,
+            status=self._status
+        )
+    
+    def set_workload(self, workload: float) -> None:
+        """Update agent workload."""
+        if not 0.0 <= workload <= 1.0:
+            raise ValueError(f"Workload must be between 0.0 and 1.0, got {workload}")
+        self._workload = workload
+        if self.verbose:
+            logger.info(f"Agent '{self.name}' workload updated to {workload:.1%}")
+    
+    def set_status(self, status: AgentStatus) -> None:
+        """Update agent status."""
+        self._status = status
+        if self.verbose:
+            logger.info(f"Agent '{self.name}' status updated to {status.value}")
+    
+    def update_role_config(self, config: Dict[str, Any]) -> None:
+        """
+        Update agent role configuration at runtime.
+        
+        Args:
+            config: Dictionary with role configuration
+                   - name: Role name
+                   - description: Role description  
+                   - system_prompt: New system prompt
+                   - capabilities: List of capabilities
+        """
+        # Create new role from config
+        new_role = AgentRole.from_config(config)
+        
+        # Update agent role
+        self.role = new_role
+        
+        # Update system prompt in memory
+        messages = self.memory.get_messages()
+        non_system_messages = [m for m in messages if m.role != "system"]
+        self.memory.clear()
+        if new_role.system_prompt:
+            self.memory.add_system_message(new_role.system_prompt)
+        for msg in non_system_messages:
+            self.memory.add_message(msg)
+            
+        if self.verbose:
+            logger.info(f"Agent '{self.name}' role updated to '{new_role.name}'")
+    
+    def update_mcp_config(self, config: Dict[str, Any]) -> None:
+        """
+        Update MCP configuration at runtime.
+        
+        Args:
+            config: Dictionary with MCP configuration
+                   - timeout: Request timeout
+                   - tools: List of tools to enable
+                   - sandbox_config: Sandbox configuration
+        """
+        from enterprise_ai.mcp.executor import ToolMCP
+        
+        # Create new MCP with updated config
+        mcp_params = {
+            "timeout": config.get("timeout", 30.0),
+        }
+        
+        if "sandbox_config" in config:
+            mcp_params["sandbox_config"] = config["sandbox_config"]
+        if "tools" in config:
+            mcp_params["tools"] = config["tools"]
+            
+        # Replace current MCP
+        self.mcp = ToolMCP(**mcp_params)
+        
+        # Reconfigure reasoning pattern with new MCP
+        self.reasoning_pattern.configure(llm=self.llm, mcp=self.mcp, verbose=self.verbose)
+        
+        if self.verbose:
+            tools_count = len(self.mcp.get_available_tools())
+            logger.info(f"Agent '{self.name}' MCP updated with {tools_count} tools")
+    
+    def update_llm_config(self, config: Dict[str, Any]) -> None:
+        """
+        Update LLM configuration at runtime.
+        
+        Args:
+            config: Dictionary with LLM configuration
+                   - model_name: Model name to use
+                   - timeout: Request timeout
+                   - other provider-specific parameters
+        """
+        from enterprise_ai.llm.factory import create_provider
+        from enterprise_ai.defaults import get_default_llm_config
+        
+        # Get current provider info
+        current_provider = getattr(self.llm, 'provider_name', 'ollama')
+        
+        # Prepare config with defaults
+        llm_defaults = get_default_llm_config(current_provider)
+        llm_defaults.update(config)
+        llm_defaults.update({"verbose": self.verbose})
+        
+        # Extract required parameters
+        provider = llm_defaults.pop("provider", current_provider)
+        model_name = llm_defaults.pop("model_name")
+        
+        # Create new LLM provider
+        self.llm = create_provider(provider, model_name, **llm_defaults)
+        
+        # Reconfigure reasoning pattern with new LLM
+        self.reasoning_pattern.configure(llm=self.llm, mcp=self.mcp, verbose=self.verbose)
+        
+        if self.verbose:
+            logger.info(f"Agent '{self.name}' LLM updated to {provider}/{model_name}")
     
     def get_available_tools(self) -> List[str]:
         """Get list of available tools from MCP."""
@@ -77,6 +212,17 @@ class Agent:
         """Get a summary of agent's capabilities."""
         tools = self.get_available_tools()
         return f"{self.name}: {self.role.name} | {len(tools)} tools available"
+    
+    def get_profile_summary(self) -> str:
+        """Get a summary including profile information."""
+        profile = self.profile()
+        workload = f"{profile.capacity.workload * 100:.0f}%"
+        status = profile.capacity.status.value
+        return f"{self.name}: {self.role.name} | {len(self.get_available_tools())} tools | Status: {status} ({workload} load)"
+    
+    def sync_profile_tools(self) -> List[str]:
+        """Get current tools from MCP (profile is always in sync since it's auto-generated)."""
+        return self.get_available_tools()
     
     async def process(self, user_input: str) -> str:
         """
