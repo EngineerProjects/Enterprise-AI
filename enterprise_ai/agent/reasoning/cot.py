@@ -8,6 +8,7 @@ from typing import List, Optional, Dict, Any, AsyncIterator
 
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.mcp.executor import ToolMCP
+from enterprise_ai.agent.reasoning.base import BaseReasoningPattern  # ADDED: Use base class
 from enterprise_ai.agent.prompts.cot import COT_PROMPT_TEMPLATE
 from enterprise_ai.schema.memory import ConversationMemory
 from enterprise_ai.types import MessageProtocol
@@ -16,24 +17,18 @@ from enterprise_ai.logger import get_optimized_logger
 logger = get_optimized_logger("agent.reasoning.cot")
 
 
-class ChainOfThoughtPattern:
+class ChainOfThoughtPattern(BaseReasoningPattern):  # FIXED: Inherit from base class
     """
     Self-contained Chain of Thought reasoning pattern.
     
-    Emphasizes step-by-step thinking without complex inheritance.
+    REFACTORED: Now inherits from BaseReasoningPattern to eliminate boilerplate.
     """
     
     def __init__(self):
         """Initialize pattern."""
-        self.llm = None
-        self.mcp = None
-        self.verbose = False
+        super().__init__()  # FIXED: Call parent constructor
     
-    def configure(self, llm: LLMProvider, mcp: ToolMCP, verbose: bool = False) -> None:
-        """Configure the pattern with LLM and MCP."""
-        self.llm = llm
-        self.mcp = mcp
-        self.verbose = verbose
+    # REMOVED: configure() method - now inherited from base class
     
     async def process(self, messages: List[MessageProtocol], memory: ConversationMemory) -> str:
         """
@@ -46,8 +41,7 @@ class ChainOfThoughtPattern:
         Returns:
             Final text response
         """
-        if not self.llm:
-            raise ValueError("ChainOfThoughtPattern not configured. Call configure() first.")
+        self._validate_configuration()  # FIXED: Use base class validation
         
         # Append CoT instruction to the user's last message
         updated_messages = messages.copy()

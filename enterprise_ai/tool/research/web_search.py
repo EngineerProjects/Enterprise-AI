@@ -17,7 +17,7 @@ from enterprise_ai.defaults import (
 from enterprise_ai.logger import get_optimized_logger
 from enterprise_ai.tool.core.base import BaseTool, ToolError, ToolConfig, ToolCapability
 from enterprise_ai.tool.core.result import ToolResult, ToolResultMetadata  # Using unified ToolResult
-from enterprise_ai.tool.logging import ToolExecutionContext
+from enterprise_ai.logger import ToolExecutionContext
 from enterprise_ai.tool.research.search import (
     BaiduSearchEngine,
     BingSearchEngine,

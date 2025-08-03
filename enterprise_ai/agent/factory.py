@@ -124,13 +124,18 @@ def create_agent(
         mcp = ToolMCP(**mcp_params)
         if verbose:
             logger.info(f"Created MCP with {len(mcp.get_available_tools())} tools")
+            
+            # Auto-enable simplified tool logging when verbose=True
+            from enterprise_ai.logger import patch_mcp_simplified_logging
+            patch_mcp_simplified_logging()
+            logger.info("✅ Simplified tool logging enabled (logs/tools/ directory)")
     
     # Create appropriate reasoning pattern
     pattern_cls = None
     if reasoning_pattern.lower() == "react":
         pattern_cls = ReActPattern
     elif reasoning_pattern.lower() == "enhanced_react":
-        from enterprise_ai.agent.reasoning.react import EnhancedReActPattern
+        from enterprise_ai.agent.reasoning.structured_react import EnhancedReActPattern
         pattern_cls = EnhancedReActPattern
     elif reasoning_pattern.lower() == "metacognitive":
         from enterprise_ai.agent.reasoning.metacognitive import MetaCognitiveEngine

@@ -324,7 +324,6 @@ class FileSystemTool(BaseTool):
             "offset": {"description": "Starting line number to read from", "type": "integer"},
             "length": {"description": "Maximum number of lines to read", "type": "integer"},
             "timeout_ms": {"description": "Timeout in milliseconds for operations", "type": "integer"},
-            "allowed_directories": {"description": "List of allowed directories for security", "items": {"type": "string"}, "type": "array"},
         },
         "required": ["command"],
     }
@@ -387,13 +386,37 @@ class FileSystemTool(BaseTool):
     async def _validate_path_advanced(self, path: str, allowed_dirs: Optional[List[str]] = None, 
                                     timeout_ms: int = 10000) -> str:
         """Advanced path validation using Desktop Commander style security."""
+        # Handle allowed_directories parameter parsing
         if allowed_dirs is not None:
-            self._path_validator = PathSecurityValidator(allowed_dirs)
+            # Handle case where allowed_dirs might be passed as a JSON string
+            if isinstance(allowed_dirs, str):
+                if allowed_dirs.strip() in ['', '[]', 'null', 'None']:
+                    # Empty or null values should enable full access
+                    allowed_dirs = None
+                else:
+                    try:
+                        import json
+                        allowed_dirs = json.loads(allowed_dirs)
+                    except (json.JSONDecodeError, ValueError):
+                        # If it's not JSON, treat as a single path
+                        allowed_dirs = [allowed_dirs]
+            
+            # Ensure it's a list or None
+            if allowed_dirs is not None and not isinstance(allowed_dirs, list):
+                allowed_dirs = [str(allowed_dirs)]
+                
+            # If we have valid allowed directories, use them. Otherwise, enable full access.
+            if allowed_dirs:
+                self._path_validator = PathSecurityValidator(allowed_dirs)
+            else:
+                # Enable full access mode
+                self._path_validator = PathSecurityValidator([])
         
         try:
-            return await self._path_validator.validate_path(path, timeout_ms / 1000.0)
+            timeout_seconds = (timeout_ms or 10000) / 1000.0  # Default 10 seconds
+            return await self._path_validator.validate_path(path, timeout_seconds)
         except Exception as e:
-            # Fallback to basic validation
+            # Fallback to basic validation (which allows access)
             logger.warning(f"Advanced path validation failed, using basic validation: {e}")
             return self._validate_path(path)
 

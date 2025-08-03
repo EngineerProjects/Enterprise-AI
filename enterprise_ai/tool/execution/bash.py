@@ -21,8 +21,7 @@ from enterprise_ai.tool.core.base import (
     SandboxMode
 )
 from enterprise_ai.tool.core.result import ToolResult, CLIResult
-from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.tool.logging import ToolExecutionContext
+from enterprise_ai.logger import get_optimized_logger, ToolExecutionContext
 
 logger = get_optimized_logger("tool.execution.bash")
 
@@ -725,156 +724,145 @@ class Bash(BaseTool):
         restart = kwargs.get("restart", False)
         sandbox_preference = kwargs.get("sandbox_mode", "auto")
 
-        # START SMART LOGGING - Track bash command execution outcomes
-        with ToolExecutionContext("bash") as ctx:
-            try:
-                # Handle restart request
-                if restart:
-                    if self._session:
-                        await self._session.cleanup()
-                    self._session = None
-                    logger.info("🔄 All bash sessions restarted and cleaned up")
-                    return CLIResult.create_success(
-                        result="All bash sessions have been restarted and cleaned up.",
+        # Execute bash command (simplified logging)
+        try:
+            # Handle restart request
+            if restart:
+                if self._session:
+                    await self._session.cleanup()
+                self._session = None
+                logger.info("🔄 All bash sessions restarted and cleaned up")
+                return CLIResult.create_success(
+                    result="All bash sessions have been restarted and cleaned up.",
+                    tool_name=self.name
+                )
+
+            # Initialize session if needed
+            if self._session is None:
+                use_sandbox = await self._determine_execution_mode(command, sandbox_preference)
+                timeout = getattr(self.config, "timeout", 30.0)
+                working_dir = self._working_dir or tempfile.mkdtemp(prefix="bash_session_")
+                
+                self._session = _EnhancedBashSession(
+                    timeout=timeout, 
+                    use_sandbox=use_sandbox, 
+                    working_dir=working_dir
+                )
+                
+                success = await self._session.setup()
+                if not success:
+                    return ToolResult.create_error(
+                        error="Failed to initialize enhanced bash session",
                         tool_name=self.name
                     )
 
-                # Initialize session if needed
-                if self._session is None:
-                    use_sandbox = await self._determine_execution_mode(command, sandbox_preference)
-                    timeout = getattr(self.config, "timeout", 30.0)
-                    working_dir = self._working_dir or tempfile.mkdtemp(prefix="bash_session_")
-                    
-                    self._session = _EnhancedBashSession(
-                        timeout=timeout, 
-                        use_sandbox=use_sandbox, 
-                        working_dir=working_dir
+            # Handle session management commands (these don't need source logging)
+            if command == "read_output":
+                if pid is None:
+                    return ToolResult.create_error(
+                        error="PID required for read_output command",
+                        tool_name=self.name
                     )
-                    
-                    success = await self._session.setup()
-                    if not success:
-                        return ToolResult.create_error(
-                            error="Failed to initialize enhanced bash session",
-                            tool_name=self.name
-                        )
-
-                # Handle session management commands (these don't need source logging)
-                if command == "read_output":
-                    if pid is None:
-                        return ToolResult.create_error(
-                            error="PID required for read_output command",
-                            tool_name=self.name
-                        )
-                    
-                    output = await self._session.read_output(pid, timeout_ms)
-                    logger.info(f"📖 Read output from PID {pid}")
-                    return CLIResult.create_success(result=output, tool_name=self.name)
                 
-                elif command == "force_terminate":
-                    if pid is None:
-                        return ToolResult.create_error(
-                            error="PID required for force_terminate command", 
-                            tool_name=self.name
-                        )
-                    
-                    success = await self._session.force_terminate(pid)
-                    message = f"Successfully terminated session {pid}" if success else f"No active session found for PID {pid}"
-                    logger.info(f"🔪 Force terminate PID {pid}: {'success' if success else 'not found'}")
-                    return CLIResult.create_success(result=message, tool_name=self.name)
-                
-                elif command == "list_sessions":
-                    sessions = self._session.list_active_sessions()
-                    if not sessions:
-                        result = "No active sessions"
-                    else:
-                        result = "Active sessions:\n"
-                        for session in sessions:
-                            result += f"PID: {session['pid']}, Command: {session['command']}, "
-                            result += f"Runtime: {session['runtime']:.0f}ms, "
-                            result += f"Blocked: {session['is_blocked']}, Alive: {session['is_alive']}\n"
-                    
-                    logger.info(f"📋 Listed {len(sessions) if sessions else 0} active sessions")
-                    return CLIResult.create_success(result=result, tool_name=self.name)
-                
-                # Analyze command for smart logging
-                command_analysis = self._analyze_command_for_logging(command)
-                
-                # Execute regular command
-                logger.info(f"⚡ Executing bash command: {command[:100]}{'...' if len(command) > 100 else ''}")
-                result = await self._session.execute_command(command, timeout_ms, shell)
-                
-                if result["pid"] == -1:
-                    logger.error(f"❌ Bash command failed: {result['output']}")
-                    return ToolResult.create_error(error=result["output"], tool_name=self.name)
-                
-                # SMART LOGGING: Track successful command execution with meaningful output
-                output_content = result.get("output", "")
-                
-                if output_content and len(output_content.strip()) > 10:  # Has meaningful output
-                    insights_count = 0
-                    execution_metadata = {
-                        'pid': result.get("pid"),
-                        'command_type': command_analysis.get('command_type', 'general'),
-                        'is_blocked': result.get("isBlocked", False),
-                        'execution_mode': 'sandbox' if getattr(self._session, 'use_sandbox', False) else 'local'
-                    }
-                    
-                    # Count insights based on command analysis
-                    if command_analysis.get('is_data_processing'):
-                        insights_count += 1
-                        execution_metadata['data_processing'] = True
-                    
-                    if command_analysis.get('is_file_operation'):
-                        insights_count += 1
-                        execution_metadata['file_operations'] = True
-                    
-                    if command_analysis.get('is_system_info'):
-                        insights_count += 1
-                        execution_metadata['system_analysis'] = True
-                    
-                    if command_analysis.get('is_network_operation'):
-                        insights_count += 1
-                        execution_metadata['network_operations'] = True
-                    
-                    # Always count successful command execution with output as at least 1 insight
-                    insights_count = max(1, insights_count)
-                    
-                    # Track as a source if it produces substantial output or processes files
-                    if len(output_content) > 50 or command_analysis.get('is_file_operation') or command_analysis.get('is_data_processing'):
-                        ctx.add_source(
-                            url=f"bash_execution_{result.get('pid', 'unknown')}",
-                            content_length=len(output_content),
-                            extraction_method="bash_execution",
-                            success_score=0.7,
-                            command=command[:200],  # Truncate long commands
-                            **execution_metadata
-                        )
-                    
-                    ctx.add_insights(insights_count)
-                    
-                    logger.info(
-                        f"✅ Bash SUCCESS: PID {result.get('pid')}, "
-                        f"{insights_count} insights, "
-                        f"{command_analysis.get('command_type', 'general')} command"
+                output = await self._session.read_output(pid, timeout_ms)
+                logger.info(f"📖 Read output from PID {pid}")
+                return CLIResult.create_success(result=output, tool_name=self.name)
+            
+            elif command == "force_terminate":
+                if pid is None:
+                    return ToolResult.create_error(
+                        error="PID required for force_terminate command", 
+                        tool_name=self.name
                     )
+                
+                success = await self._session.force_terminate(pid)
+                message = f"Successfully terminated session {pid}" if success else f"No active session found for PID {pid}"
+                logger.info(f"🔪 Force terminate PID {pid}: {'success' if success else 'not found'}")
+                return CLIResult.create_success(result=message, tool_name=self.name)
+            
+            elif command == "list_sessions":
+                sessions = self._session.list_active_sessions()
+                if not sessions:
+                    result = "No active sessions"
                 else:
-                    logger.info(f"✅ Bash command executed: PID {result.get('pid')} (no output)")
+                    result = "Active sessions:\n"
+                    for session in sessions:
+                        result += f"PID: {session['pid']}, Command: {session['command']}, "
+                        result += f"Runtime: {session['runtime']:.0f}ms, "
+                        result += f"Blocked: {session['is_blocked']}, Alive: {session['is_alive']}\n"
                 
-                # Format response
-                response = f"Command started with PID {result['pid']}\n"
-                response += f"Initial output:\n{result['output']}"
+                logger.info(f"📋 Listed {len(sessions) if sessions else 0} active sessions")
+                return CLIResult.create_success(result=result, tool_name=self.name)
+            
+            # Analyze command for smart logging
+            command_analysis = self._analyze_command_for_logging(command)
+            
+            # Execute regular command
+            logger.info(f"⚡ Executing bash command: {command[:100]}{'...' if len(command) > 100 else ''}")
+            result = await self._session.execute_command(command, timeout_ms, shell)
+            
+            if result["pid"] == -1:
+                logger.error(f"❌ Bash command failed: {result['output']}")
+                return ToolResult.create_error(error=result["output"], tool_name=self.name)
+            
+            # SMART LOGGING: Track successful command execution with meaningful output
+            output_content = result.get("output", "")
+            
+            if output_content and len(output_content.strip()) > 10:  # Has meaningful output
+                insights_count = 0
+                execution_metadata = {
+                    'pid': result.get("pid"),
+                    'command_type': command_analysis.get('command_type', 'general'),
+                    'is_blocked': result.get("isBlocked", False),
+                    'execution_mode': 'sandbox' if getattr(self._session, 'use_sandbox', False) else 'local'
+                }
                 
-                if result["isBlocked"]:
-                    response += f"\n\nCommand is still running. Use command='read_output' with pid={result['pid']} to get more output."
+                # Count insights based on command analysis
+                if command_analysis.get('is_data_processing'):
+                    insights_count += 1
+                    execution_metadata['data_processing'] = True
                 
-                return CLIResult.create_success(result=response, tool_name=self.name)
-
-            except Exception as e:
-                logger.error(f"❌ Unexpected error in enhanced bash execution: {e}")
-                return ToolResult.create_error(
-                    error=f"Error executing bash command: {str(e)}",
-                    tool_name=self.name
+                if command_analysis.get('is_file_operation'):
+                    insights_count += 1
+                    execution_metadata['file_operations'] = True
+                
+                if command_analysis.get('is_system_info'):
+                    insights_count += 1
+                    execution_metadata['system_analysis'] = True
+                
+                if command_analysis.get('is_network_operation'):
+                    insights_count += 1
+                    execution_metadata['network_operations'] = True
+                
+                # Always count successful command execution with output as at least 1 insight
+                insights_count = max(1, insights_count)
+                
+                # Simplified logging: just log the insights count
+                logger.debug(f"Bash execution generated {insights_count} insights")
+                
+                logger.info(
+                    f"✅ Bash SUCCESS: PID {result.get('pid')}, "
+                    f"{insights_count} insights, "
+                    f"{command_analysis.get('command_type', 'general')} command"
                 )
+            else:
+                logger.info(f"✅ Bash command executed: PID {result.get('pid')} (no output)")
+            
+            # Format response
+            response = f"Command started with PID {result['pid']}\n"
+            response += f"Initial output:\n{result['output']}"
+            
+            if result["isBlocked"]:
+                response += f"\n\nCommand is still running. Use command='read_output' with pid={result['pid']} to get more output."
+            
+            return CLIResult.create_success(result=response, tool_name=self.name)
+
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in enhanced bash execution: {e}")
+            return ToolResult.create_error(
+                error=f"Error executing bash command: {str(e)}",
+                tool_name=self.name
+            )
 
     def _analyze_command_for_logging(self, command: str) -> Dict[str, Any]:
         """

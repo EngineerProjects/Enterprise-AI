@@ -9,6 +9,7 @@ from typing import List, Optional, Dict, Any, AsyncIterator
 from enterprise_ai.llm.base import LLMProvider
 from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.agent.config import MAX_REACT_ITERATIONS
+from enterprise_ai.agent.reasoning.base import BaseReasoningPattern  # ADDED: Use base class
 from enterprise_ai.agent.prompts.react import REACT_SYSTEM_GUIDANCE, REACT_TOOL_GUIDANCE
 from enterprise_ai.schema import Message, ToolCall
 from enterprise_ai.schema.memory import ConversationMemory
@@ -18,24 +19,18 @@ from enterprise_ai.logger import get_optimized_logger
 logger = get_optimized_logger("agent.reasoning.react")
 
 
-class ReActPattern:
+class ReActPattern(BaseReasoningPattern):  # FIXED: Inherit from base class
     """
     Self-contained Reasoning and Acting pattern.
     
-    Alternates between thinking and tool usage without complex inheritance.
+    REFACTORED: Now inherits from BaseReasoningPattern to eliminate boilerplate.
     """
     
     def __init__(self):
         """Initialize the ReAct pattern."""
-        self.llm = None
-        self.mcp = None
-        self.verbose = False
+        super().__init__()  # FIXED: Call parent constructor
     
-    def configure(self, llm: LLMProvider, mcp: ToolMCP, verbose: bool = False) -> None:
-        """Configure the pattern with LLM and MCP."""
-        self.llm = llm
-        self.mcp = mcp
-        self.verbose = verbose
+    # REMOVED: configure() method - now inherited from base class
     
     async def process(self, messages: List[MessageProtocol], memory: ConversationMemory) -> str:
         """
@@ -48,8 +43,7 @@ class ReActPattern:
         Returns:
             Final text response
         """
-        if not self.llm or not self.mcp:
-            raise ValueError("ReActPattern not properly configured. Call configure() first.")
+        self._validate_configuration()  # FIXED: Use base class validation
             
         # Add ReAct guidance to the conversation - add as a system message before processing
         # Use both REACT_SYSTEM_GUIDANCE and REACT_TOOL_GUIDANCE
@@ -149,8 +143,7 @@ class ReActPattern:
         Returns:
             Async iterator of response chunks
         """
-        if not self.llm or not self.mcp:
-            raise ValueError("ReActPattern not properly configured. Call configure() first.")
+        self._validate_configuration()  # FIXED: Use base class validation
             
         # Add ReAct guidance to the conversation - add as a system message before processing
         react_guidance = Message(

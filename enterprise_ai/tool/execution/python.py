@@ -24,8 +24,7 @@ from enterprise_ai.tool.core.base import (
     SandboxMode
 )
 from enterprise_ai.tool.core.result import ToolResult
-from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.tool.logging import ToolExecutionContext
+from enterprise_ai.logger import get_optimized_logger, ToolExecutionContext
 
 logger = get_optimized_logger("tool.execution.python")
 
@@ -485,11 +484,96 @@ except Exception as e:
                 tool_name=self.name
             )
 
+    def _validate_python_syntax(self, code: str) -> tuple[bool, Optional[str]]:
+        """
+        Validate Python code syntax before execution.
+        
+        Returns:
+            tuple: (is_valid, error_message)
+        """
+        try:
+            import ast
+            
+            # Clean the code
+            cleaned_code = code.strip()
+            if not cleaned_code:
+                return False, "Empty code provided"
+            
+            # Try to parse as both expression and statement
+            try:
+                # Try as expression first
+                ast.parse(cleaned_code, mode='eval')
+                return True, None
+            except SyntaxError:
+                # Try as statement(s)
+                ast.parse(cleaned_code, mode='exec')
+                return True, None
+                
+        except SyntaxError as e:
+            # Provide helpful error message
+            error_msg = f"Syntax Error: {e.msg}"
+            if e.lineno:
+                lines = code.split('\n')
+                if e.lineno <= len(lines):
+                    error_line = lines[e.lineno - 1]
+                    error_msg += f"\nLine {e.lineno}: {error_line}"
+                    if e.offset:
+                        error_msg += f"\n{' ' * (e.offset - 1)}^"
+            return False, error_msg
+        except Exception as e:
+            return False, f"Validation error: {str(e)}"
+    
+    def _fix_common_syntax_errors(self, code: str) -> str:
+        """
+        Attempt to fix common syntax errors in generated code.
+        
+        Returns:
+            Fixed code string
+        """
+        fixed_code = code.strip()
+        
+        # Fix common issues
+        lines = fixed_code.split('\n')
+        fixed_lines = []
+        
+        for line in lines:
+            # Skip empty lines
+            if not line.strip():
+                fixed_lines.append(line)
+                continue
+                
+            # Count parentheses and brackets
+            open_parens = line.count('(')
+            close_parens = line.count(')')
+            open_brackets = line.count('[')
+            close_brackets = line.count(']')
+            open_braces = line.count('{')
+            close_braces = line.count('}')
+            
+            # Fix missing closing parentheses
+            if open_parens > close_parens:
+                missing_parens = open_parens - close_parens
+                line += ')' * missing_parens
+            
+            # Fix missing closing brackets
+            if open_brackets > close_brackets:
+                missing_brackets = open_brackets - close_brackets
+                line += ']' * missing_brackets
+                
+            # Fix missing closing braces
+            if open_braces > close_braces:
+                missing_braces = open_braces - close_braces
+                line += '}' * missing_braces
+            
+            fixed_lines.append(line)
+        
+        return '\n'.join(fixed_lines)
+
     def _run_code_local_enhanced(
         self, code: str, result_dict: Dict[str, Any], 
         safe_globals: Dict[str, Any], existing_vars: Dict[str, Any]
     ) -> None:
-        """Enhanced local execution with variable persistence."""
+        """Enhanced local execution with validation, error recovery, and variable persistence."""
         original_stdout = sys.stdout
         original_stderr = sys.stderr
         output_buffer = StringIO()
@@ -504,7 +588,49 @@ except Exception as e:
             execution_globals.update(existing_vars)
 
             try:
-                exec(code, execution_globals, execution_globals)
+                # STEP 1: Validate syntax first
+                is_valid, syntax_error = self._validate_python_syntax(code)
+                
+                if not is_valid:
+                    # Try to fix common errors
+                    fixed_code = self._fix_common_syntax_errors(code)
+                    is_valid_fixed, _ = self._validate_python_syntax(fixed_code)
+                    
+                    if is_valid_fixed:
+                        logger.info("🔧 Fixed syntax error in Python code")
+                        code = fixed_code
+                    else:
+                        # Still invalid, return helpful error
+                        result_dict["output"] = ""
+                        result_dict["error"] = f"Python Syntax Error: {syntax_error}\n\nPlease check your code for missing parentheses, brackets, or other syntax issues."
+                        result_dict["success"] = False
+                        result_dict["variables"] = {}
+                        return
+                
+                # STEP 2: Handle both expressions and statements like a REPL
+                import ast
+                
+                try:
+                    # Try to parse as a single expression first
+                    parsed = ast.parse(code.strip(), mode='eval')
+                    # If successful, it's a single expression - evaluate and capture result
+                    expression_result = eval(compile(parsed, '<string>', 'eval'), execution_globals, execution_globals)
+                    
+                    # If there's a result and no stdout, show the expression result
+                    stdout_content = output_buffer.getvalue()
+                    if expression_result is not None and not stdout_content.strip():
+                        # Format the result nicely like a Python REPL
+                        if isinstance(expression_result, (int, float, str, bool)):
+                            result_output = str(expression_result)
+                        else:
+                            result_output = repr(expression_result)
+                        
+                        # Add to output buffer so it shows up in results
+                        print(result_output, file=sys.stdout)
+                        
+                except SyntaxError:
+                    # Not a single expression, execute as statements
+                    exec(code, execution_globals, execution_globals)
                 
                 # Extract new variables (avoid builtins and system variables)
                 new_vars = {}
@@ -526,11 +652,25 @@ except Exception as e:
                 result_dict["variables"] = new_vars
                 
             except Exception as e:
+                # Enhanced error handling with helpful messages
                 error_msg = f"{type(e).__name__}: {str(e)}"
-                try:
-                    error_msg += f"\n{traceback.format_exc()}"
-                except:
-                    pass
+                
+                # Add helpful suggestions for common errors
+                if isinstance(e, NameError):
+                    error_msg += "\n\nSuggestion: Check if all variables and functions are defined before use."
+                elif isinstance(e, TypeError):
+                    error_msg += "\n\nSuggestion: Check function arguments and data types."
+                elif isinstance(e, ImportError):
+                    error_msg += "\n\nSuggestion: Make sure the module is installed and available."
+                elif isinstance(e, IndentationError):
+                    error_msg += "\n\nSuggestion: Check code indentation - Python is sensitive to whitespace."
+                
+                # Add traceback for debugging (but only if verbose logging is enabled)
+                if self.config and self.config.verbose_logging:
+                    try:
+                        error_msg += f"\n\nTraceback:\n{traceback.format_exc()}"
+                    except:
+                        pass
                     
                 result_dict["output"] = output_buffer.getvalue()
                 result_dict["error"] = error_msg
@@ -548,148 +688,125 @@ except Exception as e:
         if not code:
             return ToolResult.create_error(error="Code parameter is required", tool_name=self.name)
 
-        # START SMART LOGGING - Track Python code execution outcomes
-        with ToolExecutionContext("python_execute") as ctx:
-            try:
-                # Ensure all parameters have the correct types
-                try:
-                    timeout = int(kwargs.get("timeout", self.config.timeout))
-                    sandbox_preference = kwargs.get("sandbox_mode", "auto")
-                    session_id = kwargs.get("session_id")
-                    
-                    # Handle boolean parameters that might be strings
-                    persist_variables = kwargs.get("persist_variables", False)
-                    if isinstance(persist_variables, str):
-                        persist_variables = persist_variables.lower() == "true"
-                        
-                    show_analysis = kwargs.get("show_analysis", False)
-                    if isinstance(show_analysis, str):
-                        show_analysis = show_analysis.lower() == "true"
-                        
-                    # Handle session_id that might be "None" string
-                    if session_id == "None" or session_id == "null":
-                        session_id = None
-                except (ValueError, TypeError) as e:
+        # Execute Python code with enhanced validation
+        try:
+            # STEP 1: Input validation
+            code = kwargs.get("code")
+            if not code or not code.strip():
+                return ToolResult.create_error(error="Code parameter is required and cannot be empty", tool_name=self.name)
+
+            # STEP 2: Pre-execution syntax validation
+            is_valid, syntax_error = self._validate_python_syntax(code)
+            if not is_valid:
+                # Try to auto-fix common issues
+                fixed_code = self._fix_common_syntax_errors(code)
+                is_valid_fixed, _ = self._validate_python_syntax(fixed_code)
+                
+                if is_valid_fixed:
+                    logger.info("🔧 Auto-fixed syntax error in Python code")
+                    code = fixed_code  # Use the fixed code
+                else:
                     return ToolResult.create_error(
-                        error=f"Parameter type error: {str(e)}",
+                        error=f"Python code has syntax errors that cannot be auto-fixed:\n\n{syntax_error}\n\nPlease review your code for missing parentheses, brackets, quotes, or other syntax issues.",
                         tool_name=self.name
                     )
+            
+            # STEP 3: Parameter processing
+            try:
+                timeout = int(kwargs.get("timeout", self.config.timeout))
+                sandbox_preference = kwargs.get("sandbox_mode", "auto")
+                session_id = kwargs.get("session_id")
                 
-                # Update stats
-                self.execution_stats['total_executions'] += 1
-                
-                # Analyze code for smart logging
-                code_analysis = self._analyze_code_for_logging(code)
-                
-                # Intelligent execution decision
-                use_sandbox, decision_info = self._should_use_sandbox_execution(code, sandbox_preference)
-                
-                # Session management
-                if session_id:
-                    session = self.session_manager.get_session(session_id)
-                    if not session:
-                        session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
-                else:
-                    session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
-                
-                # Execute the code
-                if use_sandbox:
-                    self.execution_stats['sandbox_executions'] += 1
-                    logger.info("🐳 Executing Python code in sandbox")
-                    result = await self._execute_in_sandbox(code, timeout, session)
-                else:
-                    self.execution_stats['local_executions'] += 1
-                    logger.info("🏠 Executing Python code locally")
-                    result = await self._execute_locally(code, timeout, session)
-                
-                # SMART LOGGING: Only log successful executions with meaningful outcomes
-                if result.success:
-                    output_content = ""
-                    if hasattr(result, 'result') and isinstance(result.result, dict):
-                        output_content = result.result.get('output', '') or result.result.get('stdout', '')
-                    elif hasattr(result, 'result'):
-                        output_content = str(result.result)
+                # Handle boolean parameters that might be strings
+                persist_variables = kwargs.get("persist_variables", False)
+                if isinstance(persist_variables, str):
+                    persist_variables = persist_variables.lower() == "true"
                     
-                    # Determine if this execution produced meaningful insights
-                    insights_count = 0
-                    execution_metadata = {
-                        'execution_mode': 'sandbox' if use_sandbox else 'local',
-                        'code_type': code_analysis.get('code_type', 'general'),
-                        'lines_of_code': len(code.split('\n')),
-                        'session_id': session.session_id if session else None
-                    }
+                show_analysis = kwargs.get("show_analysis", False)
+                if isinstance(show_analysis, str):
+                    show_analysis = show_analysis.lower() == "true"
                     
-                    # Count insights based on code analysis and output
-                    if code_analysis.get('has_data_processing'):
-                        insights_count += 1
-                        execution_metadata['data_processing'] = True
-                    
-                    if code_analysis.get('has_file_operations'):
-                        insights_count += 1
-                        execution_metadata['file_operations'] = True
-                    
-                    if code_analysis.get('has_visualization'):
-                        insights_count += 1
-                        execution_metadata['created_visualization'] = True
-                    
-                    if code_analysis.get('has_analysis'):
-                        insights_count += 1
-                        execution_metadata['performed_analysis'] = True
-                        
-                    # Check output for meaningful results
-                    if output_content and len(output_content.strip()) > 50:
-                        insights_count += 1
-                        execution_metadata['output_length'] = len(output_content)
-                    
-                    # Track the execution if it generated meaningful work
-                    if insights_count > 0:
-                        ctx.add_insights(insights_count)
-                        
-                        # Add as a "source" if it processes files or data
-                        if code_analysis.get('has_file_operations') or code_analysis.get('has_data_processing'):
-                            ctx.add_source(
-                                url=f"python_execution_{session.session_id if session else 'anonymous'}",
-                                content_length=len(output_content),
-                                extraction_method="python_execution",
-                                success_score=0.8,
-                                **execution_metadata
-                            )
-                    
-                    logger.info(
-                        f"✅ Python execution SUCCESS: "
-                        f"{insights_count} insights, "
-                        f"{len(code.split())} lines, "
-                        f"{'sandbox' if use_sandbox else 'local'}"
-                    )
-                else:
-                    logger.error(f"❌ Python execution FAILED: {result.error}")
-                
-                # Enhanced result with analysis
-                if result.success and hasattr(result, 'result') and isinstance(result.result, dict):
-                    result.result['execution_analysis'] = decision_info
-                    if show_analysis:
-                        result.result['code_analysis'] = decision_info.get('analysis', {})
-                    result.result['session_management'] = {
-                        'session_id': session.session_id,
-                        'persist_variables': persist_variables,
-                        'variables_available': len(session.variables) > 0
-                    }
-                
-                # Update average execution time
-                runtime = session.get_runtime()
-                current_avg = self.execution_stats['average_execution_time']
-                count = self.execution_stats['total_executions']
-                self.execution_stats['average_execution_time'] = (current_avg * (count - 1) + runtime) / count
-                
-                return result
-                
-            except Exception as e:
-                self.execution_stats['failed_executions'] += 1
-                logger.error(f"Enhanced execution failed: {str(e)}")
+                # Handle session_id that might be "None" string
+                if session_id == "None" or session_id == "null":
+                    session_id = None
+            except (ValueError, TypeError) as e:
                 return ToolResult.create_error(
-                    error=f"Enhanced execution failed: {str(e)}",
+                    error=f"Parameter type error: {str(e)}",
                     tool_name=self.name
                 )
+            
+            # STEP 4: Update execution statistics
+            self.execution_stats['total_executions'] += 1
+            
+            # STEP 5: Analyze code for intelligent execution routing
+            code_analysis = self._analyze_code_for_logging(code)
+            
+            # STEP 6: Determine execution environment
+            use_sandbox, decision_info = self._should_use_sandbox_execution(code, sandbox_preference)
+            
+            # STEP 7: Session management
+            if session_id:
+                session = self.session_manager.get_session(session_id)
+                if not session:
+                    session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
+            else:
+                session = self.session_manager.create_session(code, timeout, "sandbox" if use_sandbox else "local")
+            
+            # STEP 8: Execute the validated code
+            if use_sandbox:
+                self.execution_stats['sandbox_executions'] += 1
+                logger.info("🐳 Executing Python code in sandbox")
+                result = await self._execute_in_sandbox(code, timeout, session)
+            else:
+                self.execution_stats['local_executions'] += 1
+                logger.info("🏠 Executing Python code locally")
+                result = await self._execute_locally(code, timeout, session)
+            
+            # STEP 9: Enhanced result processing and logging
+            if result.success:
+                output_content = ""
+                if hasattr(result, 'result') and isinstance(result.result, dict):
+                    output_content = result.result.get('output', '') or result.result.get('stdout', '')
+                elif hasattr(result, 'result'):
+                    output_content = str(result.result)
+                
+                # Log successful execution with context
+                logger.info(
+                    f"✅ Python execution SUCCESS: "
+                    f"{len(code.split())} lines, "
+                    f"{'sandbox' if use_sandbox else 'local'}, "
+                    f"output: {len(output_content)} chars"
+                )
+            else:
+                logger.error(f"❌ Python execution FAILED: {result.error}")
+                self.execution_stats['failed_executions'] += 1
+            
+            # Enhanced result with analysis
+            if result.success and hasattr(result, 'result') and isinstance(result.result, dict):
+                result.result['execution_analysis'] = decision_info
+                if show_analysis:
+                    result.result['code_analysis'] = decision_info.get('analysis', {})
+                result.result['session_management'] = {
+                    'session_id': session.session_id,
+                    'persist_variables': persist_variables,
+                    'variables_available': len(session.variables) > 0
+                }
+            
+            # Update average execution time
+            runtime = session.get_runtime()
+            current_avg = self.execution_stats['average_execution_time']
+            count = self.execution_stats['total_executions']
+            self.execution_stats['average_execution_time'] = (current_avg * (count - 1) + runtime) / count
+            
+            return result
+            
+        except Exception as e:
+            self.execution_stats['failed_executions'] += 1
+            logger.error(f"Enhanced execution failed: {str(e)}")
+            return ToolResult.create_error(
+                error=f"Enhanced execution failed: {str(e)}",
+                tool_name=self.name
+            )
 
     def _analyze_code_for_logging(self, code: str) -> Dict[str, Any]:
         """

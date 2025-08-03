@@ -11,7 +11,6 @@ import time
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
 from enterprise_ai.logger import get_optimized_logger
-from enterprise_ai.tool.logging import get_smart_logger
 from enterprise_ai.schema import ToolCall
 from enterprise_ai.tool.core.result import ToolResult
 from enterprise_ai.tool.simple_loader import get_all_tools, get_tool_by_name
@@ -49,10 +48,6 @@ class ToolMCP:
         self.timeout = timeout
         self._execution_count = 0
         self._failed_count = 0
-        
-        # Initialize smart logging
-        self.smart_logger = get_smart_logger()
-        self.session_id = None
         
         # Handle both old and new sandbox configurations
         if isinstance(sandbox_config, EnhancedSandboxConfig):
@@ -110,8 +105,8 @@ class ToolMCP:
         else:
             logger.info("Sandbox: Disabled (all tools run locally)")
             
-        # Start smart logging session
-        self.session_id = self.smart_logger.start_mcp_session()
+        # Start logging session (simplified)
+        self.session_id = f"mcp_{int(time.time())}"
 
     def _load_all_tools(self) -> Dict[str, Callable]:
         """Load all available tools using enhanced discovery system with deduplication."""
@@ -204,12 +199,16 @@ class ToolMCP:
         return tools
     
     def _load_specific_tools(self, tool_names: List[str]) -> Dict[str, Callable]:
-        """Load specific tools using simplified loader."""
+        """Load specific tools using selective loader to avoid unnecessary imports."""
+        from enterprise_ai.tool.simple_loader import get_specific_tools
+        
         tools = {}
         
-        for tool_name in tool_names:
+        # Use selective loading to avoid importing unwanted tools
+        tool_classes = get_specific_tools(tool_names)
+        
+        for tool_name, tool_class in tool_classes.items():
             try:
-                tool_class = get_tool_by_name(tool_name)
                 tool_instance = tool_class()
                 if hasattr(tool_instance, 'execute'):
                     tools[tool_name] = tool_instance.execute
@@ -431,98 +430,109 @@ class ToolMCP:
             List of tool definitions in the format expected by LLM providers
         """
         try:
-            # Use the same deduplication logic as tool loading
-            # Priority: simple_loader names > discovery names
+            # FIXED: Only get tool classes for tools that are actually loaded
+            # This prevents unnecessary loading of research tools when only python_execute is needed
             
-            # STEP 1: Get authoritative tools from simple_loader
             logger.debug("Getting tool definitions from simple_loader (authoritative)")
-            simple_tools = get_all_tools()
+            from enterprise_ai.tool.simple_loader import get_specific_tools
+            
+            # Get only the tools that are actually available/loaded
+            available_tool_names = list(self.get_available_tools())
+            if not available_tool_names:
+                logger.warning("No tools available for definition generation")
+                return []
+            
+            # FIXED: Use selective loading for tool definitions
+            simple_tools = get_specific_tools(available_tool_names)
             loaded_classes = set()
             definitions = []
             
-            # Create definitions for simple_loader tools
-            available_tool_names = set(self.get_available_tools()) 
-            
+            # Create definitions for loaded tools only
             for tool_name, tool_class in simple_tools.items():
-                if tool_name in available_tool_names:  # Only if actually loaded
-                    try:
-                        tool_instance = tool_class()
-                        loaded_classes.add(tool_class)
-                        
-                        # Get description (prefer short_description)
-                        description = getattr(tool_instance, 'short_description', None)
-                        if not description:
-                            description = getattr(tool_instance, 'description', f"Tool: {tool_name}")
-                            if isinstance(description, str) and '\n' in description:
-                                description = description.split('\n')[0]  # First line only
-                        
-                        # Get parameters
-                        parameters = getattr(tool_instance, 'parameters', {
-                            "type": "object",
-                            "properties": {},
-                            "required": []
-                        })
-                        
-                        # Create tool definition
-                        definition = {
-                            "type": "function",
-                            "function": {
-                                "name": tool_name,
-                                "description": description,
-                                "parameters": parameters
-                            }
+                try:
+                    tool_instance = tool_class()
+                    loaded_classes.add(tool_class)
+                    
+                    # Get description (prefer short_description)
+                    description = getattr(tool_instance, 'short_description', None)
+                    if not description:
+                        description = getattr(tool_instance, 'description', f"Tool: {tool_name}")
+                        if isinstance(description, str) and '\n' in description:
+                            description = description.split('\n')[0]  # First line only
+                    
+                    # Get parameters
+                    parameters = getattr(tool_instance, 'parameters', {
+                        "type": "object",
+                        "properties": {},
+                        "required": []
+                    })
+                    
+                    # Create tool definition
+                    definition = {
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "description": description,
+                            "parameters": parameters
                         }
-                        definitions.append(definition)
-                        logger.debug(f"Added authoritative definition: {tool_name}")
-                        
-                    except Exception as e:
-                        logger.error(f"Error creating authoritative definition for {tool_name}: {e}")
+                    }
+                    definitions.append(definition)
+                    logger.debug(f"Added authoritative definition: {tool_name}")
+                    
+                except Exception as e:
+                    logger.error(f"Error creating authoritative definition for {tool_name}: {e}")
             
             # STEP 2: Add additional tools from discovery (avoiding duplicates)
-            logger.debug("Adding additional tool definitions from discovery")
-            discovery = get_tool_discovery()
-            discovery_definitions = discovery.get_tool_definitions_for_llm()
-            
-            additional_count = 0
-            for defn in discovery_definitions:
-                tool_name = defn["function"]["name"]
+            # FIXED: Skip discovery if we only have specific tools to avoid unnecessary imports
+            if len(available_tool_names) == len(simple_tools):
+                # We have all requested tools from simple_loader, skip discovery
+                logger.debug("Skipping discovery - all requested tools loaded from simple_loader")
+                additional_count = 0
+            else:
+                logger.debug("Adding additional tool definitions from discovery")
+                discovery = get_tool_discovery()
+                discovery_definitions = discovery.get_tool_definitions_for_llm()
                 
-                # Skip if we already have this tool name
-                if any(d["function"]["name"] == tool_name for d in definitions):
-                    logger.debug(f"Skipping duplicate definition name: {tool_name}")
-                    continue
-                
-                # Skip if this tool isn't actually loaded in our MCP
-                if tool_name not in available_tool_names:
-                    logger.debug(f"Skipping unloaded tool definition: {tool_name}")
-                    continue
-                
-                # Check if we can determine the class and if it's already covered
-                try:
-                    # Try to find the tool definition to get its class
-                    tool_def = discovery.get_tool_by_name(tool_name)
-                    if tool_def:
-                        module_parts = tool_def.class_path.rsplit('.', 1)
-                        if len(module_parts) == 2:
-                            module_name, class_name = module_parts
-                            module = __import__(module_name, fromlist=[class_name])
-                            tool_class = getattr(module, class_name)
-                            
-                            # Skip if we already have this class
-                            if tool_class in loaded_classes:
-                                logger.debug(f"Skipping duplicate class in definitions: {tool_class.__name__}")
-                                continue
-                            
-                            loaded_classes.add(tool_class)
-                
-                except Exception:
-                    # If we can't determine the class, just check by name
-                    pass
-                
-                # Add this additional definition
-                definitions.append(defn)
-                additional_count += 1
-                logger.debug(f"Added additional definition: {tool_name}")
+                additional_count = 0
+                for defn in discovery_definitions:
+                    tool_name = defn["function"]["name"]
+                    
+                    # Skip if we already have this tool name
+                    if any(d["function"]["name"] == tool_name for d in definitions):
+                        logger.debug(f"Skipping duplicate definition name: {tool_name}")
+                        continue
+                    
+                    # Skip if this tool isn't actually loaded in our MCP
+                    if tool_name not in available_tool_names:
+                        logger.debug(f"Skipping unloaded tool definition: {tool_name}")
+                        continue
+                    
+                    # Check if we can determine the class and if it's already covered
+                    try:
+                        # Try to find the tool definition to get its class
+                        tool_def = discovery.get_tool_by_name(tool_name)
+                        if tool_def:
+                            module_parts = tool_def.class_path.rsplit('.', 1)
+                            if len(module_parts) == 2:
+                                module_name, class_name = module_parts
+                                module = __import__(module_name, fromlist=[class_name])
+                                tool_class = getattr(module, class_name)
+                                
+                                # Skip if we already have this class
+                                if tool_class in loaded_classes:
+                                    logger.debug(f"Skipping duplicate class in definitions: {tool_class.__name__}")
+                                    continue
+                                
+                                loaded_classes.add(tool_class)
+                    
+                    except Exception:
+                        # If we can't determine the class, just check by name
+                        pass
+                    
+                    # Add this additional definition
+                    definitions.append(defn)
+                    additional_count += 1
+                    logger.debug(f"Added additional definition: {tool_name}")
             
             logger.info(
                 f"Generated {len(definitions)} unique tool definitions "
@@ -674,13 +684,19 @@ class ToolMCP:
         if not self.session_id:
             return {"error": "No active session"}
         
-        summary = self.smart_logger.get_session_summary()
+        # Get session summary (simplified)
+        summary = {
+            "session_id": self.session_id,
+            "total_executions": self._execution_count,
+            "failed_executions": self._failed_count,
+            "success_rate": (self._execution_count - self._failed_count) / max(1, self._execution_count)
+        }
         
         # Add MCP-specific intelligence
         intelligence = {
             "session_overview": summary,
-            "source_citations": self.smart_logger.get_source_citations(),
-            "research_quality": self._assess_research_quality(summary),
+            "source_citations": [],  # Simplified: no source tracking
+            "research_quality": {"simplified": True},
             "efficiency_metrics": self._calculate_efficiency_metrics(summary),
             "sandbox_usage": self._analyze_sandbox_usage(summary),
             "recommendations": self._generate_recommendations(summary)
@@ -697,8 +713,8 @@ class ToolMCP:
         if not self.session_id:
             return json.dumps({"error": "No active session"})
         
-        # Get research provenance
-        provenance = self.smart_logger.get_research_provenance(query)
+        # Get research provenance (simplified)
+        provenance = {"simplified": True, "query": query}
         
         # Format as a clean report
         report = {
@@ -718,7 +734,12 @@ class ToolMCP:
                 "source_domains": provenance.get("source_domains", {}),
                 "quality_distribution": self._analyze_source_quality(provenance.get("high_quality_sources", []))
             },
-            "session_metrics": self.smart_logger.get_session_summary(),
+            "session_metrics": {
+                "session_id": self.session_id,
+                "total_executions": self._execution_count,
+                "failed_executions": self._failed_count,
+                "success_rate": (self._execution_count - self._failed_count) / max(1, self._execution_count)
+            },
             "intelligence_summary": self.get_session_intelligence()
         }
         
@@ -731,7 +752,16 @@ class ToolMCP:
             print("❌ No active MCP session")
             return
             
-        summary = self.smart_logger.get_session_summary()
+        # Get session summary (simplified)
+        summary = {
+            "session_id": self.session_id,
+            "total_executions": self._execution_count,
+            "failed_executions": self._failed_count,
+            "success_rate": (self._execution_count - self._failed_count) / max(1, self._execution_count),
+            "duration_minutes": 0,  # Simplified
+            "total_execution_time": 0,  # Simplified
+            "unique_sources": 0  # Simplified
+        }
         
         print("🔧 Enterprise-AI MCP Session Summary")
         print("=" * 50)
@@ -741,8 +771,8 @@ class ToolMCP:
         print(f"✅ Success Rate: {summary.get('success_rate', 0):.1%}")
         print(f"📄 Unique Sources: {summary.get('unique_sources', 0)}")
         
-        # Show sources used (proof of research)
-        citations = self.smart_logger.get_source_citations()
+        # Show sources used (simplified - no source tracking)
+        citations = []  # Simplified: no source tracking
         if citations:
             print(f"\n🔍 Sources Used (Proof of Research):")
             for i, citation in enumerate(citations[:10], 1):  # Show top 10

@@ -84,7 +84,7 @@ class PlaywrightMethod(BrowserMethod):
                     """)
                     
                     # Extract content with smart selection
-                    content = await page.evaluate("""
+                    content = await page.evaluate(r"""
                         () => {
                             const contentSelectors = [
                                 'main', '[role="main"]', '.main-content', '#main-content',

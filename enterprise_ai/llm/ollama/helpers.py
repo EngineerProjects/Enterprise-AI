@@ -17,6 +17,7 @@ import httpx
 
 from enterprise_ai.exceptions import APIError, ModelNotFoundError
 from enterprise_ai.llm.ollama.tools import OllamaToolExtractor
+from enterprise_ai.llm.shared_errors import OllamaErrorHandler  # FIXED: Use shared error handling
 from enterprise_ai.logger import get_logger
 from enterprise_ai.schema import LLMResponse, Message, ToolCall
 from enterprise_ai.types import MessageProtocol
@@ -519,71 +520,6 @@ class OllamaResponseProcessor:
             "prompt_eval_duration", "total_duration", "load_duration"
         }
         return {k: v for k, v in result.items() if k not in excluded_keys}
-
-
-class OllamaErrorHandler:
-    """Enhanced error handling with specific Ollama error contexts."""
-    
-    ERROR_MAPPING = {
-        400: "Bad request - check model name and parameters",
-        401: "Unauthorized - Ollama server authentication required", 
-        404: "Model not found - use 'ollama pull <model>' to download",
-        422: "Validation error - check request payload format",
-        429: "Rate limited - reduce request frequency",
-        500: "Internal server error - check Ollama server logs",
-        503: "Service unavailable - Ollama may be overloaded or starting"
-    }
-
-    @staticmethod
-    def handle_http_error(error: httpx.HTTPStatusError) -> Exception:
-        """Handle HTTP errors with specific Ollama context."""
-        status_code = error.response.status_code
-        response_text = error.response.text
-        
-        base_message = OllamaErrorHandler.ERROR_MAPPING.get(
-            status_code, f"HTTP {status_code} error"
-        )
-        
-        # Special handling for common Ollama errors
-        if status_code == 404:
-            if "model" in response_text.lower():
-                return ModelNotFoundError(
-                    f"Model not found. Use 'ollama pull <model>' to download. "
-                    f"Response: {response_text[:200]}"
-                )
-        
-        if status_code == 422:
-            return APIError(
-                status_code, 
-                f"Request validation failed: {response_text[:300]}"
-            )
-        
-        full_message = f"{base_message}: {response_text[:500]}" if response_text else base_message
-        return APIError(status_code, full_message)
-
-    @staticmethod
-    def handle_connection_error(error: httpx.ConnectError) -> Exception:
-        """Handle connection errors with troubleshooting guidance."""
-        return APIError(
-            message="Failed to connect to Ollama server. "
-                   "Troubleshooting steps:\n"
-                   "1. Start Ollama: 'ollama serve'\n"
-                   "2. Check if port 11434 is accessible\n"
-                   "3. Verify OLLAMA_HOST environment variable\n"
-                   "4. For remote servers, ensure firewall allows connections"
-        )
-
-    @staticmethod
-    def handle_timeout_error(error: httpx.ReadTimeout, timeout: float) -> Exception:
-        """Handle timeout errors with specific recommendations."""
-        return APIError(
-            message=f"Request timed out after {timeout}s. "
-                   f"Recommendations:\n"
-                   f"• Vision models: increase timeout to 120s+\n"
-                   f"• Large models (70B+): increase timeout to 90s+\n"
-                   f"• Tool calling: increase timeout to 60s+\n"
-                   f"• Set ENTERPRISE_AI_OLLAMA_TIMEOUT environment variable"
-        )
 
 
 class OllamaStreamProcessor:

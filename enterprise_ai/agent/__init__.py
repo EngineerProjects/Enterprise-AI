@@ -10,11 +10,12 @@ from enterprise_ai.agent.factory import create_agent, create_simple_mcp, create_
 from enterprise_ai.agent.role import AgentRole
 
 # Reasoning patterns (self-contained classes)
+from enterprise_ai.agent.reasoning.base import BaseReasoningPattern  # ADDED: Base class
 from enterprise_ai.agent.reasoning.react import ReActPattern
-from enterprise_ai.agent.reasoning.react import EnhancedReActPattern
 from enterprise_ai.agent.reasoning.metacognitive import MetaCognitiveEngine
 from enterprise_ai.agent.reasoning.cot import ChainOfThoughtPattern
 from enterprise_ai.agent.reasoning.swe import SoftwareEngineeringPattern
+from enterprise_ai.agent.reasoning.structured_react import EnhancedReActPattern  # ADDED: Enhanced ReAct
 
 __all__ = [
     # Core agent classes
@@ -27,9 +28,10 @@ __all__ = [
     'create_simple_llm',
     
     # Reasoning patterns (self-contained)
+    'BaseReasoningPattern',  # ADDED: Base class export
     'ReActPattern',
-    'EnhancedReActPattern', 
     'MetaCognitiveEngine',
     'ChainOfThoughtPattern',
     'SoftwareEngineeringPattern',
+    'EnhancedReActPattern',  # ADDED: Enhanced ReAct export
 ]

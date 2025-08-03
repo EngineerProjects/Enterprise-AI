@@ -40,14 +40,7 @@ from enterprise_ai.tool.core.llm_adapter import (
     get_llm_tool_definitions,
 )
 
-# Import smart logging system
-from enterprise_ai.tool.logging import (
-    SmartToolLogger,
-    ToolExecutionContext,
-    get_smart_logger,
-    log_source_used,
-    log_tool_outcome,
-)
+# Note: Smart logging system is now simplified and available from enterprise_ai.logger
 
 # Import configuration management system
 from enterprise_ai.tool.core.config_manager import (
@@ -164,12 +157,7 @@ __all__ = [
     "validate_path_config",
     "is_command_blocked_config",
     
-    # Smart Logging System (NEW)
-    "SmartToolLogger",
-    "ToolExecutionContext", 
-    "get_smart_logger",
-    "log_source_used",
-    "log_tool_outcome",
+    # Note: Smart Logging System is now available from enterprise_ai.logger
     
     # Lazy loading functions (NEW - replaces direct imports)
     "get_available_tools",

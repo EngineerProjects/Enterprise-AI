@@ -1,6 +1,9 @@
 """
 Enterprise AI Agent - MetaCognitive Reasoning Engine
 
+REFACTORED: Now properly uses prompts from prompts/metacognitive.py
+and leverages BaseReasoningPattern to eliminate boilerplate.
+
 Natural human-like reasoning with planning, execution, monitoring, and reflection.
 Integrates planning and terminate tools for sophisticated reasoning flow.
 """
@@ -8,9 +11,13 @@ Integrates planning and terminate tools for sophisticated reasoning flow.
 from typing import List, Optional, Dict, Any, AsyncIterator, Tuple
 from enum import Enum
 
-from enterprise_ai.llm.base import LLMProvider
-from enterprise_ai.mcp.executor import ToolMCP
 from enterprise_ai.agent.config import MAX_REACT_ITERATIONS
+from enterprise_ai.agent.reasoning.base import BaseReasoningPattern
+from enterprise_ai.agent.prompts.metacognitive import (
+    METACOGNITIVE_SYSTEM_GUIDANCE,
+    METACOGNITIVE_PHASE_PROMPTS,
+    METACOGNITIVE_TRANSITIONS
+)
 from enterprise_ai.schema import Message, ToolCall
 from enterprise_ai.schema.memory import ConversationMemory
 from enterprise_ai.types import MessageProtocol
@@ -29,9 +36,11 @@ class ReasoningPhase(Enum):
     TERMINATION = "termination"
 
 
-class MetaCognitiveEngine:
+class MetaCognitiveEngine(BaseReasoningPattern):
     """
     Meta-cognitive reasoning engine with natural human-like reasoning flow.
+    
+    REFACTORED: Now uses prompts from prompts module and inherits from BaseReasoningPattern.
     
     Phases:
     1. PLANNING: Break down task using planning tool
@@ -44,33 +53,19 @@ class MetaCognitiveEngine:
     
     def __init__(self):
         """Initialize the metacognitive engine."""
-        self.llm = None
-        self.mcp = None
-        self.verbose = False
+        super().__init__()
         self.current_phase = ReasoningPhase.PLANNING
         self.task_plan_id = None
         self.execution_step = 0
         self.reflection_count = 0
         
-    def configure(self, llm: LLMProvider, mcp: ToolMCP, verbose: bool = False) -> None:
-        """Configure the engine with LLM and MCP."""
-        self.llm = llm
-        self.mcp = mcp
-        self.verbose = verbose
-    
     async def process(self, messages: List[MessageProtocol], memory: ConversationMemory) -> str:
         """
         Process using metacognitive reasoning flow.
         
-        Args:
-            messages: Current conversation messages
-            memory: Conversation memory
-            
-        Returns:
-            Final response
+        FIXED: Now uses METACOGNITIVE_SYSTEM_GUIDANCE from prompts module.
         """
-        if not self.llm or not self.mcp:
-            raise ValueError("MetaCognitiveEngine not configured. Call configure() first.")
+        self._validate_configuration()
         
         # Initialize reasoning session
         self.current_phase = ReasoningPhase.PLANNING
@@ -112,19 +107,8 @@ class MetaCognitiveEngine:
         # Get the user's task
         user_task = messages[-1].content if messages else "No task specified"
         
-        # Create planning prompt
-        planning_prompt = f"""
-PLANNING PHASE: Break down the user's task into a structured plan.
-
-User Task: {user_task}
-
-You need to:
-1. Analyze the task complexity and requirements
-2. Create a structured plan with specific steps
-3. Use the planning tool to create the plan
-
-Think step by step about what needs to be done, then create a plan.
-"""
+        # FIXED: Use prompt from prompts module instead of embedding
+        planning_prompt = METACOGNITIVE_PHASE_PROMPTS["planning"].format(user_task=user_task)
         
         # Add planning guidance to conversation
         planning_msg = Message(role="system", content=planning_prompt)
@@ -159,19 +143,10 @@ Think step by step about what needs to be done, then create a plan.
     async def _execution_phase(self, messages: List[MessageProtocol], memory: ConversationMemory) -> None:
         """Phase 2: Execute plan steps with explicit thought/action/observation."""
         
-        execution_prompt = f"""
-EXECUTION PHASE: Execute the current step of your plan.
-
-You MUST follow this exact format:
-
-Thought: [Your reasoning about the current step and what you need to do]
-Action: [Tool to use, or "None" if no tool needed]
-Observation: [Results from the tool, or your direct analysis if no tool]
-
-Be explicit about your thinking process. Show your reasoning clearly.
-
-Current Step: {self.execution_step}
-"""
+        # FIXED: Use prompt from prompts module
+        execution_prompt = METACOGNITIVE_PHASE_PROMPTS["execution"].format(
+            execution_step=self.execution_step
+        )
         
         # Add execution guidance
         execution_msg = Message(role="system", content=execution_prompt)
@@ -207,19 +182,10 @@ Current Step: {self.execution_step}
     async def _monitoring_phase(self, messages: List[MessageProtocol], memory: ConversationMemory) -> None:
         """Phase 3: Monitor progress and update plan status."""
         
-        monitoring_prompt = f"""
-MONITORING PHASE: Assess your progress on the current task.
-
-You need to:
-1. Evaluate what you just accomplished
-2. Check if the current step is complete, blocked, or needs more work
-3. Update the plan status using the planning tool
-4. Determine if you're making progress toward the goal
-
-Current execution step: {self.execution_step}
-
-Be honest about your progress and any obstacles you're facing.
-"""
+        # FIXED: Use prompt from prompts module
+        monitoring_prompt = METACOGNITIVE_PHASE_PROMPTS["monitoring"].format(
+            execution_step=self.execution_step
+        )
         
         monitoring_msg = Message(role="system", content=monitoring_prompt)
         current_messages = memory.get_messages() + [monitoring_msg]
@@ -252,26 +218,11 @@ Be honest about your progress and any obstacles you're facing.
     async def _decision_phase(self, messages: List[MessageProtocol], memory: ConversationMemory) -> None:
         """Phase 4: Decide next action based on progress."""
         
-        decision_prompt = f"""
-DECISION PHASE: Decide what to do next based on your progress.
-
-Your options:
-1. CONTINUE: Continue execution with the next step
-2. REFLECT: Take time to reflect and potentially adjust strategy  
-3. TERMINATE_SUCCESS: Task is complete and successful
-4. TERMINATE_FAILURE: Task cannot be completed due to obstacles
-
-Consider:
-- Have you completed the user's task successfully?
-- Are you making meaningful progress?
-- Are you stuck or blocked?
-- Do you need to adjust your approach?
-
-Execution steps so far: {self.execution_step}
-Reflections so far: {self.reflection_count}
-
-Make a clear decision and explain your reasoning.
-"""
+        # FIXED: Use prompt from prompts module
+        decision_prompt = METACOGNITIVE_PHASE_PROMPTS["decision"].format(
+            execution_step=self.execution_step,
+            reflection_count=self.reflection_count
+        )
         
         decision_msg = Message(role="system", content=decision_prompt)
         current_messages = memory.get_messages() + [decision_msg]
@@ -297,20 +248,10 @@ Make a clear decision and explain your reasoning.
     async def _reflection_phase(self, messages: List[MessageProtocol], memory: ConversationMemory) -> None:
         """Phase 5: Reflect on approach and adapt strategy."""
         
-        reflection_prompt = f"""
-REFLECTION PHASE: Reflect on your approach and consider improvements.
-
-Reflect on:
-1. What has worked well so far?
-2. What challenges have you encountered?
-3. Are there better approaches you could try?
-4. Should you adjust your plan or strategy?
-5. What have you learned that could help?
-
-This is reflection #{self.reflection_count + 1}. Use this time to think deeply about your approach.
-
-After reflection, you'll return to execution with any insights gained.
-"""
+        # FIXED: Use prompt from prompts module
+        reflection_prompt = METACOGNITIVE_PHASE_PROMPTS["reflection"].format(
+            reflection_count=self.reflection_count + 1
+        )
         
         reflection_msg = Message(role="system", content=reflection_prompt)
         current_messages = memory.get_messages() + [reflection_msg]
@@ -344,14 +285,11 @@ After reflection, you'll return to execution with any insights gained.
     async def _termination_phase(self, memory: ConversationMemory, status: str, message: str) -> None:
         """Phase 6: Terminate with final status."""
         
-        termination_prompt = f"""
-TERMINATION PHASE: Complete the task and provide final response.
-
-Status: {status}
-Message: {message}
-
-Use the terminate tool to formally end the reasoning process, then provide a clear final response to the user.
-"""
+        # FIXED: Use prompt from prompts module
+        termination_prompt = METACOGNITIVE_PHASE_PROMPTS["termination"].format(
+            status=status,
+            message=message
+        )
         
         termination_msg = Message(role="system", content=termination_prompt)
         current_messages = memory.get_messages() + [termination_msg]
