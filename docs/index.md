@@ -25,6 +25,8 @@ pip install enterprise-ai
 | [Permissions](permissions.md) | Modes de permission, règles de sécurité |
 | [Sandbox](sandbox.md) | Exécution isolée (local, Docker) |
 
+**Docs projet** (vision, roadmap, architecture interne) → [`docs/project/`](project/)
+
 ---
 
 ## Architecture en une phrase par couche
