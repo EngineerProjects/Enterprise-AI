@@ -38,6 +38,7 @@ class Message(BaseModel):
     tool_calls: list[ToolCall] | None = None
     tool_call_id: str | None = None
     name: str | None = None
+    thinking_blocks: list[dict] = []
 
     def text(self) -> str:
         if isinstance(self.content, str):
@@ -53,8 +54,13 @@ class Message(BaseModel):
         return cls(role=Role.user, content=content)
 
     @classmethod
-    def assistant(cls, content: str, tool_calls: list[ToolCall] | None = None) -> Message:
-        return cls(role=Role.assistant, content=content, tool_calls=tool_calls)
+    def assistant(
+        cls,
+        content: str,
+        tool_calls: list[ToolCall] | None = None,
+        thinking_blocks: list[dict] | None = None,
+    ) -> Message:
+        return cls(role=Role.assistant, content=content, tool_calls=tool_calls, thinking_blocks=thinking_blocks or [])
 
     @classmethod
     def tool_result(cls, tool_call_id: str, content: str, name: str = "") -> Message:

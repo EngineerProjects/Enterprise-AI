@@ -49,6 +49,8 @@ class QueryLoop:
         retry_config: RetryConfig | None = None,
         hooks: HookExecutor | None = None,
         stop_hooks: StopHookRunner | None = None,
+        extended_thinking: bool = False,
+        thinking_budget_tokens: int = 10_000,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -59,6 +61,8 @@ class QueryLoop:
         self._retry_config = retry_config
         self._hooks = hooks
         self._stop_hooks = stop_hooks
+        self._extended_thinking = extended_thinking
+        self._thinking_budget_tokens = thinking_budget_tokens
 
     async def run(self, prompt: str, ctx: ToolContext) -> SessionResult:
         session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
@@ -97,7 +101,11 @@ class QueryLoop:
                 })
 
             if resp.content:
-                self._memory.add(Message.assistant(resp.content, tool_calls=resp.tool_calls or None))
+                self._memory.add(Message.assistant(
+                    resp.content,
+                    tool_calls=resp.tool_calls or None,
+                    thinking_blocks=resp.thinking_blocks or None,
+                ))
 
             if not resp.has_tool_calls:
                 final_output = resp.content
@@ -199,7 +207,8 @@ class QueryLoop:
                         yield event
                     elif event.type.value == "session_end":
                         if last_text:
-                            self._memory.add(Message.assistant(last_text))
+                            thinking_blocks = event.data.get("thinking_blocks") or []
+                            self._memory.add(Message.assistant(last_text, thinking_blocks=thinking_blocks or None))
                         session.state = SessionState.done
                         yield event
                         return
@@ -265,14 +274,19 @@ class QueryLoop:
 
     async def _call_provider(self, messages: list[Message], tools: list | None) -> LLMResponse:
         """Call provider.complete() with optional retry + backoff on transient errors."""
+        extra: dict = {}
+        if self._extended_thinking:
+            extra["extended_thinking"] = True
+            extra["thinking_budget_tokens"] = self._thinking_budget_tokens
+
         if self._retry_config is None:
-            return await self._provider.complete(messages, tools=tools)
+            return await self._provider.complete(messages, tools=tools, **extra)
 
         cfg = self._retry_config
         last_exc: Exception | None = None
         for attempt in range(1, cfg.max_attempts + 1):
             try:
-                return await self._provider.complete(messages, tools=tools)
+                return await self._provider.complete(messages, tools=tools, **extra)
             except Exception as exc:
                 last_exc = exc
                 if attempt == cfg.max_attempts:

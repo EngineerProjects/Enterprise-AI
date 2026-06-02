@@ -36,5 +36,9 @@ class StreamEvent(BaseModel):
         return cls(type=EventType.session_end, data={"output": output})
 
     @classmethod
+    def thinking(cls, delta: str) -> StreamEvent:
+        return cls(type=EventType.thinking, data={"delta": delta})
+
+    @classmethod
     def err(cls, message: str) -> StreamEvent:
         return cls(type=EventType.error, data={"message": message})

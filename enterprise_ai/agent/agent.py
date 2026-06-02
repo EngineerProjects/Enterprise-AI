@@ -82,6 +82,8 @@ class Agent:
         hooks: list[tuple[HookEvent, HookHandler]] | HookRegistry | None = None,
         stop_hooks: list[StopHookEntry] | None = None,
         execution_mode: ExecutionMode = ExecutionMode.execute,
+        extended_thinking: bool = False,
+        thinking_budget_tokens: int = 10_000,
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
@@ -161,6 +163,8 @@ class Agent:
             retry_config=retry_config,
             hooks=hook_executor,
             stop_hooks=stop_hook_runner,
+            extended_thinking=extended_thinking,
+            thinking_budget_tokens=thinking_budget_tokens,
         )
 
     # ------------------------------------------------------------------

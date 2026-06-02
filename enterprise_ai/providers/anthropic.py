@@ -5,6 +5,7 @@ from typing import Any, AsyncIterator
 
 from enterprise_ai.providers.base import LLMResponse, Provider
 from enterprise_ai.schema import Message, Role, StreamEvent, ToolCall, ToolSchema
+from enterprise_ai.schema.event import EventType
 
 
 class AnthropicProvider(Provider):
@@ -31,6 +32,9 @@ class AnthropicProvider(Provider):
                 converted.append({"role": "user", "content": msg.text()})
             elif msg.role == Role.assistant:
                 content: list[Any] = []
+                # Thinking blocks must come first — Anthropic API requirement for multi-turn
+                for tb in msg.thinking_blocks:
+                    content.append(tb)
                 if msg.text():
                     content.append({"type": "text", "text": msg.text()})
                 if msg.tool_calls:
@@ -53,8 +57,17 @@ class AnthropicProvider(Provider):
     def _parse_response(self, resp: Any) -> LLMResponse:
         content = ""
         tool_calls = []
+        thinking_content = ""
+        thinking_blocks: list[dict] = []
         for block in resp.content:
-            if block.type == "text":
+            if block.type == "thinking":
+                thinking_content += block.thinking
+                thinking_blocks.append({
+                    "type": "thinking",
+                    "thinking": block.thinking,
+                    "signature": getattr(block, "signature", ""),
+                })
+            elif block.type == "text":
                 content = block.text
             elif block.type == "tool_use":
                 tool_calls.append(ToolCall(id=block.id, name=block.name, input=block.input))
@@ -64,6 +77,8 @@ class AnthropicProvider(Provider):
             input_tokens=resp.usage.input_tokens,
             output_tokens=resp.usage.output_tokens,
             stop_reason=resp.stop_reason or "end_turn",
+            thinking_content=thinking_content,
+            thinking_blocks=thinking_blocks,
         )
 
     async def complete(
@@ -74,12 +89,29 @@ class AnthropicProvider(Provider):
         **kwargs: Any,
     ) -> LLMResponse:
         system, msgs = self._to_anthropic_messages(messages)
-        params: dict[str, Any] = {"model": self._model, "max_tokens": max_tokens, "messages": msgs}
+        extended_thinking: bool = kwargs.get("extended_thinking", False)
+        thinking_budget: int = kwargs.get("thinking_budget_tokens", 10_000)
+
+        effective_max_tokens = max(max_tokens, thinking_budget) if extended_thinking else max_tokens
+
+        params: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": effective_max_tokens,
+            "messages": msgs,
+        }
         if system:
             params["system"] = system
         if tools:
             params["tools"] = self._to_anthropic_tools(tools)
-        resp = await self._client.messages.create(**params)
+
+        if extended_thinking:
+            params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+            resp = await self._client.beta.messages.create(
+                **params, betas=["interleaved-thinking-2025-05-07"]
+            )
+        else:
+            resp = await self._client.messages.create(**params)
+
         return self._parse_response(resp)
 
     async def stream(  # type: ignore[override]
@@ -90,7 +122,16 @@ class AnthropicProvider(Provider):
         **kwargs: Any,
     ) -> AsyncIterator[StreamEvent]:
         system, msgs = self._to_anthropic_messages(messages)
-        params: dict[str, Any] = {"model": self._model, "max_tokens": max_tokens, "messages": msgs}
+        extended_thinking: bool = kwargs.get("extended_thinking", False)
+        thinking_budget: int = kwargs.get("thinking_budget_tokens", 10_000)
+
+        effective_max_tokens = max(max_tokens, thinking_budget) if extended_thinking else max_tokens
+
+        params: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": effective_max_tokens,
+            "messages": msgs,
+        }
         if system:
             params["system"] = system
         if tools:
@@ -99,22 +140,40 @@ class AnthropicProvider(Provider):
         current_tool_id = ""
         current_tool_name = ""
         current_tool_input = ""
+        current_thinking = ""
+        in_thinking_block = False
 
-        async with self._client.messages.stream(**params) as stream:
+        if extended_thinking:
+            params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+            stream_ctx = self._client.beta.messages.stream(
+                **params, betas=["interleaved-thinking-2025-05-07"]
+            )
+        else:
+            stream_ctx = self._client.messages.stream(**params)
+
+        async with stream_ctx as stream:
             async for event in stream:
                 etype = event.type
                 if etype == "content_block_start":
-                    if hasattr(event, "content_block") and event.content_block.type == "tool_use":
-                        current_tool_id = event.content_block.id
-                        current_tool_name = event.content_block.name
-                        current_tool_input = ""
-                        yield StreamEvent.tool_start(current_tool_id, current_tool_name, {})
+                    if hasattr(event, "content_block"):
+                        if event.content_block.type == "tool_use":
+                            current_tool_id = event.content_block.id
+                            current_tool_name = event.content_block.name
+                            current_tool_input = ""
+                            yield StreamEvent.tool_start(current_tool_id, current_tool_name, {})
+                        elif event.content_block.type == "thinking":
+                            current_thinking = ""
+                            in_thinking_block = True
                 elif etype == "content_block_delta":
                     delta = event.delta
                     if delta.type == "text_delta":
                         yield StreamEvent.text(delta.text)
                     elif delta.type == "input_json_delta":
                         current_tool_input += delta.partial_json
+                    elif delta.type == "thinking_delta":
+                        chunk = delta.thinking
+                        current_thinking += chunk
+                        yield StreamEvent.thinking(chunk)
                 elif etype == "content_block_stop":
                     if current_tool_id and current_tool_input:
                         try:
@@ -125,6 +184,24 @@ class AnthropicProvider(Provider):
                         current_tool_id = ""
                         current_tool_name = ""
                         current_tool_input = ""
+                    if in_thinking_block:
+                        in_thinking_block = False
+                        current_thinking = ""
                 elif etype == "message_stop":
                     final = await stream.get_final_message()
-                    yield StreamEvent.end(final.content[0].text if final.content and final.content[0].type == "text" else "")
+                    # Extract thinking blocks with signatures for multi-turn preservation
+                    thinking_blocks: list[dict] = []
+                    text_output = ""
+                    for block in final.content:
+                        if block.type == "thinking":
+                            thinking_blocks.append({
+                                "type": "thinking",
+                                "thinking": block.thinking,
+                                "signature": getattr(block, "signature", ""),
+                            })
+                        elif block.type == "text":
+                            text_output = block.text
+                    yield StreamEvent(
+                        type=EventType.session_end,
+                        data={"output": text_output, "thinking_blocks": thinking_blocks},
+                    )
