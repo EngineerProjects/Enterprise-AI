@@ -1,66 +1,21 @@
-# ENTERPRISE-AI TEMPORARY DEMONSTRATION LICENSE
+MIT License
 
-**Copyright (c) 2025 Stéphane KPOVIESSI. All rights reserved.**
+Copyright (c) 2026 Stéphane KPOVIESSI
 
-## IMPORTANT NOTICE
-This repository is made temporarily public for **demonstration and evaluation purposes ONLY** during the author's internship search process. This is NOT open source software.
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
 
-## PERMITTED USES
-- **Viewing**: You may view the source code for evaluation and educational purposes only
-- **Reading**: You may read the documentation and code for understanding the project's capabilities
-- **Discussion**: You may discuss the project in the context of potential collaboration or employment opportunities
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
 
-## PROHIBITED USES
-The following actions are **STRICTLY PROHIBITED** without explicit written permission from the copyright holder:
-
-- ❌ **Cloning** or downloading the repository
-- ❌ **Forking** the repository  
-- ❌ **Copying** any portion of the code, documentation, or assets
-- ❌ **Modifying** or creating derivative works
-- ❌ **Distributing** or redistributing any part of this software
-- ❌ **Using** the software for any commercial or personal purposes
-- ❌ **Reverse engineering** or attempting to recreate the functionality
-- ❌ **Incorporating** any concepts, algorithms, or code patterns into other projects
-- ❌ **Training** AI models on this codebase
-- ❌ **Publishing** or sharing any part of this code elsewhere
-
-## LEGAL TERMS
-
-### Ownership
-This software and all associated intellectual property rights are exclusively owned by Stéphane KPOVIESSI. No rights are granted except those explicitly stated in the "Permitted Uses" section above.
-
-### Temporary Nature
-This repository will return to private status once the author secures an appropriate internship position. At that time, all public access will be revoked immediately.
-
-### No Warranty
-This software is provided "AS IS" without warranty of any kind. The author disclaims all warranties, express or implied, including but not limited to merchantability and fitness for a particular purpose.
-
-### Liability Limitation
-Under no circumstances shall the author be liable for any damages arising from viewing or any attempted use of this software.
-
-### Termination
-The author reserves the right to:
-- Make this repository private at any time without notice
-- Terminate any individual's access to this repository
-- Modify these license terms at any time
-
-### Enforcement
-Any violation of these terms may result in:
-- Legal action for copyright infringement
-- Claims for damages and lost profits
-- Injunctive relief to prevent further violations
-
-### Contact for Permissions
-For any use not explicitly permitted above, or to request special permissions, contact:
-- Email: stephane.kpoviessi@student.junia.com
-- LinkedIn: [stephanekpoviessi](https://linkedin.com/in/stephanekpoviessi)
-
-## ACKNOWLEDGMENT
-By accessing this repository, you acknowledge that you have read, understood, and agree to be bound by these license terms.
-
----
-
-**⚠️ WARNING**: This repository is under active development and monitoring. Unauthorized use will be tracked and prosecuted to the full extent of the law.
-
-**Last Updated**: May 30, 2025  
-**License Version**: 1.0
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
