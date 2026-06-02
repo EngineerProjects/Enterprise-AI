@@ -1,9 +1,25 @@
 """
-Enterprise AI - A platform for interacting with language models.
-This package provides a framework for working with different LLM providers
-in a consistent way.
+enterprise-ai — Python SDK for autonomous multi-agent workflows.
+
+Quick start:
+    from enterprise_ai import Agent
+    from enterprise_ai.tools import BashTool, FileEditorTool
+    from enterprise_ai.providers import AnthropicProvider
+
+    agent = Agent(
+        provider=AnthropicProvider(model="claude-opus-4-8"),
+        tools=[BashTool(), FileEditorTool()],
+    )
+    result = await agent.run("Fix the failing test in tests/auth_test.py")
 """
 
-from enterprise_ai.version import __version__, version_info
+from enterprise_ai.agent import Agent
+from enterprise_ai.schema import Message, Role, SessionResult, StreamEvent, ToolCall, ToolResult
 
-__all__ = ["__version__", "version_info"]
+__version__ = "0.1.0"
+
+__all__ = [
+    "Agent",
+    "Message", "Role", "ToolCall", "ToolResult", "StreamEvent", "SessionResult",
+    "__version__",
+]
