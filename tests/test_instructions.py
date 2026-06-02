@@ -1,7 +1,7 @@
 """Tests for project instructions loader."""
 import pytest
 
-from enterprise_ai.engine.project_instructions import _MAX_BYTES, read_project_instructions
+from enterprise_ai.engine.instructions import _MAX_BYTES, read_project_instructions
 
 
 def test_reads_agents_md(tmp_path):

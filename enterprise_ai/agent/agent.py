@@ -3,10 +3,14 @@ from __future__ import annotations
 import uuid
 from typing import Any, AsyncIterator
 
+from enterprise_ai.engine.instructions import read_project_instructions
 from enterprise_ai.engine.loop import QueryLoop
-from enterprise_ai.engine.project_instructions import read_project_instructions
-from enterprise_ai.execution.micro_compaction import TrimConfig
+from enterprise_ai.execution.compaction import TrimConfig
 from enterprise_ai.execution.orchestrator import Orchestrator
+from enterprise_ai.hooks.events import HookEvent
+from enterprise_ai.hooks.executor import HookExecutor
+from enterprise_ai.hooks.registry import HookRegistry
+from enterprise_ai.hooks.types import HookHandler
 from enterprise_ai.mcp.config import MCPServerConfig
 from enterprise_ai.mcp.manager import MCPManager
 from enterprise_ai.memory.long_term import LongTermMemory
@@ -73,6 +77,7 @@ class Agent:
         max_sub_agent_depth: int = 5,
         retry_config: RetryConfig | None = None,
         trim_config: TrimConfig | None = None,
+        hooks: list[tuple[HookEvent, HookHandler]] | HookRegistry | None = None,
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
@@ -119,12 +124,22 @@ class Agent:
             permission_mode = PermissionMode(permission_mode)
         self._permissions = PermissionEngine(mode=permission_mode, deny_tools=effective_deny)
 
+        # Hooks — build executor from list or registry
+        hook_executor: HookExecutor | None = None
+        if hooks is not None:
+            if isinstance(hooks, list):
+                registry_obj = HookRegistry.from_list(hooks)
+            else:
+                registry_obj = hooks
+            hook_executor = HookExecutor(registry_obj)
+
         # Core components
         self._memory = SessionMemory(max_messages=max_memory)
         self._orchestrator = Orchestrator(
             registry=self._registry,
             permissions=self._permissions,
             trim_config=trim_config,
+            hooks=hook_executor,
         )
         self._loop = QueryLoop(
             provider=self._provider,
@@ -134,6 +149,7 @@ class Agent:
             system_prompt=effective_system,
             max_turns=max_turns,
             retry_config=retry_config,
+            hooks=hook_executor,
         )
 
     # ------------------------------------------------------------------

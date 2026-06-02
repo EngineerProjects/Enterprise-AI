@@ -5,7 +5,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-from enterprise_ai.execution.micro_compaction import TrimConfig, TrimStrategy, trim_tool_result
+from enterprise_ai.execution.compaction import TrimConfig, TrimStrategy, trim_tool_result
+from enterprise_ai.hooks.executor import HookExecutor
 from enterprise_ai.permissions.engine import PermissionEngine
 from enterprise_ai.schema import ToolCall, ToolResult
 from enterprise_ai.tools.context import ToolContext
@@ -67,6 +68,7 @@ class Orchestrator:
         max_concurrency: int = 10,
         progress_callback: ProgressCallback | None = None,
         trim_config: TrimConfig | None = None,
+        hooks: HookExecutor | None = None,
     ) -> None:
         self._registry = registry
         self._permissions = permissions
@@ -75,6 +77,7 @@ class Orchestrator:
         self._trim_config = trim_config or TrimConfig(
             max_chars=40_000, strategy=TrimStrategy.snip
         )
+        self._hooks = hooks
 
     async def execute(self, tool_calls: list[ToolCall], ctx: ToolContext) -> list[ToolOutcome]:
         # Steps 1-3: resolve, validate, backfill
@@ -157,6 +160,34 @@ class Orchestrator:
 
     async def _run_one(self, p: _PreparedCall, ctx: ToolContext) -> ToolOutcome:
         tc = p.tool_call
+        tool_input = dict(tc.input) if tc.input else {}
+
+        # Step 4: pre-tool hook — can block execution or modify input
+        if self._hooks:
+            hook_result = await self._hooks.fire_pre_tool(ctx.session_id, tc.name, tool_input)
+            if hook_result.stop:
+                reason = hook_result.message or "Blocked by pre_tool_use hook"
+                return ToolOutcome(
+                    tool_call=tc,
+                    result=ToolResult.error(tc.id, tc.name, reason),
+                    error=reason,
+                )
+            if hook_result.modified_data and "tool_input" in hook_result.modified_data:
+                new_input = hook_result.modified_data["tool_input"]
+                tc = tc.model_copy(update={"input": new_input})
+                try:
+                    p = _PreparedCall(
+                        tool_call=tc,
+                        tool=p.tool,
+                        parsed_input=p.tool.parse_input(new_input),
+                        is_concurrency_safe=p.is_concurrency_safe,
+                    )
+                except Exception as e:
+                    return ToolOutcome(
+                        tool_call=tc,
+                        result=ToolResult.error(tc.id, tc.name, f"Hook modified input is invalid: {e}"),
+                        error=str(e),
+                    )
 
         # Step 5-7: permissions
         perm = await self._permissions.check(tc)
@@ -173,15 +204,24 @@ class Orchestrator:
                 result = await p.tool.call(p.parsed_input, ctx)
                 result = result.model_copy(update={"tool_call_id": tc.id})
             except Exception as e:
+                err_msg = f"Tool raised an exception: {e}"
+                if self._hooks:
+                    await self._hooks.fire_post_tool(ctx.session_id, tc.name, str(e), is_error=True)
                 return ToolOutcome(
                     tool_call=tc,
-                    result=ToolResult.error(tc.id, tc.name, f"Tool raised an exception: {e}"),
+                    result=ToolResult.error(tc.id, tc.name, err_msg),
                     error=str(e),
                 )
 
-        # Step 11: size limit — smart trim (snip by default, not brutal truncation)
+        # Step 11: size limit — smart trim (snip by default)
         trimmed = trim_tool_result(result.content, self._trim_config)
         if trimmed != result.content:
             result = result.model_copy(update={"content": trimmed})
+
+        # Step 9: post-tool hook (notification only)
+        if self._hooks:
+            await self._hooks.fire_post_tool(
+                ctx.session_id, tc.name, result.content, is_error=result.is_error
+            )
 
         return ToolOutcome(tool_call=tc, result=result)

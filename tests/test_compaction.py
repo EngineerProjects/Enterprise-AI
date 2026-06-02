@@ -1,7 +1,7 @@
 """Tests for smart tool result trimming (micro-compaction)."""
 import pytest
 
-from enterprise_ai.execution.micro_compaction import TrimConfig, TrimStrategy, trim_tool_result
+from enterprise_ai.execution.compaction import TrimConfig, TrimStrategy, trim_tool_result
 
 
 def _make_content(n_chars: int) -> str:

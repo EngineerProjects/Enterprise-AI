@@ -5,6 +5,8 @@ import uuid
 from typing import AsyncIterator
 
 from enterprise_ai.execution.orchestrator import Orchestrator
+from enterprise_ai.hooks.events import HookEvent
+from enterprise_ai.hooks.executor import HookExecutor
 from enterprise_ai.memory.session import SessionMemory
 from enterprise_ai.providers.base import LLMResponse, Provider
 from enterprise_ai.providers.retry import (
@@ -44,6 +46,7 @@ class QueryLoop:
         system_prompt: str = "",
         max_turns: int = MAX_TURNS,
         retry_config: RetryConfig | None = None,
+        hooks: HookExecutor | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -52,25 +55,43 @@ class QueryLoop:
         self._system_prompt = system_prompt
         self._max_turns = max_turns
         self._retry_config = retry_config
+        self._hooks = hooks
 
     async def run(self, prompt: str, ctx: ToolContext) -> SessionResult:
         session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
         session.state = SessionState.running
+        sid = session.id
+
+        if self._hooks:
+            await self._hooks.fire(HookEvent.session_start, sid, {"agent_id": ctx.agent_id})
+            await self._hooks.fire(HookEvent.query_start, sid, {"prompt": prompt})
 
         self._memory.add(Message.user(prompt))
 
         tool_calls_count = 0
         final_output = ""
 
-        for _ in range(self._max_turns):
+        for turn_num in range(self._max_turns):
             messages = self._build_messages()
             tools = self._registry.schemas() if self._registry.all() else None
+
+            if self._hooks:
+                await self._hooks.fire(HookEvent.turn_start, sid, {"turn": turn_num})
+                await self._hooks.fire(HookEvent.pre_api_call, sid, {"messages_count": len(messages)})
 
             try:
                 resp = await self._call_provider(messages, tools)
             except Exception as e:
+                if self._hooks:
+                    await self._hooks.fire(HookEvent.on_error, sid, {"error": str(e), "turn": turn_num})
                 session.state = SessionState.error
-                return SessionResult(session_id=session.id, output=f"Provider error: {e}", state=SessionState.error)
+                return SessionResult(session_id=sid, output=f"Provider error: {e}", state=SessionState.error)
+
+            if self._hooks:
+                await self._hooks.fire(HookEvent.post_api_call, sid, {
+                    "input_tokens": resp.input_tokens,
+                    "output_tokens": resp.output_tokens,
+                })
 
             if resp.content:
                 self._memory.add(Message.assistant(resp.content, tool_calls=resp.tool_calls or None))
@@ -78,6 +99,8 @@ class QueryLoop:
             if not resp.has_tool_calls:
                 final_output = resp.content
                 session.state = SessionState.done
+                if self._hooks:
+                    await self._hooks.fire(HookEvent.turn_end, sid, {"stop_reason": "no_tool_calls"})
                 break
 
             # Tool calling turn
@@ -89,22 +112,36 @@ class QueryLoop:
             if terminate_call:
                 final_output = terminate_call.input.get("result", "")
                 session.state = SessionState.done
+                if self._hooks:
+                    await self._hooks.fire(HookEvent.turn_end, sid, {"stop_reason": "terminate"})
                 break
 
+            if self._hooks:
+                await self._hooks.fire(HookEvent.tool_uses_start, sid, {"count": len(resp.tool_calls)})
+
             outcomes = await self._orchestrator.execute(resp.tool_calls, ctx)
+
+            if self._hooks:
+                await self._hooks.fire(HookEvent.tool_uses_complete, sid, {"count": len(outcomes)})
 
             for outcome in outcomes:
                 self._memory.add(
                     Message.tool_result(outcome.result.tool_call_id, outcome.result.content, name=outcome.result.name)
                 )
 
+            if self._hooks:
+                await self._hooks.fire(HookEvent.turn_end, sid, {"stop_reason": "tool_calls_done"})
             session.state = SessionState.running
         else:
             session.state = SessionState.error
             final_output = f"Max turns ({self._max_turns}) reached without completing the task."
 
+        if self._hooks:
+            await self._hooks.fire(HookEvent.query_complete, sid, {"output": final_output})
+            await self._hooks.fire(HookEvent.session_end, sid, {"state": session.state.value})
+
         return SessionResult(
-            session_id=session.id,
+            session_id=sid,
             output=final_output,
             state=session.state,
             tool_calls_count=tool_calls_count,
