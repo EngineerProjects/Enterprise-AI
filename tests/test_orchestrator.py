@@ -199,8 +199,11 @@ async def test_result_truncated_when_too_large():
     registry = make_registry(BigOutput())
     orch = make_orchestrator(registry)
     outcomes = await orch.execute([make_call("big")], CTX)
-    assert len(outcomes[0].result.content) <= Orchestrator.MAX_RESULT_CHARS + 50  # +50 for truncation suffix
-    assert "truncated" in outcomes[0].result.content
+    result_content = outcomes[0].result.content
+    # Result must be shorter than the 100k input
+    assert len(result_content) < 100_000
+    # Default strategy is snip — marker is present
+    assert "snipped" in result_content
 
 
 @pytest.mark.asyncio

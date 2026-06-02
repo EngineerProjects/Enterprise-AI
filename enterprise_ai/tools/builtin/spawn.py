@@ -48,6 +48,16 @@ class SpawnTool(BaseTool):
         return True  # multiple sub-agents can run in parallel
 
     async def call(self, input: SpawnInput, ctx: ToolContext) -> ToolResult:
+        # Depth check before anything else — fail fast and clearly
+        if ctx.sub_agent_depth >= ctx.max_sub_agent_depth:
+            return ToolResult.error(
+                tool_call_id="", name=self.name,
+                error=(
+                    f"Sub-agent depth limit reached ({ctx.max_sub_agent_depth}). "
+                    "Cannot spawn further sub-agents from this depth."
+                ),
+            )
+
         if self._provider_factory is None:
             return ToolResult.error(
                 tool_call_id="", name=self.name,
@@ -90,6 +100,8 @@ class SpawnTool(BaseTool):
             agent_id=f"{ctx.agent_id}-sub",
             working_dir=ctx.working_dir,
             permission_mode=PermissionMode.auto.value,
+            sub_agent_depth=ctx.sub_agent_depth + 1,
+            max_sub_agent_depth=ctx.max_sub_agent_depth,
         )
 
         result = await loop.run(input.task, sub_ctx)

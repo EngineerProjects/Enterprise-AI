@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import AsyncIterator
 
 from enterprise_ai.execution.orchestrator import Orchestrator
 from enterprise_ai.memory.session import SessionMemory
-from enterprise_ai.providers.base import Provider
+from enterprise_ai.providers.base import LLMResponse, Provider
+from enterprise_ai.providers.retry import (
+    RetryConfig,
+    calculate_backoff,
+    is_retryable_error,
+    parse_retry_after,
+)
 from enterprise_ai.schema import (
     Message,
     Session,
@@ -36,6 +43,7 @@ class QueryLoop:
         memory: SessionMemory,
         system_prompt: str = "",
         max_turns: int = MAX_TURNS,
+        retry_config: RetryConfig | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -43,6 +51,7 @@ class QueryLoop:
         self._memory = memory
         self._system_prompt = system_prompt
         self._max_turns = max_turns
+        self._retry_config = retry_config
 
     async def run(self, prompt: str, ctx: ToolContext) -> SessionResult:
         session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
@@ -58,7 +67,7 @@ class QueryLoop:
             tools = self._registry.schemas() if self._registry.all() else None
 
             try:
-                resp = await self._provider.complete(messages, tools=tools)
+                resp = await self._call_provider(messages, tools)
             except Exception as e:
                 session.state = SessionState.error
                 return SessionResult(session_id=session.id, output=f"Provider error: {e}", state=SessionState.error)
@@ -117,7 +126,7 @@ class QueryLoop:
             last_text = ""
 
             try:
-                async for event in self._provider.stream(messages, tools=tools):
+                async for event in self._provider.stream(messages, tools=tools):  # stream has its own retry path
                     if event.type.value == "text_delta":
                         last_text += event.data.get("delta", "")
                         yield event
@@ -179,3 +188,28 @@ class QueryLoop:
             messages.append(Message.system(self._system_prompt))
         messages.extend(self._memory.get())
         return messages
+
+    async def _call_provider(self, messages: list[Message], tools: list | None) -> LLMResponse:
+        """Call provider.complete() with optional retry + backoff on transient errors."""
+        if self._retry_config is None:
+            return await self._provider.complete(messages, tools=tools)
+
+        cfg = self._retry_config
+        last_exc: Exception | None = None
+        for attempt in range(1, cfg.max_attempts + 1):
+            try:
+                return await self._provider.complete(messages, tools=tools)
+            except Exception as exc:
+                last_exc = exc
+                if attempt == cfg.max_attempts:
+                    break
+                if not is_retryable_error(exc, cfg):
+                    raise
+                headers = {}
+                resp = getattr(exc, "response", None)
+                if resp is not None:
+                    headers = dict(getattr(resp, "headers", {}))
+                retry_after = parse_retry_after(headers)
+                delay = retry_after if retry_after is not None else calculate_backoff(cfg, attempt)
+                await asyncio.sleep(delay)
+        raise last_exc  # type: ignore[misc]

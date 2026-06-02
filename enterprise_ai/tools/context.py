@@ -15,3 +15,5 @@ class ToolContext:
     permission_mode: str = "onRequest"
     sandbox: Any = None
     metadata: dict[str, Any] = field(default_factory=dict)
+    sub_agent_depth: int = 0
+    max_sub_agent_depth: int = 5

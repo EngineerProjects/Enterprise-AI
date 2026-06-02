@@ -5,6 +5,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from enterprise_ai.execution.micro_compaction import TrimConfig, TrimStrategy, trim_tool_result
 from enterprise_ai.permissions.engine import PermissionEngine
 from enterprise_ai.schema import ToolCall, ToolResult
 from enterprise_ai.tools.context import ToolContext
@@ -59,19 +60,21 @@ class Orchestrator:
     12. ContextModify — (sequential only) applied in order
     """
 
-    MAX_RESULT_CHARS = 40_000
-
     def __init__(
         self,
         registry: ToolRegistry,
         permissions: PermissionEngine,
         max_concurrency: int = 10,
         progress_callback: ProgressCallback | None = None,
+        trim_config: TrimConfig | None = None,
     ) -> None:
         self._registry = registry
         self._permissions = permissions
         self._sem = asyncio.Semaphore(max_concurrency)
         self._progress_callback = progress_callback
+        self._trim_config = trim_config or TrimConfig(
+            max_chars=40_000, strategy=TrimStrategy.snip
+        )
 
     async def execute(self, tool_calls: list[ToolCall], ctx: ToolContext) -> list[ToolOutcome]:
         # Steps 1-3: resolve, validate, backfill
@@ -176,9 +179,9 @@ class Orchestrator:
                     error=str(e),
                 )
 
-        # Step 11: size limit
-        if len(result.content) > self.MAX_RESULT_CHARS:
-            truncated = result.content[: self.MAX_RESULT_CHARS]
-            result = result.model_copy(update={"content": truncated + "\n\n[... output truncated]"})
+        # Step 11: size limit — smart trim (snip by default, not brutal truncation)
+        trimmed = trim_tool_result(result.content, self._trim_config)
+        if trimmed != result.content:
+            result = result.model_copy(update={"content": trimmed})
 
         return ToolOutcome(tool_call=tc, result=result)

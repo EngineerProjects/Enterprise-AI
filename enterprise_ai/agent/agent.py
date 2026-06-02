@@ -4,6 +4,8 @@ import uuid
 from typing import Any, AsyncIterator
 
 from enterprise_ai.engine.loop import QueryLoop
+from enterprise_ai.engine.project_instructions import read_project_instructions
+from enterprise_ai.execution.micro_compaction import TrimConfig
 from enterprise_ai.execution.orchestrator import Orchestrator
 from enterprise_ai.mcp.config import MCPServerConfig
 from enterprise_ai.mcp.manager import MCPManager
@@ -12,6 +14,7 @@ from enterprise_ai.memory.session import SessionMemory
 from enterprise_ai.permissions.engine import PermissionEngine, PermissionMode
 from enterprise_ai.providers.base import Provider
 from enterprise_ai.providers.factory import create_provider
+from enterprise_ai.providers.retry import RetryConfig
 from enterprise_ai.schema import SessionResult, StreamEvent
 from enterprise_ai.skills.registry import resolve_skills
 from enterprise_ai.skills.skill import Skill
@@ -67,10 +70,15 @@ class Agent:
         max_turns: int = 50,
         max_memory: int = 200,
         agent_id: str | None = None,
+        max_sub_agent_depth: int = 5,
+        retry_config: RetryConfig | None = None,
+        trim_config: TrimConfig | None = None,
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
         self._metadata: dict[str, Any] = {}
+        self._max_sub_agent_depth = max_sub_agent_depth
+        self._working_dir = working_dir
 
         # Provider
         if isinstance(provider, str):
@@ -80,7 +88,8 @@ class Agent:
 
         # Skills — resolve names and inject into system prompt
         self._skills = self._resolve_skills(skills or [])
-        effective_system = self._build_system_prompt(system_prompt, self._skills)
+        project_instructions = read_project_instructions(working_dir)
+        effective_system = self._build_system_prompt(system_prompt, self._skills, project_instructions)
         effective_deny = set(deny_tools or [])
 
         # MCP manager — stored for lifecycle management by caller
@@ -115,6 +124,7 @@ class Agent:
         self._orchestrator = Orchestrator(
             registry=self._registry,
             permissions=self._permissions,
+            trim_config=trim_config,
         )
         self._loop = QueryLoop(
             provider=self._provider,
@@ -123,8 +133,8 @@ class Agent:
             memory=self._memory,
             system_prompt=effective_system,
             max_turns=max_turns,
+            retry_config=retry_config,
         )
-        self._working_dir = working_dir
 
     # ------------------------------------------------------------------
     # Skills
@@ -137,8 +147,14 @@ class Agent:
         return objs + resolve_skills(names)
 
     @staticmethod
-    def _build_system_prompt(base: str, skills: list[Skill]) -> str:
+    def _build_system_prompt(
+        base: str,
+        skills: list[Skill],
+        project_instructions: str = "",
+    ) -> str:
         parts = [base.strip()] if base.strip() else []
+        if project_instructions:
+            parts.append("## Project Instructions\n\n" + project_instructions)
         for skill in skills:
             block = skill.system_prompt_block()
             if block:
@@ -169,6 +185,7 @@ class Agent:
             agent_id=self.id,
             working_dir=self._working_dir,
             permission_mode=self._permissions.mode.value,
+            max_sub_agent_depth=self._max_sub_agent_depth,
         )
         ctx.metadata.update(self._metadata)
         if self._long_term_memory is not None:
