@@ -5,6 +5,8 @@ from typing import Any, AsyncIterator
 
 from enterprise_ai.engine.loop import QueryLoop
 from enterprise_ai.execution.orchestrator import Orchestrator
+from enterprise_ai.mcp.config import MCPServerConfig
+from enterprise_ai.mcp.manager import MCPManager
 from enterprise_ai.memory.session import SessionMemory
 from enterprise_ai.permissions.engine import PermissionEngine, PermissionMode
 from enterprise_ai.providers.base import Provider
@@ -49,6 +51,7 @@ class Agent:
         tools: list[BaseTool] | None = None,
         system_prompt: str = "",
         skills: list[str | Skill] | None = None,
+        mcp_servers: list[MCPServerConfig] | None = None,
         permission_mode: PermissionMode | str = PermissionMode.auto,
         deny_tools: set[str] | None = None,
         working_dir: str = ".",
@@ -70,6 +73,11 @@ class Agent:
         self._skills = self._resolve_skills(skills or [])
         effective_system = self._build_system_prompt(system_prompt, self._skills)
         effective_deny = set(deny_tools or [])
+
+        # MCP manager — stored for lifecycle management by caller
+        self._mcp_manager: MCPManager | None = (
+            MCPManager(mcp_servers) if mcp_servers else None
+        )
 
         # Tools — filtered by skill allowed-tools restrictions if any
         self._registry = ToolRegistry()
@@ -161,6 +169,36 @@ class Agent:
         async for event in self._loop.stream(prompt, ctx):
             yield event
 
+    async def connect_mcp(self) -> None:
+        """
+        Connect to all configured MCP servers and inject their tools into the registry.
+        Call this before run() when using mcp_servers.
+
+        Usage:
+            agent = Agent(..., mcp_servers=[StdioServerConfig(...)])
+            await agent.connect_mcp()
+            result = await agent.run("Use the GitHub MCP server to list my repos")
+            await agent.disconnect_mcp()
+
+            # Or as context manager:
+            async with agent.mcp():
+                result = await agent.run("...")
+        """
+        if self._mcp_manager is None:
+            return
+        await self._mcp_manager.start()
+        for tool in self._mcp_manager.tools:
+            self._registry.register(tool)
+
+    async def disconnect_mcp(self) -> None:
+        """Disconnect from all MCP servers."""
+        if self._mcp_manager is not None:
+            await self._mcp_manager.stop()
+
+    def mcp(self) -> _MCPContextManager:
+        """Async context manager for MCP lifecycle."""
+        return _MCPContextManager(self)
+
     def add_tool(self, tool: BaseTool) -> None:
         self._registry.register(tool)
 
@@ -181,3 +219,19 @@ class Agent:
     @property
     def skills(self) -> list[Skill]:
         return list(self._skills)
+
+    @property
+    def mcp_manager(self) -> MCPManager | None:
+        return self._mcp_manager
+
+
+class _MCPContextManager:
+    def __init__(self, agent: Agent) -> None:
+        self._agent = agent
+
+    async def __aenter__(self) -> Agent:
+        await self._agent.connect_mcp()
+        return self._agent
+
+    async def __aexit__(self, *_: object) -> None:
+        await self._agent.disconnect_mcp()

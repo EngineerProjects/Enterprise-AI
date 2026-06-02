@@ -52,6 +52,9 @@ tavily = ["tavily-python==0.5.0"]
 bedrock = ["boto3==1.38.0"]
 azure = ["azure-identity==1.21.0"]
 
+# MCP (Model Context Protocol) client
+mcp = ["mcp==1.27.2"]
+
 # Optional server surface
 server = ["fastapi==0.115.12", "uvicorn[standard]==0.34.2"]
 
