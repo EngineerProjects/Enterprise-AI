@@ -5,11 +5,15 @@ from enterprise_ai.tools.builtin import (
     CompleteTaskTool,
     FailTaskTool,
     FileEditorTool,
+    ForgetTool,
     ListTasksTool,
     MailboxStatusTool,
     PostTaskTool,
     ReadMailTool,
+    RecallTool,
+    RecentMemoriesTool,
     RecentMemoryTool,
+    RememberTool,
     SearchMemoryTool,
     SendMailTool,
     SpawnTool,
@@ -23,9 +27,14 @@ from enterprise_ai.tools.registry import ToolRegistry
 
 __all__ = [
     "BaseTool", "ToolContext", "ToolRegistry",
+    # Core execution
     "BashTool", "FileEditorTool", "WebSearchTool", "CodeSearchTool", "TerminateTool",
+    # Multi-agent
     "SpawnTool",
     "SendMailTool", "ReadMailTool", "MailboxStatusTool",
     "PostTaskTool", "ClaimTaskTool", "CompleteTaskTool", "FailTaskTool", "ListTasksTool",
+    # Team shared memory
     "SearchMemoryTool", "WriteMemoryTool", "RecentMemoryTool",
+    # Agent long-term memory
+    "RememberTool", "RecallTool", "ForgetTool", "RecentMemoriesTool",
 ]
