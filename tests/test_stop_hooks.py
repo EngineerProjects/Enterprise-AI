@@ -1,9 +1,12 @@
 """Tests for stop hooks."""
 import asyncio
 
-import pytest
-
-from enterprise_ai.engine.stop_hooks import StopHookEntry, StopHookInput, StopHookResult, StopHookRunner
+from enterprise_ai.engine.stop_hooks import (
+    StopHookEntry,
+    StopHookInput,
+    StopHookResult,
+    StopHookRunner,
+)
 from enterprise_ai.schema import Message
 
 

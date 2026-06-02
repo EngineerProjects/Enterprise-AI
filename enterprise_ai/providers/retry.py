@@ -42,20 +42,23 @@ def calculate_backoff(config: RetryConfig, attempt: int) -> float:
 
 
 def is_retryable_error(exc: Exception, config: RetryConfig) -> bool:
-    """Return True if the exception represents a transient error worth retrying."""
+    """Return True if the exception represents a retryable HTTP error.
+
+    Only HTTP errors (exceptions with a ``status_code`` attribute) are
+    considered retryable.  Generic Python exceptions without a status code
+    are not retried — they are programming errors, not transient failures.
+    """
     status_code = getattr(exc, "status_code", None)
-    if status_code is not None:
-        return int(status_code) in config.retryable_status_codes
+    if status_code is None:
+        return False
 
-    # Network-level errors (httpx)
-    try:
-        import httpx
-        if isinstance(exc, (httpx.NetworkError, httpx.TimeoutException)):
-            return True
-    except ImportError:
-        pass
+    from enterprise_ai.providers.errors import ErrorClass, classify_error
 
-    return False
+    ec = classify_error(exc)
+    if ec == ErrorClass.TRANSIENT:
+        return True
+
+    return int(status_code) in config.retryable_status_codes
 
 
 def parse_retry_after(headers: dict[str, str]) -> float | None:

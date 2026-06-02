@@ -1,7 +1,5 @@
 """Tests for sub-agent depth limiting in SpawnTool."""
-import pytest
 
-from enterprise_ai.schema import ToolResult
 from enterprise_ai.tools.builtin.spawn import SpawnInput, SpawnTool
 from enterprise_ai.tools.context import ToolContext
 

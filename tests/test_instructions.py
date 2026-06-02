@@ -1,5 +1,4 @@
 """Tests for project instructions loader."""
-import pytest
 
 from enterprise_ai.engine.instructions import _MAX_BYTES, read_project_instructions
 

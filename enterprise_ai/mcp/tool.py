@@ -62,6 +62,9 @@ class MCPTool(BaseTool):
     def parse_input(self, raw: dict[str, Any]) -> BaseModel:
         return _AnyInput.model_validate(raw)
 
+    def is_deferrable(self) -> bool:
+        return True  # MCP tools are candidates for tool-search deferral
+
     def is_concurrency_safe(self) -> bool:
         return True  # MCP tool calls are independent by default
 

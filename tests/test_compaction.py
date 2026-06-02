@@ -1,5 +1,4 @@
 """Tests for smart tool result trimming (micro-compaction)."""
-import pytest
 
 from enterprise_ai.execution.compaction import TrimConfig, TrimStrategy, trim_tool_result
 

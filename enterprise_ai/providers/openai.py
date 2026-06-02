@@ -23,17 +23,27 @@ class OpenAIProvider(Provider):
         model: str = "gpt-4o",
         api_key: str | None = None,
         base_url: str | None = None,
+        api_keys: list[str] | None = None,
     ) -> None:
         try:
             from openai import AsyncOpenAI
         except ImportError:
             raise ImportError("openai package required: pip install openai")
-        self._client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+
+        from enterprise_ai.providers.credential_pool import CredentialPool
+
+        all_keys: list[str | None] = list(api_keys) if api_keys else [api_key]
+        self._pool = CredentialPool(all_keys)
+        self._clients = [AsyncOpenAI(api_key=k, base_url=base_url) for k in all_keys]
         self._model = model
 
     @property
     def model(self) -> str:
         return self._model
+
+    @property
+    def _client(self):  # type: ignore[return]
+        return self._clients[self._pool._idx]
 
     def _to_openai_messages(self, messages: list[Message]) -> list[dict]:
         converted = []
@@ -110,8 +120,15 @@ class OpenAIProvider(Provider):
         }
         if tools:
             params["tools"] = self._to_openai_tools(tools)
-        resp = await self._client.chat.completions.create(**params)
-        return self._parse_response(resp)
+        self._pool.reset_round()
+        while True:
+            try:
+                resp = await self._client.chat.completions.create(**params)
+                return self._parse_response(resp)
+            except Exception as exc:
+                if getattr(exc, "status_code", None) == 429 and not self._pool.rotate():
+                    continue
+                raise
 
     async def stream(  # type: ignore[override]
         self,
@@ -129,6 +146,8 @@ class OpenAIProvider(Provider):
         if tools:
             params["tools"] = self._to_openai_tools(tools)
 
+        # Pick key once for the stream (no mid-stream rotation possible)
+        self._pool.reset_round()
         tool_calls_buf: dict[int, dict] = {}
         full_content = ""
 

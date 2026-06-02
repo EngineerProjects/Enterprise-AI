@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any
 from enterprise_ai.schema import Message
 
 if TYPE_CHECKING:
-    from enterprise_ai.memory.compaction import CompactionEngine
+    from enterprise_ai.memory.context_engine import ContextEngine
 
 
 class SessionMemory:
@@ -15,7 +15,7 @@ class SessionMemory:
     def __init__(
         self,
         max_messages: int = 200,
-        compaction_engine: CompactionEngine | None = None,
+        compaction_engine: ContextEngine | None = None,
     ) -> None:
         self._messages: deque[Message] = deque(maxlen=max_messages)
         self._compaction_engine: Any = compaction_engine

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import enterprise_ai.prompt.templates as _tpl
+from enterprise_ai.memory.context_engine import ContextEngine
 from enterprise_ai.providers.base import Provider
 from enterprise_ai.schema import Message
 
@@ -19,7 +20,7 @@ class CompactionConfig:
     keep_recent_messages: int = 10
 
 
-class CompactionEngine:
+class CompactionEngine(ContextEngine):
     def __init__(self, provider: Provider, config: CompactionConfig | None = None) -> None:
         self._provider = provider
         self._config = config or CompactionConfig()

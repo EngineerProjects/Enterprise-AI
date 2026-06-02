@@ -67,6 +67,7 @@ class Agent:
         self,
         provider: Provider | str = "anthropic",
         tools: list[BaseTool] | None = None,
+        toolset: str | None = None,
         system_prompt: str = "",
         skills: list[str | Skill] | None = None,
         mcp_servers: list[MCPServerConfig] | None = None,
@@ -80,6 +81,7 @@ class Agent:
         agent_id: str | None = None,
         max_sub_agent_depth: int = 5,
         retry_config: RetryConfig | None = None,
+        fallback_provider: Provider | None = None,
         trim_config: TrimConfig | None = None,
         hooks: list[tuple[HookEvent, HookHandler]] | HookRegistry | None = None,
         stop_hooks: list[StopHookEntry] | None = None,
@@ -89,6 +91,11 @@ class Agent:
         cache_system_prompt: bool = False,
         token_budget: TokenBudgetConfig | None = None,
         compaction_config: CompactionConfig | None = None,
+        context_engine: Any | None = None,
+        tool_search_threshold: int | None = None,
+        stream_scrubbers: list | None = None,
+        skill_vars: dict[str, str] | None = None,
+        enable_shell_in_skills: bool = False,
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
@@ -102,10 +109,24 @@ class Agent:
         else:
             self._provider = provider
 
+        # Toolset resolution — merge toolset tools with explicitly passed tools
+        # Explicit tools take precedence (by name) over toolset-resolved tools
+        if toolset is not None:
+            from enterprise_ai.tools.toolsets import resolve_toolset
+            toolset_tools = resolve_toolset(toolset)
+            explicit_names = {t.name for t in (tools or [])}
+            tools = [t for t in toolset_tools if t.name not in explicit_names] + (tools or [])
+
         # Skills — resolve names and inject into system prompt
         self._skills = self._resolve_skills(skills or [])
         project_instructions = read_project_instructions(working_dir)
-        effective_system = self._build_system_prompt(system_prompt, self._skills, project_instructions)
+        effective_system = self._build_system_prompt(
+            system_prompt,
+            self._skills,
+            project_instructions,
+            skill_vars=skill_vars,
+            enable_shell_in_skills=enable_shell_in_skills,
+        )
         effective_deny = set(deny_tools or [])
 
         # MCP manager — stored for lifecycle management by caller
@@ -149,10 +170,26 @@ class Agent:
             StopHookRunner(stop_hooks) if stop_hooks else None
         )
 
-        # Compaction engine — wraps provider for LLM-based summarization
-        compaction_engine: CompactionEngine | None = (
-            CompactionEngine(self._provider, compaction_config) if compaction_config else None
+        # Compaction / context engine — custom engine takes priority over compaction_config
+        effective_engine: Any | None
+        if context_engine is not None:
+            effective_engine = context_engine
+        elif compaction_config is not None:
+            effective_engine = CompactionEngine(self._provider, compaction_config)
+        else:
+            effective_engine = None
+        compaction_engine = effective_engine  # kept for compat with SessionMemory param name
+
+        # Tool search bridge — progressive disclosure for large MCP registries
+        from enterprise_ai.tools.search_bridge import ToolSearchBridge
+        search_bridge: ToolSearchBridge | None = (
+            ToolSearchBridge(self._registry, tool_search_threshold)
+            if tool_search_threshold is not None
+            else None
         )
+
+        # Stream scrubbers — stateful text filters applied to streaming output
+        self._stream_scrubbers: list = list(stream_scrubbers) if stream_scrubbers else []
 
         # Core components
         self._memory = SessionMemory(max_messages=max_memory, compaction_engine=compaction_engine)
@@ -171,12 +208,14 @@ class Agent:
             system_prompt=effective_system,
             max_turns=max_turns,
             retry_config=retry_config,
+            fallback_provider=fallback_provider,
             hooks=hook_executor,
             stop_hooks=stop_hook_runner,
             extended_thinking=extended_thinking,
             thinking_budget_tokens=thinking_budget_tokens,
             cache_system_prompt=cache_system_prompt,
             token_budget=token_budget,
+            search_bridge=search_bridge,
         )
 
     # ------------------------------------------------------------------
@@ -194,6 +233,8 @@ class Agent:
         base: str,
         skills: list[Skill],
         project_instructions: str = "",
+        skill_vars: dict[str, str] | None = None,
+        enable_shell_in_skills: bool = False,
     ) -> str:
         from enterprise_ai.prompt.builder import PromptBuilder
 
@@ -203,7 +244,10 @@ class Agent:
         if project_instructions:
             builder.add(f"## Project Instructions\n\n{project_instructions}")
         for skill in skills:
-            block = skill.system_prompt_block()
+            block = skill.system_prompt_block(
+                vars=skill_vars,
+                enable_shell=enable_shell_in_skills,
+            )
             if block:
                 builder.add(block)
         return builder.build()
@@ -226,13 +270,14 @@ class Agent:
     # Context
     # ------------------------------------------------------------------
 
-    def _make_ctx(self, session_id: str = "") -> ToolContext:
+    def _make_ctx(self, session_id: str = "", parent_session_id: str = "") -> ToolContext:
         ctx = ToolContext(
             session_id=session_id or str(uuid.uuid4()),
             agent_id=self.id,
             working_dir=self._working_dir,
             permission_mode=self._permissions.mode.value,
             max_sub_agent_depth=self._max_sub_agent_depth,
+            parent_session_id=parent_session_id,
         )
         ctx.metadata.update(self._metadata)
         if self._long_term_memory is not None:
@@ -252,18 +297,60 @@ class Agent:
     # Public API
     # ------------------------------------------------------------------
 
-    async def run(self, prompt: str, session_id: str = "") -> SessionResult:
+    async def run(
+        self,
+        prompt: str,
+        session_id: str = "",
+        parent_session_id: str = "",
+    ) -> SessionResult:
         """Run the agent to completion and return the final result."""
-        ctx = self._make_ctx(session_id)
+        ctx = self._make_ctx(session_id, parent_session_id)
         enriched = await self._prepend_memories(prompt)
         return await self._loop.run(enriched, ctx)
 
-    async def stream(self, prompt: str, session_id: str = "") -> AsyncIterator[StreamEvent]:
+    async def stream(
+        self,
+        prompt: str,
+        session_id: str = "",
+        parent_session_id: str = "",
+    ) -> AsyncIterator[StreamEvent]:
         """Run the agent and stream events as they happen."""
-        ctx = self._make_ctx(session_id)
+        ctx = self._make_ctx(session_id, parent_session_id)
         enriched = await self._prepend_memories(prompt)
+        for scrubber in self._stream_scrubbers:
+            scrubber.reset()
         async for event in self._loop.stream(enriched, ctx):
-            yield event
+            if event.type.value == "text_delta" and self._stream_scrubbers:
+                delta = event.data.get("delta", "")
+                for scrubber in self._stream_scrubbers:
+                    delta = scrubber.process(delta)
+                if not delta:
+                    continue
+                from enterprise_ai.schema import StreamEvent as SE
+                yield SE.text(delta)
+            else:
+                yield event
+
+    def snapshot(self) -> list:
+        """Return a copy of the current conversation messages for forking."""
+        return self._memory.get()
+
+    def resume_from(self, messages: list) -> None:
+        """
+        Pre-load conversation messages into this agent's memory.
+        Use with parent_session_id to implement session branching:
+
+            # Fork from a completed session
+            branch = Agent(provider=..., tools=[...])
+            branch.resume_from(original_agent.snapshot())
+            result = await branch.run(
+                "Try a different approach.",
+                parent_session_id=original_result.session_id,
+            )
+        """
+        self._memory.clear()
+        for msg in messages:
+            self._memory.add(msg)
 
     async def connect_mcp(self) -> None:
         """

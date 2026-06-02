@@ -16,6 +16,8 @@ class LLMResponse:
         stop_reason: str = "end_turn",
         thinking_content: str = "",
         thinking_blocks: list[dict] | None = None,
+        cache_read_tokens: int = 0,
+        cache_write_tokens: int = 0,
     ) -> None:
         self.content = content
         self.tool_calls = tool_calls
@@ -24,6 +26,9 @@ class LLMResponse:
         self.stop_reason = stop_reason
         self.thinking_content = thinking_content
         self.thinking_blocks: list[dict] = thinking_blocks or []
+        # Prompt caching stats (Anthropic-specific; zero for other providers)
+        self.cache_read_tokens = cache_read_tokens
+        self.cache_write_tokens = cache_write_tokens
 
     @property
     def has_tool_calls(self) -> bool:

@@ -11,13 +11,14 @@ from enterprise_ai.hooks.events import HookEvent
 from enterprise_ai.hooks.executor import HookExecutor
 from enterprise_ai.memory.session import SessionMemory
 from enterprise_ai.providers.base import LLMResponse, Provider
+from enterprise_ai.providers.errors import ErrorClass, classify_error
 from enterprise_ai.providers.retry import (
     RetryConfig,
     calculate_backoff,
-    is_retryable_error,
     parse_retry_after,
 )
 from enterprise_ai.schema import (
+    CacheStats,
     Message,
     Session,
     SessionResult,
@@ -27,6 +28,7 @@ from enterprise_ai.schema import (
 )
 from enterprise_ai.tools.context import ToolContext
 from enterprise_ai.tools.registry import ToolRegistry
+from enterprise_ai.tools.search_bridge import ToolSearchBridge
 
 MAX_TURNS = 50
 
@@ -48,14 +50,17 @@ class QueryLoop:
         system_prompt: str = "",
         max_turns: int = MAX_TURNS,
         retry_config: RetryConfig | None = None,
+        fallback_provider: Provider | None = None,
         hooks: HookExecutor | None = None,
         stop_hooks: StopHookRunner | None = None,
         extended_thinking: bool = False,
         thinking_budget_tokens: int = 10_000,
         cache_system_prompt: bool = False,
         token_budget: TokenBudgetConfig | None = None,
+        search_bridge: ToolSearchBridge | None = None,
     ) -> None:
         self._provider = provider
+        self._fallback_provider = fallback_provider
         self._registry = registry
         self._orchestrator = orchestrator
         self._memory = memory
@@ -71,6 +76,9 @@ class QueryLoop:
         self._budget_tracker: TokenBudgetTracker | None = (
             TokenBudgetTracker(token_budget) if token_budget else None
         )
+        self._search_bridge = search_bridge
+        # Item 9: retry events buffered here; only emitted to hooks on total failure
+        self._retry_buffer: list[dict] = []
 
     def _build_extra_kwargs(self) -> dict:
         extra: dict = {}
@@ -81,8 +89,21 @@ class QueryLoop:
             extra["cache_system_prompt"] = True
         return extra
 
+    def _schemas_for_llm(self) -> list | None:
+        """Return tool schemas to expose to the LLM, respecting the search bridge."""
+        if not self._registry.all():
+            return None
+        if self._search_bridge is not None:
+            schemas = self._search_bridge.schemas_for_llm()
+            return schemas if schemas else None
+        return self._registry.schemas() or None
+
     async def run(self, prompt: str, ctx: ToolContext) -> SessionResult:
-        session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
+        session = Session(
+            id=ctx.session_id or str(uuid.uuid4()),
+            agent_id=ctx.agent_id,
+            parent_session_id=ctx.parent_session_id,
+        )
         session.state = SessionState.running
         sid = session.id
 
@@ -96,10 +117,11 @@ class QueryLoop:
 
         tool_calls_count = 0
         final_output = ""
+        cache_stats = CacheStats()
 
         for turn_num in range(self._max_turns):
             messages = self._build_messages()
-            tools = self._registry.schemas() if self._registry.all() else None
+            tools = self._schemas_for_llm()
 
             if self._hooks:
                 await self._hooks.fire(HookEvent.turn_start, sid, {"turn": turn_num})
@@ -107,16 +129,26 @@ class QueryLoop:
 
             try:
                 resp = await self._call_provider(messages, tools)
+                self._retry_buffer.clear()  # success — discard silently (item 9)
             except Exception as e:
+                # Emit buffered retry events only now that everything failed (item 9)
+                if self._hooks and self._retry_buffer:
+                    for ev in self._retry_buffer:
+                        await self._hooks.fire(HookEvent.notification, sid, ev)
+                self._retry_buffer.clear()
                 if self._hooks:
                     await self._hooks.fire(HookEvent.on_error, sid, {"error": str(e), "turn": turn_num})
                 session.state = SessionState.error
                 return SessionResult(session_id=sid, output=f"Provider error: {e}", state=SessionState.error)
 
+            cache_stats.add(resp.cache_read_tokens, resp.cache_write_tokens)
+
             if self._hooks:
                 await self._hooks.fire(HookEvent.post_api_call, sid, {
                     "input_tokens": resp.input_tokens,
                     "output_tokens": resp.output_tokens,
+                    "cache_read_tokens": resp.cache_read_tokens,
+                    "cache_write_tokens": resp.cache_write_tokens,
                 })
 
             if self._budget_tracker:
@@ -209,10 +241,16 @@ class QueryLoop:
             output=final_output,
             state=session.state,
             tool_calls_count=tool_calls_count,
+            parent_session_id=session.parent_session_id,
+            cache_stats=cache_stats,
         )
 
     async def stream(self, prompt: str, ctx: ToolContext) -> AsyncIterator[StreamEvent]:
-        session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
+        session = Session(
+            id=ctx.session_id or str(uuid.uuid4()),
+            agent_id=ctx.agent_id,
+            parent_session_id=ctx.parent_session_id,
+        )
         session.state = SessionState.running
 
         self._memory.add(Message.user(prompt))
@@ -224,7 +262,7 @@ class QueryLoop:
 
         for turn_num in range(self._max_turns):
             messages = self._build_messages()
-            tools = self._registry.schemas() if self._registry.all() else None
+            tools = self._schemas_for_llm()
 
             # Dict-based dedup: second tool_start (full input) overwrites first (placeholder)
             tool_calls_map: dict[str, ToolCall] = {}
@@ -325,28 +363,72 @@ class QueryLoop:
         return messages
 
     async def _call_provider(self, messages: list[Message], tools: list | None) -> LLMResponse:
-        """Call provider.complete() with optional retry + backoff on transient errors."""
+        """
+        Call provider.complete() with:
+          - error classification (TRANSIENT / FALLBACK / FATAL)
+          - retry with backoff on TRANSIENT errors
+          - fallback provider on FALLBACK errors or exhausted retries
+          - status buffering: retry events only emitted to hooks on total failure
+        """
         extra = self._build_extra_kwargs()
-
-        if self._retry_config is None:
-            return await self._provider.complete(messages, tools=tools, **extra)
-
+        self._retry_buffer.clear()
         cfg = self._retry_config
-        last_exc: Exception | None = None
-        for attempt in range(1, cfg.max_attempts + 1):
+
+        # --- primary provider attempt(s) ---
+        primary_exc: Exception | None = None
+        primary_ec: ErrorClass = ErrorClass.TRANSIENT
+
+        max_attempts = cfg.max_attempts if cfg else 1
+        for attempt in range(1, max_attempts + 1):
             try:
                 return await self._provider.complete(messages, tools=tools, **extra)
             except Exception as exc:
-                last_exc = exc
-                if attempt == cfg.max_attempts:
-                    break
-                if not is_retryable_error(exc, cfg):
-                    raise
-                headers = {}
-                resp = getattr(exc, "response", None)
-                if resp is not None:
-                    headers = dict(getattr(resp, "headers", {}))
+                ec = classify_error(exc)
+                primary_exc = exc
+                primary_ec = ec
+
+                if ec == ErrorClass.FATAL:
+                    raise  # never retry or fallback a fatal error
+
+                if ec == ErrorClass.FALLBACK:
+                    break  # skip retries, go straight to fallback provider
+
+                # TRANSIENT
+                if attempt == max_attempts:
+                    break  # retries exhausted — try fallback
+
+                headers: dict = {}
+                resp_obj = getattr(exc, "response", None)
+                if resp_obj is not None:
+                    headers = dict(getattr(resp_obj, "headers", {}))
                 retry_after = parse_retry_after(headers)
-                delay = retry_after if retry_after is not None else calculate_backoff(cfg, attempt)
+                delay = retry_after if retry_after is not None else calculate_backoff(cfg, attempt)  # type: ignore[arg-type]
+
+                # Buffer the event — only emitted if everything ultimately fails (item 9)
+                self._retry_buffer.append({
+                    "type": "retry",
+                    "attempt": attempt,
+                    "max_attempts": max_attempts,
+                    "delay_s": round(delay, 2),
+                    "error": str(exc),
+                    "provider": "primary",
+                })
                 await asyncio.sleep(delay)
-        raise last_exc  # type: ignore[misc]
+
+        # --- fallback provider attempt ---
+        if self._fallback_provider is not None and primary_ec != ErrorClass.FATAL:
+            self._retry_buffer.append({
+                "type": "fallback",
+                "reason": str(primary_exc),
+                "provider": self._fallback_provider.model,
+            })
+            try:
+                return await self._fallback_provider.complete(messages, tools=tools, **extra)
+            except Exception as fallback_exc:
+                self._retry_buffer.append({
+                    "type": "fallback_failed",
+                    "error": str(fallback_exc),
+                })
+                raise fallback_exc
+
+        raise primary_exc  # type: ignore[misc]

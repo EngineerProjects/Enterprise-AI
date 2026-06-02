@@ -17,3 +17,4 @@ class ToolContext:
     metadata: dict[str, Any] = field(default_factory=dict)
     sub_agent_depth: int = 0
     max_sub_agent_depth: int = 5
+    parent_session_id: str = ""

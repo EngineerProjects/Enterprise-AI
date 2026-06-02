@@ -1,8 +1,11 @@
 """Tests for execution modes (plan, execute, pair_programming)."""
-import pytest
 
-from enterprise_ai.modes.execution import ExecutionMode, is_execute_mode, is_pair_programming_mode, is_plan_mode
-
+from enterprise_ai.modes.execution import (
+    ExecutionMode,
+    is_execute_mode,
+    is_pair_programming_mode,
+    is_plan_mode,
+)
 
 # ── Enum values ───────────────────────────────────────────────────────────────
 
@@ -57,7 +60,8 @@ def test_is_pair_programming_false_for_execute():
 
 async def test_plan_mode_does_not_execute_tool():
     """In plan mode, tools return a description, not real output."""
-    import asyncio
+    from pydantic import BaseModel
+
     from enterprise_ai.execution.orchestrator import Orchestrator
     from enterprise_ai.modes.execution import ExecutionMode
     from enterprise_ai.permissions.engine import PermissionEngine, PermissionMode
@@ -65,7 +69,6 @@ async def test_plan_mode_does_not_execute_tool():
     from enterprise_ai.tools.context import ToolContext
     from enterprise_ai.tools.contract import BaseTool
     from enterprise_ai.tools.registry import ToolRegistry
-    from pydantic import BaseModel
 
     executed = []
 
@@ -103,6 +106,8 @@ async def test_plan_mode_does_not_execute_tool():
 
 async def test_execute_mode_runs_tool():
     """In execute mode (default), tools run normally."""
+    from pydantic import BaseModel
+
     from enterprise_ai.execution.orchestrator import Orchestrator
     from enterprise_ai.modes.execution import ExecutionMode
     from enterprise_ai.permissions.engine import PermissionEngine, PermissionMode
@@ -110,7 +115,6 @@ async def test_execute_mode_runs_tool():
     from enterprise_ai.tools.context import ToolContext
     from enterprise_ai.tools.contract import BaseTool
     from enterprise_ai.tools.registry import ToolRegistry
-    from pydantic import BaseModel
 
     class DummyInput(BaseModel):
         cmd: str = "echo hi"
@@ -142,6 +146,8 @@ async def test_execute_mode_runs_tool():
 
 async def test_plan_mode_includes_tool_input_in_description():
     """Plan description should contain the tool's input."""
+    from pydantic import BaseModel
+
     from enterprise_ai.execution.orchestrator import Orchestrator
     from enterprise_ai.modes.execution import ExecutionMode
     from enterprise_ai.permissions.engine import PermissionEngine, PermissionMode
@@ -149,7 +155,6 @@ async def test_plan_mode_includes_tool_input_in_description():
     from enterprise_ai.tools.context import ToolContext
     from enterprise_ai.tools.contract import BaseTool
     from enterprise_ai.tools.registry import ToolRegistry
-    from pydantic import BaseModel
 
     class SearchInput(BaseModel):
         query: str = "test"

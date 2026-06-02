@@ -1,10 +1,7 @@
 """Tests for the hook system."""
 import asyncio
 
-import pytest
-
 from enterprise_ai.hooks import HookEvent, HookExecutor, HookPayload, HookRegistry, HookResult
-
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 

@@ -7,7 +7,12 @@ from enterprise_ai.schema import Message, ToolSchema
 
 def _make_anthropic() -> object:
     from enterprise_ai.providers.anthropic import AnthropicProvider
-    return AnthropicProvider.__new__(AnthropicProvider)
+    from enterprise_ai.providers.credential_pool import CredentialPool
+
+    provider = AnthropicProvider.__new__(AnthropicProvider)
+    provider._pool = CredentialPool([None])
+    provider._clients = [None]
+    return provider
 
 
 def _make_tools() -> list[ToolSchema]:
@@ -29,11 +34,9 @@ def test_no_caching_system_is_plain_string():
     assert system == "You are helpful."
 
 
-def test_caching_builds_cache_control_block(monkeypatch):
+async def test_caching_builds_cache_control_block(monkeypatch):
     """With cache_system_prompt=True, system is wrapped with cache_control."""
-    import asyncio
     from unittest.mock import MagicMock
-
 
     provider = _make_anthropic()
     captured: dict = {}
@@ -49,13 +52,11 @@ def test_caching_builds_cache_control_block(monkeypatch):
 
     client = MagicMock()
     client.messages.create = fake_create
-    provider._client = client
+    provider._clients = [client]
     provider._model = "claude-opus-4-8"
 
     messages = [Message.system("Long system prompt."), Message.user("Do something")]
-    asyncio.get_event_loop().run_until_complete(
-        provider.complete(messages, cache_system_prompt=True)
-    )
+    await provider.complete(messages, cache_system_prompt=True)
 
     system_param = captured.get("system")
     assert isinstance(system_param, list), "System should be a list when caching"
@@ -66,10 +67,8 @@ def test_caching_builds_cache_control_block(monkeypatch):
     assert block["cache_control"] == {"type": "ephemeral"}
 
 
-def test_no_caching_system_stays_string(monkeypatch):
-    import asyncio
+async def test_no_caching_system_stays_string(monkeypatch):
     from unittest.mock import MagicMock
-
 
     provider = _make_anthropic()
     captured: dict = {}
@@ -85,24 +84,20 @@ def test_no_caching_system_stays_string(monkeypatch):
 
     client = MagicMock()
     client.messages.create = fake_create
-    provider._client = client
+    provider._clients = [client]
     provider._model = "claude-opus-4-8"
 
     messages = [Message.system("Short prompt."), Message.user("Hello")]
-    asyncio.get_event_loop().run_until_complete(
-        provider.complete(messages, cache_system_prompt=False)
-    )
+    await provider.complete(messages, cache_system_prompt=False)
 
     assert captured.get("system") == "Short prompt."
 
 
 # ── Tool schema caching ───────────────────────────────────────────────────────
 
-def test_tools_last_entry_gets_cache_control(monkeypatch):
+async def test_tools_last_entry_gets_cache_control(monkeypatch):
     """With cache_system_prompt=True, the last tool gets cache_control."""
-    import asyncio
     from unittest.mock import MagicMock
-
 
     provider = _make_anthropic()
     captured: dict = {}
@@ -118,14 +113,12 @@ def test_tools_last_entry_gets_cache_control(monkeypatch):
 
     client = MagicMock()
     client.messages.create = fake_create
-    provider._client = client
+    provider._clients = [client]
     provider._model = "claude-opus-4-8"
 
     tools = _make_tools()
     messages = [Message.user("use tools")]
-    asyncio.get_event_loop().run_until_complete(
-        provider.complete(messages, tools=tools, cache_system_prompt=True)
-    )
+    await provider.complete(messages, tools=tools, cache_system_prompt=True)
 
     tool_list = captured.get("tools", [])
     assert len(tool_list) == 2
@@ -134,10 +127,8 @@ def test_tools_last_entry_gets_cache_control(monkeypatch):
     assert tool_list[-1]["cache_control"] == {"type": "ephemeral"}
 
 
-def test_tools_no_caching_no_cache_control(monkeypatch):
-    import asyncio
+async def test_tools_no_caching_no_cache_control(monkeypatch):
     from unittest.mock import MagicMock
-
 
     provider = _make_anthropic()
     captured: dict = {}
@@ -153,14 +144,12 @@ def test_tools_no_caching_no_cache_control(monkeypatch):
 
     client = MagicMock()
     client.messages.create = fake_create
-    provider._client = client
+    provider._clients = [client]
     provider._model = "claude-opus-4-8"
 
     tools = _make_tools()
     messages = [Message.user("use tools")]
-    asyncio.get_event_loop().run_until_complete(
-        provider.complete(messages, tools=tools, cache_system_prompt=False)
-    )
+    await provider.complete(messages, tools=tools, cache_system_prompt=False)
 
     tool_list = captured.get("tools", [])
     assert all("cache_control" not in t for t in tool_list)

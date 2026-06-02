@@ -18,17 +18,32 @@ from enterprise_ai.schema.event import EventType
 
 
 class AnthropicProvider(Provider):
-    def __init__(self, model: str = "claude-opus-4-8", api_key: str | None = None) -> None:
+    def __init__(
+        self,
+        model: str = "claude-opus-4-8",
+        api_key: str | None = None,
+        api_keys: list[str] | None = None,
+    ) -> None:
         try:
             import anthropic as _anthropic
         except ImportError:
             raise ImportError("anthropic package required: pip install anthropic")
-        self._client = _anthropic.AsyncAnthropic(api_key=api_key)
+
+        from enterprise_ai.providers.credential_pool import CredentialPool
+
+        # api_keys takes precedence; fall back to api_key (or None = env var)
+        all_keys: list[str | None] = list(api_keys) if api_keys else [api_key]
+        self._pool = CredentialPool(all_keys)
+        self._clients = [_anthropic.AsyncAnthropic(api_key=k) for k in all_keys]
         self._model = model
 
     @property
     def model(self) -> str:
         return self._model
+
+    @property
+    def _client(self):  # type: ignore[return]
+        return self._clients[self._pool._idx]
 
     def _to_anthropic_messages(self, messages: list[Message]) -> tuple[str, list[dict]]:
         system = ""
@@ -89,14 +104,17 @@ class AnthropicProvider(Provider):
                 content = block.text
             elif block.type == "tool_use":
                 tool_calls.append(ToolCall(id=block.id, name=block.name, input=block.input))
+        usage = resp.usage
         return LLMResponse(
             content=content,
             tool_calls=tool_calls,
-            input_tokens=resp.usage.input_tokens,
-            output_tokens=resp.usage.output_tokens,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
             stop_reason=resp.stop_reason or "end_turn",
             thinking_content=thinking_content,
             thinking_blocks=thinking_blocks,
+            cache_read_tokens=getattr(usage, "cache_read_input_tokens", 0) or 0,
+            cache_write_tokens=getattr(usage, "cache_creation_input_tokens", 0) or 0,
         )
 
     async def complete(
@@ -126,13 +144,22 @@ class AnthropicProvider(Provider):
 
         if extended_thinking:
             params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
-            resp = await self._client.beta.messages.create(
-                **params, betas=["interleaved-thinking-2025-05-07"]
-            )
-        else:
-            resp = await self._client.messages.create(**params)
 
-        return self._parse_response(resp)
+        self._pool.reset_round()
+        while True:
+            try:
+                if extended_thinking:
+                    resp = await self._client.beta.messages.create(
+                        **params, betas=["interleaved-thinking-2025-05-07"]
+                    )
+                else:
+                    resp = await self._client.messages.create(**params)
+                return self._parse_response(resp)
+            except Exception as exc:
+                # Rotate keys only on rate-limit; all other errors propagate immediately
+                if getattr(exc, "status_code", None) == 429 and not self._pool.rotate():
+                    continue
+                raise
 
     async def stream(  # type: ignore[override]
         self,
@@ -167,6 +194,10 @@ class AnthropicProvider(Provider):
 
         if extended_thinking:
             params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
+
+        # For streaming, we pick the key once at the start (no mid-stream rotation)
+        self._pool.reset_round()
+        if extended_thinking:
             stream_ctx = self._client.beta.messages.stream(
                 **params, betas=["interleaved-thinking-2025-05-07"]
             )

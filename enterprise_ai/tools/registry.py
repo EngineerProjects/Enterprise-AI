@@ -15,10 +15,10 @@ class ToolRegistry:
         return self._tools.get(name)
 
     def all(self) -> list[BaseTool]:
-        return list(self._tools.values())
+        return [t for t in self._tools.values() if t.is_available()]
 
     def schemas(self) -> list[ToolSchema]:
-        return [t.to_schema() for t in self._tools.values()]
+        return [t.to_schema() for t in self._tools.values() if t.is_available()]
 
     def __contains__(self, name: str) -> bool:
         return name in self._tools

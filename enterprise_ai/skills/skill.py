@@ -42,12 +42,27 @@ class Skill:
     version: str = ""
     source_path: Path | None = None
 
-    def system_prompt_block(self) -> str:
-        """Returns the text block to inject into the agent's system prompt."""
+    def system_prompt_block(
+        self,
+        vars: dict[str, str] | None = None,
+        enable_shell: bool = False,
+    ) -> str:
+        """
+        Returns the text block to inject into the agent's system prompt.
+
+        Args:
+            vars:         Template variables for ${placeholder} substitution.
+                          Defaults always include ${date} and ${pwd}.
+            enable_shell: Execute ```bash / ```sh fenced blocks and replace
+                          them with their stdout. Disabled by default.
+        """
+        from enterprise_ai.skills.preprocessing import preprocess
+
+        body = preprocess(self.body, vars=vars, enable_shell=enable_shell)
         lines = []
         if self.when_to_use:
             lines.append(f"<!-- Skill: {self.name} | {self.when_to_use} -->")
-        lines.append(self.body.strip())
+        lines.append(body.strip())
         return "\n".join(lines)
 
     def restricts_tools(self) -> bool:

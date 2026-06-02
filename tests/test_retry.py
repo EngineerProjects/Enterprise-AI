@@ -16,7 +16,6 @@ from enterprise_ai.providers.retry import (
     parse_retry_after,
 )
 
-
 # ── RetryConfig / calculate_backoff ──────────────────────────────────────────
 
 def test_backoff_increases_exponentially():
