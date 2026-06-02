@@ -2,20 +2,9 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import enterprise_ai.prompt.templates as _tpl
 from enterprise_ai.providers.base import Provider
 from enterprise_ai.schema import Message
-
-_COMPACTION_PROMPT = """\
-You are summarizing a conversation to reduce context length.
-Summarize the following conversation turns into a concise paragraph.
-Preserve: key decisions made, important facts discovered, current task state, \
-tool results that matter.
-Do NOT preserve: verbose tool outputs, redundant exchanges, greetings.
-Target length: under 500 words.
-
-<conversation>
-{messages_text}
-</conversation>"""
 
 _DEFAULT_CONTEXT_WINDOW = 200_000
 
@@ -60,7 +49,7 @@ class CompactionEngine:
         messages_text = "\n".join(
             f"[{m.role.value.upper()}]: {m.text()[:400]}" for m in to_summarise
         )
-        prompt = _COMPACTION_PROMPT.format(messages_text=messages_text)
+        prompt = _tpl.COMPACTION_PROMPT.format(messages_text=messages_text)
 
         try:
             resp = await self._provider.complete(

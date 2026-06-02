@@ -195,14 +195,18 @@ class Agent:
         skills: list[Skill],
         project_instructions: str = "",
     ) -> str:
-        parts = [base.strip()] if base.strip() else []
+        from enterprise_ai.prompt.builder import PromptBuilder
+
+        builder = PromptBuilder()
+        if base.strip():
+            builder.add(base.strip())
         if project_instructions:
-            parts.append("## Project Instructions\n\n" + project_instructions)
+            builder.add(f"## Project Instructions\n\n{project_instructions}")
         for skill in skills:
             block = skill.system_prompt_block()
             if block:
-                parts.append(block)
-        return "\n\n---\n\n".join(parts)
+                builder.add(block)
+        return builder.build()
 
     @staticmethod
     def _merged_allowed_tools(skills: list[Skill]) -> set[str] | None:

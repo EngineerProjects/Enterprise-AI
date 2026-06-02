@@ -85,7 +85,9 @@ class SpawnTool(BaseTool):
         orchestrator = Orchestrator(registry=registry, permissions=permissions)
         memory = SessionMemory()
 
-        system = input.system_prompt or "You are a specialized sub-agent. Complete the task and call terminate when done."
+        from enterprise_ai.prompt.templates import SPAWN_DEFAULT_SYSTEM
+
+        system = input.system_prompt or SPAWN_DEFAULT_SYSTEM
         loop = QueryLoop(
             provider=provider,
             registry=registry,

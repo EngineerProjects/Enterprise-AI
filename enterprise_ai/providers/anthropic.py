@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import Any, AsyncIterator
 
+from enterprise_ai.prompt.cache import apply_cache_to_system, apply_cache_to_tools
 from enterprise_ai.providers.base import LLMResponse, Provider
 from enterprise_ai.schema import (
     ImageBlock,
@@ -118,15 +119,10 @@ class AnthropicProvider(Provider):
         }
         cache_prompt: bool = kwargs.get("cache_system_prompt", False)
         if system:
-            if cache_prompt:
-                params["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
-            else:
-                params["system"] = system
+            params["system"] = apply_cache_to_system(system) if cache_prompt else system
         if tools:
             tool_list = self._to_anthropic_tools(tools)
-            if cache_prompt:
-                tool_list[-1]["cache_control"] = {"type": "ephemeral"}
-            params["tools"] = tool_list
+            params["tools"] = apply_cache_to_tools(tool_list) if cache_prompt else tool_list
 
         if extended_thinking:
             params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
@@ -158,15 +154,10 @@ class AnthropicProvider(Provider):
         }
         cache_prompt: bool = kwargs.get("cache_system_prompt", False)
         if system:
-            if cache_prompt:
-                params["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
-            else:
-                params["system"] = system
+            params["system"] = apply_cache_to_system(system) if cache_prompt else system
         if tools:
             tool_list = self._to_anthropic_tools(tools)
-            if cache_prompt:
-                tool_list[-1]["cache_control"] = {"type": "ephemeral"}
-            params["tools"] = tool_list
+            params["tools"] = apply_cache_to_tools(tool_list) if cache_prompt else tool_list
 
         current_tool_id = ""
         current_tool_name = ""

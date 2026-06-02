@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+import enterprise_ai.prompt.templates as _tpl
+
 
 @dataclass
 class TokenBudgetConfig:
@@ -50,7 +52,7 @@ class TokenBudgetTracker:
         self.last_budget_delta = delta
         self.last_budget_check_tokens = current
         self.budget_continuation_count += 1
-        return BudgetDecision(continue_loop=True, nudge_message="Continue with the task.")
+        return BudgetDecision(continue_loop=True, nudge_message=_tpl.BUDGET_NUDGE_MESSAGE)
 
     def reset(self) -> None:
         self.total_turn_tokens = 0
