@@ -84,6 +84,7 @@ class Agent:
         execution_mode: ExecutionMode = ExecutionMode.execute,
         extended_thinking: bool = False,
         thinking_budget_tokens: int = 10_000,
+        cache_system_prompt: bool = False,
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
@@ -165,6 +166,7 @@ class Agent:
             stop_hooks=stop_hook_runner,
             extended_thinking=extended_thinking,
             thinking_budget_tokens=thinking_budget_tokens,
+            cache_system_prompt=cache_system_prompt,
         )
 
     # ------------------------------------------------------------------

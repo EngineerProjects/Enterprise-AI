@@ -4,7 +4,15 @@ import json
 from typing import Any, AsyncIterator
 
 from enterprise_ai.providers.base import LLMResponse, Provider
-from enterprise_ai.schema import Message, Role, StreamEvent, ToolCall, ToolSchema
+from enterprise_ai.schema import (
+    ImageBlock,
+    Message,
+    Role,
+    StreamEvent,
+    TextBlock,
+    ToolCall,
+    ToolSchema,
+)
 from enterprise_ai.schema.event import EventType
 
 
@@ -29,7 +37,16 @@ class AnthropicProvider(Provider):
                 system = msg.text()
                 continue
             if msg.role == Role.user:
-                converted.append({"role": "user", "content": msg.text()})
+                if isinstance(msg.content, list):
+                    parts: list[Any] = []
+                    for block in msg.content:
+                        if isinstance(block, TextBlock) and block.text:
+                            parts.append({"type": "text", "text": block.text})
+                        elif isinstance(block, ImageBlock):
+                            parts.append({"type": "image", "source": block.source})
+                    converted.append({"role": "user", "content": parts})
+                else:
+                    converted.append({"role": "user", "content": msg.text()})
             elif msg.role == Role.assistant:
                 content: list[Any] = []
                 # Thinking blocks must come first — Anthropic API requirement for multi-turn
@@ -99,10 +116,17 @@ class AnthropicProvider(Provider):
             "max_tokens": effective_max_tokens,
             "messages": msgs,
         }
+        cache_prompt: bool = kwargs.get("cache_system_prompt", False)
         if system:
-            params["system"] = system
+            if cache_prompt:
+                params["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            else:
+                params["system"] = system
         if tools:
-            params["tools"] = self._to_anthropic_tools(tools)
+            tool_list = self._to_anthropic_tools(tools)
+            if cache_prompt:
+                tool_list[-1]["cache_control"] = {"type": "ephemeral"}
+            params["tools"] = tool_list
 
         if extended_thinking:
             params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget}
@@ -132,10 +156,17 @@ class AnthropicProvider(Provider):
             "max_tokens": effective_max_tokens,
             "messages": msgs,
         }
+        cache_prompt: bool = kwargs.get("cache_system_prompt", False)
         if system:
-            params["system"] = system
+            if cache_prompt:
+                params["system"] = [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+            else:
+                params["system"] = system
         if tools:
-            params["tools"] = self._to_anthropic_tools(tools)
+            tool_list = self._to_anthropic_tools(tools)
+            if cache_prompt:
+                tool_list[-1]["cache_control"] = {"type": "ephemeral"}
+            params["tools"] = tool_list
 
         current_tool_id = ""
         current_tool_name = ""

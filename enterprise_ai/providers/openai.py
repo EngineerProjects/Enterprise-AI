@@ -4,7 +4,15 @@ import json
 from typing import Any, AsyncIterator
 
 from enterprise_ai.providers.base import LLMResponse, Provider
-from enterprise_ai.schema import Message, Role, StreamEvent, ToolCall, ToolSchema
+from enterprise_ai.schema import (
+    ImageBlock,
+    Message,
+    Role,
+    StreamEvent,
+    TextBlock,
+    ToolCall,
+    ToolSchema,
+)
 
 
 class OpenAIProvider(Provider):
@@ -33,7 +41,22 @@ class OpenAIProvider(Provider):
             if msg.role == Role.system:
                 converted.append({"role": "system", "content": msg.text()})
             elif msg.role == Role.user:
-                converted.append({"role": "user", "content": msg.text()})
+                if isinstance(msg.content, list):
+                    parts: list[Any] = []
+                    for block in msg.content:
+                        if isinstance(block, TextBlock) and block.text:
+                            parts.append({"type": "text", "text": block.text})
+                        elif isinstance(block, ImageBlock):
+                            src = block.source
+                            if src.get("type") == "url":
+                                parts.append({"type": "image_url", "image_url": {"url": src["url"]}})
+                            else:
+                                mt = src.get("media_type", "image/jpeg")
+                                data = src.get("data", "")
+                                parts.append({"type": "image_url", "image_url": {"url": f"data:{mt};base64,{data}"}})
+                    converted.append({"role": "user", "content": parts})
+                else:
+                    converted.append({"role": "user", "content": msg.text()})
             elif msg.role == Role.assistant:
                 entry: dict[str, Any] = {"role": "assistant", "content": msg.text() or ""}
                 if msg.tool_calls:

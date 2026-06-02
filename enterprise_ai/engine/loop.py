@@ -51,6 +51,7 @@ class QueryLoop:
         stop_hooks: StopHookRunner | None = None,
         extended_thinking: bool = False,
         thinking_budget_tokens: int = 10_000,
+        cache_system_prompt: bool = False,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -63,6 +64,7 @@ class QueryLoop:
         self._stop_hooks = stop_hooks
         self._extended_thinking = extended_thinking
         self._thinking_budget_tokens = thinking_budget_tokens
+        self._cache_system_prompt = cache_system_prompt
 
     async def run(self, prompt: str, ctx: ToolContext) -> SessionResult:
         session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
@@ -278,6 +280,8 @@ class QueryLoop:
         if self._extended_thinking:
             extra["extended_thinking"] = True
             extra["thinking_budget_tokens"] = self._thinking_budget_tokens
+        if self._cache_system_prompt:
+            extra["cache_system_prompt"] = True
 
         if self._retry_config is None:
             return await self._provider.complete(messages, tools=tools, **extra)
