@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import uuid
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Callable
 
 from enterprise_ai.engine.instructions import read_project_instructions
 from enterprise_ai.engine.loop import QueryLoop
@@ -293,6 +293,33 @@ class Agent:
 
     def add_tool(self, tool: BaseTool) -> None:
         self._registry.register(tool)
+
+    def with_spawn(self, provider_factory: Callable | None = None) -> "Agent":
+        """Enable sub-agent spawning via the spawn_agent tool.
+
+        After calling this, the LLM can use spawn_agent(task="...") to delegate
+        subtasks to isolated sub-agents that run to completion and return results.
+
+        provider_factory: callable () → Provider for each sub-agent.
+                          Defaults to reusing this agent's provider (stateless, safe).
+
+        Usage:
+            agent = Agent(provider=..., tools=[BashTool()]).with_spawn()
+            # LLM can now call: spawn_agent(task="...", max_turns=20)
+
+            # Custom provider per sub-agent:
+            agent = Agent(...).with_spawn(
+                provider_factory=lambda: AnthropicProvider(model="claude-haiku-4-5-20251001")
+            )
+        """
+        from enterprise_ai.tools.builtin.spawn import SpawnTool
+
+        factory: Callable = provider_factory or (lambda: self._provider)
+        spawn_tool = SpawnTool(provider_factory=factory)
+        self._registry.register(spawn_tool)
+        # Expose parent registry so SpawnTool can optionally inherit tools to sub-agents
+        self._metadata["_parent_registry"] = self._registry
+        return self
 
     def add_skill(self, skill: str | Skill) -> None:
         """Add a skill after construction. Rebuilds the system prompt."""
