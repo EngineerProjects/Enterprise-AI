@@ -333,23 +333,19 @@ Agents communicate by **sending and receiving messages** through a shared mailbo
 
 There is no master process telling agents when to act. They act when they have mail, when a task is available to claim, or when their current work produces output to share.
 
-### Skills define the role
+### Roles vs Skills — important distinction
 
-Roles are not hard-coded classes. A role is a **skill** — a set of instructions, behaviors, and constraints loaded into the agent's system prompt. The `manager` skill tells an agent to decompose missions and delegate. The `cto` skill tells an agent to think architecturally and review technical decisions.
+**Roles** = system prompt configuration. An agent is given a role via its `system_prompt` parameter. The system prompt defines who the agent is: "You are the team manager. Decompose the mission into tasks and delegate." Roles live in the caller's code, not in the framework.
 
-This means roles are **composable and replaceable**: you can define a custom `security-auditor` skill and add it to any agent without touching the framework code.
+**Skills** = Markdown+YAML files injected into an agent's context at runtime. Skills define *how to do a specific task*: `code-review`, `brainstorming`, `systematic-debugging`. A skill can restrict tool access, override the model, run shell setup, or fork into an isolated sub-session. Skills are composable and reusable across agents — they are not role definitions.
 
 ### Sub-agent spawning
 
-Any agent can spawn **one-shot sub-agents** for specific subtasks — the same model as nexus-engine's sub-agent delegation. The parent agent sends a task to a freshly created agent, waits for the result, and continues its own session. The sub-agent is ephemeral; the parent is persistent.
+Any agent can spawn **one-shot sub-agents** for specific subtasks via `SpawnTool` — the same model as nexus-engine's sub-agent delegation. The parent agent creates an ephemeral sub-agent, waits for its result, and continues its own session.
 
 ```python
-# Inside an agent's tool call — the agent decides to delegate
-result = await self.spawn_subagent(
-    task="Write unit tests for the auth module",
-    tools=[BashTool(), FileEditor()],
-    skill="test-engineer",
-)
+# The agent calls spawn_agent as a tool call during its session
+# SpawnTool creates a fresh isolated agent and runs it to completion
 ```
 
 ### API
@@ -357,9 +353,9 @@ result = await self.spawn_subagent(
 ```python
 team = Team(
     agents=[
-        Agent(skills=["ceo"]),
-        Agent(skills=["cto"]),
-        Agent(skills=["developer", "coding-conventions"]),
+        Agent(system_prompt="You are the team manager. Decompose the mission into tasks."),
+        Agent(system_prompt="You are a developer. Claim development tasks and implement them."),
+        Agent(system_prompt="You are a researcher. Claim research tasks and document findings."),
     ],
     mailbox=Mailbox(),       # shared communication bus
     task_board=TaskBoard(),  # shared task queue
@@ -373,15 +369,69 @@ await team.run("Implement OAuth2 authentication")
 
 ## 11. Memory
 
-`enterprise_ai/memory/` manages context persistence.
+`enterprise_ai/memory/` manages context persistence at two levels.
 
-**Two levels:**
-- **Session memory** — current conversation history (in-memory, sliding window)
-- **Long-term memory** — SQLite cross-session persistence (optional)
+### Session memory (implemented)
 
-**Team memory:**
-- **Shared** — decisions, results, tasks visible to all team members
-- **Private** — each agent's own session history
+In-memory sliding window over the current conversation. Automatically managed by the `QueryLoop`. No configuration needed.
+
+### Team shared memory — RAG-based (Phase 3)
+
+The shared memory of a team is a searchable corpus of everything the team produces: mails sent, task results, agent notes, decisions. Agents query this memory to get relevant context before acting.
+
+Two backends are provided, selectable at team creation time:
+
+#### Vectorless RAG — `FTSMemory` (default)
+
+Built on **SQLite FTS5** (the same approach as hermes-agent). No embedding API, no external service, works fully offline.
+
+```python
+team = Team(agents=[...], memory=FTSMemory(db_path="~/.enterprise-ai/team.db"))
+```
+
+- Every mail sent → indexed in FTS5
+- Every task result → indexed in FTS5
+- Agents call `SearchMemoryTool(query="OAuth2 decisions")` → full-text search
+- Fast, simple, no dependencies beyond sqlite3 (stdlib)
+- Best for: keyword search, exact matches, offline use, small teams
+
+#### Vectorial RAG — `VectorMemory` (optional)
+
+Semantic search via embeddings. Pluggable vector backend.
+
+```python
+# SQLite-based (zero infra, good for dev)
+team = Team(agents=[...], memory=VectorMemory(backend="sqlite-vec"))
+
+# Qdrant (production, large teams)
+team = Team(agents=[...], memory=VectorMemory(backend="qdrant", url="http://localhost:6333"))
+```
+
+Supported backends: `sqlite-vec` (embedded), `qdrant`, `chroma`.
+
+- Documents embedded on write via provider's embedding API or a local model
+- Agents call `SearchMemoryTool(query="...")` → semantic nearest-neighbor search
+- Finds relevant context even without keyword match
+- Best for: large memory corpora, fuzzy queries, multi-domain teams
+
+#### What gets indexed automatically
+
+| Source | Content indexed |
+|---|---|
+| `Mailbox.send()` | Mail body + subject + sender/recipients |
+| `TaskBoard.complete()` | Task result + description |
+| `TaskBoard.fail()` | Failure reason |
+| Agent explicit write | Via `WriteMemoryTool` — agent stores a note or finding |
+
+#### Interface for agents
+
+```python
+# Agents use these as regular tool calls
+SearchMemoryTool  # query team memory → returns ranked results
+WriteMemoryTool   # store a note, finding, or decision into shared memory
+```
+
+Both tools are injected automatically when a `Team` is created with a memory backend.
 
 ---
 

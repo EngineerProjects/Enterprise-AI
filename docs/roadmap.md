@@ -56,12 +56,16 @@
 
 ### To build
 
-- [ ] Skill system — Markdown+YAML files that inject reusable procedures into agent context (allowed-tools, model override, shell setup hooks, fork/inline execution context). NOT role definitions — skills are task templates like `code-review`, `brainstorming`, `systematic-debugging`.
+- [ ] Skill system — Markdown+YAML files that inject reusable procedures into agent context (allowed-tools, model override, shell setup, fork/inline context). NOT role definitions — skills are task templates like `code-review`, `brainstorming`, `systematic-debugging`.
+- [ ] Team shared memory — RAG-based searchable corpus of everything the team produces (mails, task results, agent notes):
+  - `FTSMemory` — vectorless, SQLite FTS5, zero dependencies, offline-first (default)
+  - `VectorMemory` — semantic search, pluggable backend (sqlite-vec / qdrant / chroma)
+  - `SearchMemoryTool` + `WriteMemoryTool` — LLM-callable tools injected into agents
+- [ ] Long-term memory (SQLite cross-session persistence for individual agents)
 - [ ] Additional tools: BrowserTool, DocumentTool (PDF, DOCX), ImageTool
 - [ ] Integrated MCP client — consume any MCP server out of the box
 - [ ] Optional HTTP API (FastAPI) — for integrators who want a server surface
 - [ ] More providers: Mistral, Google Gemini, AWS Bedrock
-- [ ] Basic RAG — document ingestion and retrieval inside tools
 
 ---
 
