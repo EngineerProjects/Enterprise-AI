@@ -38,10 +38,11 @@
 
 ### To build
 
-- [ ] `team/` — Team class, inter-agent communication (mailbox, task board)
-- [ ] Built-in roles: Manager, Developer, Researcher, Planner
-- [ ] Task delegation: the manager decomposes, specialists execute
-- [ ] Shared memory: team-wide memory (decisions, results)
+- [ ] `team/mailbox.py` — async message bus (send, receive, broadcast)
+- [ ] `team/task_board.py` — shared task queue (post, claim, complete)
+- [ ] `team/team.py` — Team class, persistent parallel agent sessions
+- [ ] Sub-agent spawning from within an agent (one-shot delegation, `SpawnTool`)
+- [ ] Shared memory: team-wide context visible to all members
 - [ ] Per-member budget: max tokens + global mission timeout
 - [ ] Integration tests (end-to-end missions)
 
@@ -55,7 +56,7 @@
 
 ### To build
 
-- [ ] Skill system — portable YAML/Python skills across agents
+- [ ] Skill system — Markdown+YAML files that inject reusable procedures into agent context (allowed-tools, model override, shell setup hooks, fork/inline execution context). NOT role definitions — skills are task templates like `code-review`, `brainstorming`, `systematic-debugging`.
 - [ ] Additional tools: BrowserTool, DocumentTool (PDF, DOCX), ImageTool
 - [ ] Integrated MCP client — consume any MCP server out of the box
 - [ ] Optional HTTP API (FastAPI) — for integrators who want a server surface

@@ -154,10 +154,9 @@ enterprise_ai/
 - [ ] TaskBoard — shared task queue (post, claim, complete)
 - [ ] Team class — persistent parallel agent sessions
 - [ ] Sub-agent spawning from within an agent (one-shot delegation)
-- [ ] Built-in skills: manager, developer, researcher, planner
 
 ### Phase 3 — Ecosystem
-- [ ] Skill system (YAML/Python portable skills)
+- [ ] Skill system — Markdown+YAML files that inject reusable procedures into agent context (allowed-tools, model override, shell setup, fork/inline context)
 - [ ] MCP client integration
 - [ ] Extended tool library (Browser, Document, Image)
 - [ ] Long-term memory (SQLite cross-session)

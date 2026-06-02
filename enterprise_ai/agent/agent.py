@@ -53,6 +53,7 @@ class Agent:
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
+        self._metadata: dict[str, Any] = {}
 
         # Provider
         if isinstance(provider, str):

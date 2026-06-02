@@ -2,6 +2,7 @@ from enterprise_ai.tools.builtin import (
     BashTool,
     CodeSearchTool,
     FileEditorTool,
+    SpawnTool,
     TerminateTool,
     WebSearchTool,
 )
@@ -11,5 +12,5 @@ from enterprise_ai.tools.registry import ToolRegistry
 
 __all__ = [
     "BaseTool", "ToolContext", "ToolRegistry",
-    "BashTool", "FileEditorTool", "WebSearchTool", "CodeSearchTool", "TerminateTool",
+    "BashTool", "FileEditorTool", "WebSearchTool", "CodeSearchTool", "TerminateTool", "SpawnTool",
 ]

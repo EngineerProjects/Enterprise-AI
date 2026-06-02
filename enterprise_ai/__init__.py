@@ -15,11 +15,12 @@ Quick start:
 
 from enterprise_ai.agent import Agent
 from enterprise_ai.schema import Message, Role, SessionResult, StreamEvent, ToolCall, ToolResult
+from enterprise_ai.team import Mailbox, TaskBoard, Team
 
 __version__ = "0.1.0"
 
 __all__ = [
-    "Agent",
+    "Agent", "Team", "Mailbox", "TaskBoard",
     "Message", "Role", "ToolCall", "ToolResult", "StreamEvent", "SessionResult",
     "__version__",
 ]
