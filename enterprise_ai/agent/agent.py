@@ -10,6 +10,8 @@ from enterprise_ai.permissions.engine import PermissionEngine, PermissionMode
 from enterprise_ai.providers.base import Provider
 from enterprise_ai.providers.factory import create_provider
 from enterprise_ai.schema import SessionResult, StreamEvent
+from enterprise_ai.skills.registry import resolve_skills
+from enterprise_ai.skills.skill import Skill
 from enterprise_ai.tools.context import ToolContext
 from enterprise_ai.tools.contract import BaseTool
 from enterprise_ai.tools.registry import ToolRegistry
@@ -25,12 +27,14 @@ class Agent:
       - permission pipeline
       - streaming events
       - session memory
+      - skill injection (Markdown+YAML procedures injected into system context)
 
     Usage:
         agent = Agent(
             provider=AnthropicProvider(model="claude-opus-4-8"),
             tools=[BashTool(), FileEditorTool()],
             system_prompt="You are a senior software engineer.",
+            skills=["code-review", "systematic-debugging"],
         )
         result = await agent.run("Fix the failing test in tests/auth_test.py")
 
@@ -44,6 +48,7 @@ class Agent:
         provider: Provider | str = "anthropic",
         tools: list[BaseTool] | None = None,
         system_prompt: str = "",
+        skills: list[str | Skill] | None = None,
         permission_mode: PermissionMode | str = PermissionMode.auto,
         deny_tools: set[str] | None = None,
         working_dir: str = ".",
@@ -61,15 +66,22 @@ class Agent:
         else:
             self._provider = provider
 
-        # Tools
+        # Skills — resolve names and inject into system prompt
+        self._skills = self._resolve_skills(skills or [])
+        effective_system = self._build_system_prompt(system_prompt, self._skills)
+        effective_deny = set(deny_tools or [])
+
+        # Tools — filtered by skill allowed-tools restrictions if any
         self._registry = ToolRegistry()
+        skill_allowed = self._merged_allowed_tools(self._skills)
         for tool in (tools or []):
-            self._registry.register(tool)
+            if skill_allowed is None or tool.name in skill_allowed:
+                self._registry.register(tool)
 
         # Permissions
         if isinstance(permission_mode, str):
             permission_mode = PermissionMode(permission_mode)
-        self._permissions = PermissionEngine(mode=permission_mode, deny_tools=deny_tools)
+        self._permissions = PermissionEngine(mode=permission_mode, deny_tools=effective_deny)
 
         # Core components
         self._memory = SessionMemory(max_messages=max_memory)
@@ -82,18 +94,61 @@ class Agent:
             registry=self._registry,
             orchestrator=self._orchestrator,
             memory=self._memory,
-            system_prompt=system_prompt,
+            system_prompt=effective_system,
             max_turns=max_turns,
         )
         self._working_dir = working_dir
 
+    # ------------------------------------------------------------------
+    # Skills
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_skills(skills: list[str | Skill]) -> list[Skill]:
+        names = [s for s in skills if isinstance(s, str)]
+        objs = [s for s in skills if isinstance(s, Skill)]
+        return objs + resolve_skills(names)
+
+    @staticmethod
+    def _build_system_prompt(base: str, skills: list[Skill]) -> str:
+        parts = [base.strip()] if base.strip() else []
+        for skill in skills:
+            block = skill.system_prompt_block()
+            if block:
+                parts.append(block)
+        return "\n\n---\n\n".join(parts)
+
+    @staticmethod
+    def _merged_allowed_tools(skills: list[Skill]) -> set[str] | None:
+        """
+        Returns the union of allowed-tools across all skills that restrict tools.
+        Returns None if no skill restricts tools (= all tools allowed).
+        """
+        restricted = [s for s in skills if s.restricts_tools()]
+        if not restricted:
+            return None
+        allowed: set[str] = set()
+        for skill in restricted:
+            allowed.update(skill.allowed_tools)
+        return allowed
+
+    # ------------------------------------------------------------------
+    # Context
+    # ------------------------------------------------------------------
+
     def _make_ctx(self, session_id: str = "") -> ToolContext:
-        return ToolContext(
+        ctx = ToolContext(
             session_id=session_id or str(uuid.uuid4()),
             agent_id=self.id,
             working_dir=self._working_dir,
             permission_mode=self._permissions.mode.value,
         )
+        ctx.metadata.update(self._metadata)
+        return ctx
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
 
     async def run(self, prompt: str, session_id: str = "") -> SessionResult:
         """Run the agent to completion and return the final result."""
@@ -109,9 +164,20 @@ class Agent:
     def add_tool(self, tool: BaseTool) -> None:
         self._registry.register(tool)
 
+    def add_skill(self, skill: str | Skill) -> None:
+        """Add a skill after construction. Rebuilds the system prompt."""
+        resolved = self._resolve_skills([skill])
+        self._skills.extend(resolved)
+        new_prompt = self._build_system_prompt("", self._skills)
+        self._loop._system_prompt = new_prompt
+
     def reset_memory(self) -> None:
         self._memory.clear()
 
     @property
     def model(self) -> str:
         return self._provider.model
+
+    @property
+    def skills(self) -> list[Skill]:
+        return list(self._skills)
