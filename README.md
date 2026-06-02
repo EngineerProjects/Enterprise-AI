@@ -138,25 +138,29 @@ enterprise_ai/
 
 ## Development Status
 
-### Phase 1 — Core agent (in progress)
-- [ ] Schema layer (Message, ToolCall, StreamEvent)
-- [ ] Provider abstraction + Anthropic, OpenAI, OpenRouter
-- [ ] Tool contract + registry + 5 built-in tools
-- [ ] Execution orchestrator (parallel/serial, 12-step pipeline)
-- [ ] Permission pipeline (3 modes, deny rules, safety)
-- [ ] Engine query loop + state machine
-- [ ] Sandbox (Docker + local)
-- [ ] Memory (session + SQLite long-term)
+### Phase 1 — Core agent ✅
+- [x] Schema layer (Message, ToolCall, StreamEvent, Session)
+- [x] Provider abstraction + Anthropic, OpenAI, OpenRouter, Ollama
+- [x] Tool contract + registry + 5 built-in tools (bash, file_editor, web_search, code_search, terminate)
+- [x] Execution orchestrator (parallel/serial batching, 12-step pipeline)
+- [x] Permission pipeline (3 modes, bypass-immune safety check, denial tracking)
+- [x] Engine query loop + state machine + context compaction
+- [x] Sandbox — LocalSandbox (timeout, process group kill, blocked patterns) + DockerSandbox (ephemeral container, mem/cpu limits) + SandboxManager
+- [x] Memory — SessionMemory (sliding window)
+- [x] 46 unit tests — permissions, orchestrator, memory, sandbox · ruff + mypy clean
 
-### Phase 2 — Teams
-- [ ] Team class + inter-agent communication
-- [ ] Task delegation and shared memory
-- [ ] Built-in roles: Manager, Developer, Researcher, Planner
+### Phase 2 — Teams (next)
+- [ ] Mailbox — shared async message bus between agents
+- [ ] TaskBoard — shared task queue (post, claim, complete)
+- [ ] Team class — persistent parallel agent sessions
+- [ ] Sub-agent spawning from within an agent (one-shot delegation)
+- [ ] Built-in skills: manager, developer, researcher, planner
 
 ### Phase 3 — Ecosystem
-- [ ] Skill system
+- [ ] Skill system (YAML/Python portable skills)
 - [ ] MCP client integration
 - [ ] Extended tool library (Browser, Document, Image)
+- [ ] Long-term memory (SQLite cross-session)
 - [ ] Optional HTTP API server
 
 ### Phase 4 — Open source ready
