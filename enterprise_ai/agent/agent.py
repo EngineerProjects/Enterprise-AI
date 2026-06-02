@@ -5,6 +5,7 @@ from typing import Any, AsyncIterator
 
 from enterprise_ai.engine.instructions import read_project_instructions
 from enterprise_ai.engine.loop import QueryLoop
+from enterprise_ai.engine.stop_hooks import StopHookEntry, StopHookRunner
 from enterprise_ai.execution.compaction import TrimConfig
 from enterprise_ai.execution.orchestrator import Orchestrator
 from enterprise_ai.hooks.events import HookEvent
@@ -15,6 +16,7 @@ from enterprise_ai.mcp.config import MCPServerConfig
 from enterprise_ai.mcp.manager import MCPManager
 from enterprise_ai.memory.long_term import LongTermMemory
 from enterprise_ai.memory.session import SessionMemory
+from enterprise_ai.modes.execution import ExecutionMode
 from enterprise_ai.permissions.engine import PermissionEngine, PermissionMode
 from enterprise_ai.providers.base import Provider
 from enterprise_ai.providers.factory import create_provider
@@ -78,6 +80,8 @@ class Agent:
         retry_config: RetryConfig | None = None,
         trim_config: TrimConfig | None = None,
         hooks: list[tuple[HookEvent, HookHandler]] | HookRegistry | None = None,
+        stop_hooks: list[StopHookEntry] | None = None,
+        execution_mode: ExecutionMode = ExecutionMode.execute,
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
@@ -133,6 +137,11 @@ class Agent:
                 registry_obj = hooks
             hook_executor = HookExecutor(registry_obj)
 
+        # Stop hooks runner
+        stop_hook_runner: StopHookRunner | None = (
+            StopHookRunner(stop_hooks) if stop_hooks else None
+        )
+
         # Core components
         self._memory = SessionMemory(max_messages=max_memory)
         self._orchestrator = Orchestrator(
@@ -140,6 +149,7 @@ class Agent:
             permissions=self._permissions,
             trim_config=trim_config,
             hooks=hook_executor,
+            execution_mode=execution_mode,
         )
         self._loop = QueryLoop(
             provider=self._provider,
@@ -150,6 +160,7 @@ class Agent:
             max_turns=max_turns,
             retry_config=retry_config,
             hooks=hook_executor,
+            stop_hooks=stop_hook_runner,
         )
 
     # ------------------------------------------------------------------

@@ -4,6 +4,7 @@ import asyncio
 import uuid
 from typing import AsyncIterator
 
+from enterprise_ai.engine.stop_hooks import StopHookInput, StopHookRunner
 from enterprise_ai.execution.orchestrator import Orchestrator
 from enterprise_ai.hooks.events import HookEvent
 from enterprise_ai.hooks.executor import HookExecutor
@@ -47,6 +48,7 @@ class QueryLoop:
         max_turns: int = MAX_TURNS,
         retry_config: RetryConfig | None = None,
         hooks: HookExecutor | None = None,
+        stop_hooks: StopHookRunner | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -56,6 +58,7 @@ class QueryLoop:
         self._max_turns = max_turns
         self._retry_config = retry_config
         self._hooks = hooks
+        self._stop_hooks = stop_hooks
 
     async def run(self, prompt: str, ctx: ToolContext) -> SessionResult:
         session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
@@ -98,6 +101,25 @@ class QueryLoop:
 
             if not resp.has_tool_calls:
                 final_output = resp.content
+
+                # Stop hooks — can force one more turn
+                if self._stop_hooks:
+                    sh_result = await self._stop_hooks.run(StopHookInput(
+                        session_id=sid,
+                        turn_number=turn_num,
+                        stop_reason="no_tool_calls",
+                        messages=list(self._memory.get()),
+                        tool_calls_count=tool_calls_count,
+                    ))
+                    if sh_result.error is not None:
+                        session.state = SessionState.error
+                        return SessionResult(session_id=sid, output=str(sh_result.error), state=SessionState.error)
+                    if sh_result.continue_loop:
+                        for msg in sh_result.inject_messages:
+                            self._memory.add(msg)
+                        session.state = SessionState.running
+                        continue
+
                 session.state = SessionState.done
                 if self._hooks:
                     await self._hooks.fire(HookEvent.turn_end, sid, {"stop_reason": "no_tool_calls"})
@@ -186,6 +208,21 @@ class QueryLoop:
                 return
 
             if not pending_tool_calls:
+                if self._stop_hooks:
+                    sh_result = await self._stop_hooks.run(StopHookInput(
+                        session_id=session.id,
+                        turn_number=0,
+                        stop_reason="no_tool_calls",
+                        messages=list(self._memory.get()),
+                        tool_calls_count=tool_calls_count,
+                    ))
+                    if sh_result.error is not None:
+                        yield StreamEvent.err(str(sh_result.error))
+                        return
+                    if sh_result.continue_loop:
+                        for msg in sh_result.inject_messages:
+                            self._memory.add(msg)
+                        continue
                 break
 
             # Tool calling

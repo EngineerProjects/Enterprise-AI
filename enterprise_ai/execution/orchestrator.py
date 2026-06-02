@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
 from enterprise_ai.execution.compaction import TrimConfig, TrimStrategy, trim_tool_result
 from enterprise_ai.hooks.executor import HookExecutor
+from enterprise_ai.modes.execution import ExecutionMode, is_plan_mode
 from enterprise_ai.permissions.engine import PermissionEngine
 from enterprise_ai.schema import ToolCall, ToolResult
 from enterprise_ai.tools.context import ToolContext
@@ -69,6 +71,7 @@ class Orchestrator:
         progress_callback: ProgressCallback | None = None,
         trim_config: TrimConfig | None = None,
         hooks: HookExecutor | None = None,
+        execution_mode: ExecutionMode = ExecutionMode.execute,
     ) -> None:
         self._registry = registry
         self._permissions = permissions
@@ -78,6 +81,7 @@ class Orchestrator:
             max_chars=40_000, strategy=TrimStrategy.snip
         )
         self._hooks = hooks
+        self._execution_mode = execution_mode
 
     async def execute(self, tool_calls: list[ToolCall], ctx: ToolContext) -> list[ToolOutcome]:
         # Steps 1-3: resolve, validate, backfill
@@ -188,6 +192,17 @@ class Orchestrator:
                         result=ToolResult.error(tc.id, tc.name, f"Hook modified input is invalid: {e}"),
                         error=str(e),
                     )
+
+        # Plan mode: describe the call without executing it
+        if is_plan_mode(self._execution_mode):
+            plan_text = (
+                f"[PLAN] Would execute `{tc.name}` with:\n"
+                f"```json\n{json.dumps(tc.input, indent=2)}\n```"
+            )
+            return ToolOutcome(
+                tool_call=tc,
+                result=ToolResult.ok(tool_call_id=tc.id, name=tc.name, content=plan_text),
+            )
 
         # Step 5-7: permissions
         perm = await self._permissions.check(tc)
