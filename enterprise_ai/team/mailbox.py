@@ -4,7 +4,10 @@ import asyncio
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from enterprise_ai.memory.team import TeamMemory
 
 
 @dataclass
@@ -37,10 +40,11 @@ class Mailbox:
     via mail rather than direct calls, just like a real organization.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, memory: TeamMemory | None = None) -> None:
         self._inboxes: dict[str, asyncio.Queue[Mail]] = {}
         self._history: list[Mail] = []
         self._lock = asyncio.Lock()
+        self._memory = memory
 
     def register(self, agent_id: str) -> None:
         if agent_id not in self._inboxes:
@@ -52,6 +56,9 @@ class Mailbox:
         for recipient in mail.recipients:
             if recipient in self._inboxes:
                 await self._inboxes[recipient].put(mail)
+        if self._memory is not None:
+            content = f"Subject: {mail.subject}\nFrom: {mail.sender} → {', '.join(mail.recipients)}\n\n{mail.body}"
+            await self._memory.write(content=content, source="mail", agent_id=mail.sender, subject=mail.subject)
 
     async def broadcast(self, sender: str, subject: str, body: str, **metadata: Any) -> None:
         recipients = [aid for aid in self._inboxes if aid != sender]

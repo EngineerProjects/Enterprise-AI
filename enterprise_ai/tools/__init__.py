@@ -9,10 +9,13 @@ from enterprise_ai.tools.builtin import (
     MailboxStatusTool,
     PostTaskTool,
     ReadMailTool,
+    RecentMemoryTool,
+    SearchMemoryTool,
     SendMailTool,
     SpawnTool,
     TerminateTool,
     WebSearchTool,
+    WriteMemoryTool,
 )
 from enterprise_ai.tools.context import ToolContext
 from enterprise_ai.tools.contract import BaseTool
@@ -24,4 +27,5 @@ __all__ = [
     "SpawnTool",
     "SendMailTool", "ReadMailTool", "MailboxStatusTool",
     "PostTaskTool", "ClaimTaskTool", "CompleteTaskTool", "FailTaskTool", "ListTasksTool",
+    "SearchMemoryTool", "WriteMemoryTool", "RecentMemoryTool",
 ]

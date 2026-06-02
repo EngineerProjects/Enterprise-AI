@@ -4,6 +4,7 @@ import asyncio
 import uuid
 
 from enterprise_ai.agent.agent import Agent
+from enterprise_ai.memory.team import FTSMemory, TeamMemory
 from enterprise_ai.schema import SessionResult
 from enterprise_ai.team.mailbox import Mailbox
 from enterprise_ai.team.task_board import TaskBoard
@@ -47,13 +48,16 @@ class Team:
         agents: list[Agent],
         mailbox: Mailbox | None = None,
         task_board: TaskBoard | None = None,
+        memory: TeamMemory | None = None,
         mission_timeout: float = 300.0,
         max_tokens_per_agent: int | None = None,
     ) -> None:
         self.id = str(uuid.uuid4())
         self._agents = agents
-        self.mailbox = mailbox or Mailbox()
-        self.task_board = task_board or TaskBoard()
+        # FTSMemory is created first so Mailbox and TaskBoard can auto-index into it
+        self.memory: TeamMemory = memory or FTSMemory()
+        self.mailbox = mailbox or Mailbox(memory=self.memory)
+        self.task_board = task_board or TaskBoard(memory=self.memory)
         self._mission_timeout = mission_timeout
         self._max_tokens_per_agent = max_tokens_per_agent
 
@@ -65,11 +69,12 @@ class Team:
         self._inject_team_context()
 
     def _inject_team_context(self) -> None:
-        """Give each agent access to mailbox and task board via tool context metadata."""
+        """Give each agent access to mailbox, task board and shared memory via tool context metadata."""
         for agent in self._agents:
             agent._metadata = {
                 "mailbox": self.mailbox,
                 "task_board": self.task_board,
+                "team_memory": self.memory,
                 "team_id": self.id,
                 "team_agent_ids": [a.id for a in self._agents],
             }

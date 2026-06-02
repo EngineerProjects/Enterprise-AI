@@ -5,7 +5,10 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from enterprise_ai.memory.team import TeamMemory
 
 
 class TaskStatus(str, Enum):
@@ -45,10 +48,11 @@ class TaskBoard:
     each agent what to do, agents check the board and claim work autonomously.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, memory: TeamMemory | None = None) -> None:
         self._tasks: dict[str, Task] = {}
         self._lock = asyncio.Lock()
         self._event = asyncio.Event()
+        self._memory = memory
 
     async def post(self, title: str, description: str, posted_by: str, **metadata: Any) -> Task:
         task = Task(title=title, description=description, posted_by=posted_by, metadata=metadata)
@@ -98,7 +102,10 @@ class TaskBoard:
             task.status = TaskStatus.done
             task.result = result
             task.completed_at = datetime.now(timezone.utc)
-            return True
+        if self._memory is not None and task is not None:
+            content = f"Task completed: {task.title}\n\nResult: {result}"
+            await self._memory.write(content=content, source="task", agent_id=task.claimed_by or "", task_id=task_id, title=task.title)
+        return True
 
     async def fail(self, task_id: str, reason: str = "") -> bool:
         async with self._lock:
@@ -108,7 +115,10 @@ class TaskBoard:
             task.status = TaskStatus.failed
             task.result = reason
             task.completed_at = datetime.now(timezone.utc)
-            return True
+        if self._memory is not None and task is not None:
+            content = f"Task failed: {task.title}\n\nReason: {reason}"
+            await self._memory.write(content=content, source="task", agent_id=task.claimed_by or "", task_id=task_id, title=task.title)
+        return True
 
     def pending_tasks(self) -> list[Task]:
         return [t for t in self._tasks.values() if t.status == TaskStatus.pending]
