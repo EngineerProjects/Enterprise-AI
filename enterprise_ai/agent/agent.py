@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 from enterprise_ai.engine.instructions import read_project_instructions
 from enterprise_ai.engine.loop import QueryLoop
 from enterprise_ai.engine.stop_hooks import StopHookEntry, StopHookRunner
+from enterprise_ai.engine.token_budget import TokenBudgetConfig
 from enterprise_ai.execution.compaction import TrimConfig
 from enterprise_ai.execution.orchestrator import Orchestrator
 from enterprise_ai.hooks.events import HookEvent
@@ -14,6 +15,7 @@ from enterprise_ai.hooks.registry import HookRegistry
 from enterprise_ai.hooks.types import HookHandler
 from enterprise_ai.mcp.config import MCPServerConfig
 from enterprise_ai.mcp.manager import MCPManager
+from enterprise_ai.memory.compaction import CompactionConfig, CompactionEngine
 from enterprise_ai.memory.long_term import LongTermMemory
 from enterprise_ai.memory.session import SessionMemory
 from enterprise_ai.modes.execution import ExecutionMode
@@ -85,6 +87,8 @@ class Agent:
         extended_thinking: bool = False,
         thinking_budget_tokens: int = 10_000,
         cache_system_prompt: bool = False,
+        token_budget: TokenBudgetConfig | None = None,
+        compaction_config: CompactionConfig | None = None,
         **provider_kwargs: Any,
     ) -> None:
         self.id = agent_id or str(uuid.uuid4())
@@ -145,8 +149,13 @@ class Agent:
             StopHookRunner(stop_hooks) if stop_hooks else None
         )
 
+        # Compaction engine — wraps provider for LLM-based summarization
+        compaction_engine: CompactionEngine | None = (
+            CompactionEngine(self._provider, compaction_config) if compaction_config else None
+        )
+
         # Core components
-        self._memory = SessionMemory(max_messages=max_memory)
+        self._memory = SessionMemory(max_messages=max_memory, compaction_engine=compaction_engine)
         self._orchestrator = Orchestrator(
             registry=self._registry,
             permissions=self._permissions,
@@ -167,6 +176,7 @@ class Agent:
             extended_thinking=extended_thinking,
             thinking_budget_tokens=thinking_budget_tokens,
             cache_system_prompt=cache_system_prompt,
+            token_budget=token_budget,
         )
 
     # ------------------------------------------------------------------

@@ -5,6 +5,7 @@ import uuid
 from typing import AsyncIterator
 
 from enterprise_ai.engine.stop_hooks import StopHookInput, StopHookRunner
+from enterprise_ai.engine.token_budget import BudgetDecision, TokenBudgetConfig, TokenBudgetTracker
 from enterprise_ai.execution.orchestrator import Orchestrator
 from enterprise_ai.hooks.events import HookEvent
 from enterprise_ai.hooks.executor import HookExecutor
@@ -52,6 +53,7 @@ class QueryLoop:
         extended_thinking: bool = False,
         thinking_budget_tokens: int = 10_000,
         cache_system_prompt: bool = False,
+        token_budget: TokenBudgetConfig | None = None,
     ) -> None:
         self._provider = provider
         self._registry = registry
@@ -65,6 +67,19 @@ class QueryLoop:
         self._extended_thinking = extended_thinking
         self._thinking_budget_tokens = thinking_budget_tokens
         self._cache_system_prompt = cache_system_prompt
+        self._token_budget_config = token_budget
+        self._budget_tracker: TokenBudgetTracker | None = (
+            TokenBudgetTracker(token_budget) if token_budget else None
+        )
+
+    def _build_extra_kwargs(self) -> dict:
+        extra: dict = {}
+        if self._extended_thinking:
+            extra["extended_thinking"] = True
+            extra["thinking_budget_tokens"] = self._thinking_budget_tokens
+        if self._cache_system_prompt:
+            extra["cache_system_prompt"] = True
+        return extra
 
     async def run(self, prompt: str, ctx: ToolContext) -> SessionResult:
         session = Session(id=ctx.session_id or str(uuid.uuid4()), agent_id=ctx.agent_id)
@@ -76,6 +91,8 @@ class QueryLoop:
             await self._hooks.fire(HookEvent.query_start, sid, {"prompt": prompt})
 
         self._memory.add(Message.user(prompt))
+        if self._budget_tracker:
+            self._budget_tracker.reset()
 
         tool_calls_count = 0
         final_output = ""
@@ -102,6 +119,9 @@ class QueryLoop:
                     "output_tokens": resp.output_tokens,
                 })
 
+            if self._budget_tracker:
+                self._budget_tracker.record_tokens(resp.input_tokens, resp.output_tokens)
+
             if resp.content:
                 self._memory.add(Message.assistant(
                     resp.content,
@@ -112,7 +132,6 @@ class QueryLoop:
             if not resp.has_tool_calls:
                 final_output = resp.content
 
-                # Stop hooks — can force one more turn
                 if self._stop_hooks:
                     sh_result = await self._stop_hooks.run(StopHookInput(
                         session_id=sid,
@@ -135,11 +154,19 @@ class QueryLoop:
                     await self._hooks.fire(HookEvent.turn_end, sid, {"stop_reason": "no_tool_calls"})
                 break
 
+            # Token budget nudge — inject "Continue" when budget allows
+            if self._budget_tracker and self._token_budget_config:
+                decision: BudgetDecision = self._budget_tracker.should_continue_for_budget(
+                    budget=self._token_budget_config.turn_token_budget,
+                    has_tool_calls=resp.has_tool_calls,
+                )
+                if decision.continue_loop:
+                    self._memory.add(Message.user(decision.nudge_message))
+
             # Tool calling turn
             session.state = SessionState.tool_calling
             tool_calls_count += len(resp.tool_calls)
 
-            # Check for terminate signal before executing
             terminate_call = next((tc for tc in resp.tool_calls if tc.name == "terminate"), None)
             if terminate_call:
                 final_output = terminate_call.input.get("result", "")
@@ -160,6 +187,11 @@ class QueryLoop:
                 self._memory.add(
                     Message.tool_result(outcome.result.tool_call_id, outcome.result.content, name=outcome.result.name)
                 )
+
+            # LLM-based compaction after each tool turn
+            compacted = await self._memory.maybe_compact(system_prompt=self._system_prompt)
+            if compacted and self._hooks:
+                await self._hooks.fire(HookEvent.post_compact, sid, {})
 
             if self._hooks:
                 await self._hooks.fire(HookEvent.turn_end, sid, {"stop_reason": "tool_calls_done"})
@@ -184,45 +216,55 @@ class QueryLoop:
         session.state = SessionState.running
 
         self._memory.add(Message.user(prompt))
+        if self._budget_tracker:
+            self._budget_tracker.reset()
+
+        extra = self._build_extra_kwargs()
         tool_calls_count = 0
 
-        for _ in range(self._max_turns):
+        for turn_num in range(self._max_turns):
             messages = self._build_messages()
             tools = self._registry.schemas() if self._registry.all() else None
 
-            # Collect streamed tool calls while yielding text
-            pending_tool_calls: list[ToolCall] = []
+            # Dict-based dedup: second tool_start (full input) overwrites first (placeholder)
+            tool_calls_map: dict[str, ToolCall] = {}
             last_text = ""
+            session_end_event: StreamEvent | None = None
 
             try:
-                async for event in self._provider.stream(messages, tools=tools):  # stream has its own retry path
+                async for event in self._provider.stream(messages, tools=tools, **extra):
                     if event.type.value == "text_delta":
                         last_text += event.data.get("delta", "")
                         yield event
                     elif event.type.value == "tool_start":
+                        data = event.data
                         tc = ToolCall(
-                            id=event.data["id"],
-                            name=event.data["name"],
-                            input=event.data.get("input", {}),
+                            id=data["id"],
+                            name=data["name"],
+                            input=data.get("input", {}),
                         )
-                        pending_tool_calls.append(tc)
+                        tool_calls_map[tc.id] = tc
+                        yield event
+                    elif event.type.value == "thinking":
                         yield event
                     elif event.type.value == "session_end":
-                        if last_text:
-                            thinking_blocks = event.data.get("thinking_blocks") or []
-                            self._memory.add(Message.assistant(last_text, thinking_blocks=thinking_blocks or None))
-                        session.state = SessionState.done
-                        yield event
-                        return
+                        session_end_event = event
+                        break  # break inner loop; process below
             except Exception as e:
                 yield StreamEvent.err(str(e))
                 return
 
+            pending_tool_calls = list(tool_calls_map.values())
+
             if not pending_tool_calls:
+                if last_text:
+                    thinking_blocks = (session_end_event.data.get("thinking_blocks") or []) if session_end_event else []
+                    self._memory.add(Message.assistant(last_text, thinking_blocks=thinking_blocks or None))
+
                 if self._stop_hooks:
                     sh_result = await self._stop_hooks.run(StopHookInput(
                         session_id=session.id,
-                        turn_number=0,
+                        turn_number=turn_num,
                         stop_reason="no_tool_calls",
                         messages=list(self._memory.get()),
                         tool_calls_count=tool_calls_count,
@@ -234,7 +276,11 @@ class QueryLoop:
                         for msg in sh_result.inject_messages:
                             self._memory.add(msg)
                         continue
-                break
+
+                session.state = SessionState.done
+                if session_end_event:
+                    yield session_end_event
+                return
 
             # Tool calling
             session.state = SessionState.tool_calling
@@ -262,6 +308,10 @@ class QueryLoop:
                     outcome.result.is_error,
                 )
 
+            compacted = await self._memory.maybe_compact(system_prompt=self._system_prompt)
+            if compacted and self._hooks:
+                await self._hooks.fire(HookEvent.post_compact, session.id, {})
+
             session.state = SessionState.running
 
         if session.state != SessionState.done:
@@ -276,12 +326,7 @@ class QueryLoop:
 
     async def _call_provider(self, messages: list[Message], tools: list | None) -> LLMResponse:
         """Call provider.complete() with optional retry + backoff on transient errors."""
-        extra: dict = {}
-        if self._extended_thinking:
-            extra["extended_thinking"] = True
-            extra["thinking_budget_tokens"] = self._thinking_budget_tokens
-        if self._cache_system_prompt:
-            extra["cache_system_prompt"] = True
+        extra = self._build_extra_kwargs()
 
         if self._retry_config is None:
             return await self._provider.complete(messages, tools=tools, **extra)
