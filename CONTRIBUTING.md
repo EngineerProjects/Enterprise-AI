@@ -1,242 +1,242 @@
-# Contribuer à enterprise-ai
+# Contributing to enterprise-ai
 
-Merci de l'intérêt que tu portes au projet. Ce guide couvre tout ce qu'il faut savoir pour contribuer efficacement.
+> **Français** : une version française de ce guide est disponible dans [CONTRIBUTING.fr.md](CONTRIBUTING.fr.md).
+
+Thank you for your interest in contributing. This guide covers everything you need to know to contribute effectively.
 
 ---
 
-## Table des matières
+## Table of contents
 
-1. [Code de conduite](#1-code-de-conduite)
-2. [Comment contribuer](#2-comment-contribuer)
-3. [Mise en place de l'environnement](#3-mise-en-place-de-lenvironnement)
-4. [Workflow Git](#4-workflow-git)
-5. [Standards de code](#5-standards-de-code)
+1. [Code of conduct](#1-code-of-conduct)
+2. [Ways to contribute](#2-ways-to-contribute)
+3. [Setting up your environment](#3-setting-up-your-environment)
+4. [Git workflow](#4-git-workflow)
+5. [Code standards](#5-code-standards)
 6. [Tests](#6-tests)
-7. [Structure du projet](#7-structure-du-projet)
-8. [Règles de dépendances](#8-règles-de-dépendances)
-9. [Messages de commit](#9-messages-de-commit)
-10. [Ouvrir une Pull Request](#10-ouvrir-une-pull-request)
-11. [Signaler un bug](#11-signaler-un-bug)
-12. [Proposer une fonctionnalité](#12-proposer-une-fonctionnalité)
+7. [Project structure](#7-project-structure)
+8. [Dependency rules](#8-dependency-rules)
+9. [Commit messages](#9-commit-messages)
+10. [Opening a Pull Request](#10-opening-a-pull-request)
+11. [Reporting a bug](#11-reporting-a-bug)
+12. [Proposing a feature](#12-proposing-a-feature)
 
 ---
 
-## 1. Code de conduite
+## 1. Code of conduct
 
-Ce projet applique un code de conduite simple : **respect et professionnalisme**.
+This project enforces a simple code of conduct: **respect and professionalism**.
 
-- Critique le code, jamais la personne
-- Les questions débutantes sont les bienvenues
-- Les discussions techniques restent factuelles
-- Toute forme de harcèlement entraîne une exclusion immédiate
-
----
-
-## 2. Comment contribuer
-
-### Ce qu'on accepte volontiers
-
-- Corrections de bugs avec test de non-régression
-- Nouveaux providers LLM (OpenAI-compatible ou natif)
-- Nouveaux outils builtin (`enterprise_ai/tools/builtin/`)
-- Amélioration de la documentation
-- Amélioration des messages d'erreur
-- Optimisations de performance mesurables
-
-### Ce qui nécessite une discussion préalable
-
-- Nouvelles fonctionnalités majeures → ouvre une issue d'abord
-- Changements d'API publique → discussion obligatoire
-- Nouvelles dépendances core → justification requise
-
-### Ce qu'on n'accepte pas
-
-- Code sans tests
-- Dépendances non épinglées dans `pyproject.toml`
-- Breaking changes sans migration path
-- Code qui baisse la couverture de tests existants
+- Critique the code, never the person
+- Beginner questions are welcome
+- Technical discussions stay factual
+- Any form of harassment results in immediate exclusion
 
 ---
 
-## 3. Mise en place de l'environnement
+## 2. Ways to contribute
 
-### Prérequis
+### Gladly accepted
+
+- Bug fixes with a non-regression test
+- New LLM providers (OpenAI-compatible or native)
+- New builtin tools (`enterprise_ai/tools/builtin/`)
+- Documentation improvements
+- Clearer error messages
+- Measurable performance improvements
+
+### Requires prior discussion
+
+- Major new features → open an issue first
+- Public API changes → mandatory discussion
+- New core dependencies → justification required
+
+### Not accepted
+
+- Code without tests
+- Unpinned dependencies in `pyproject.toml`
+- Breaking changes without a migration path
+- Code that reduces existing test coverage
+
+---
+
+## 3. Setting up your environment
+
+### Prerequisites
 
 - Python 3.11+
-- [uv](https://docs.astral.sh/uv/) (gestionnaire de paquets)
+- [uv](https://docs.astral.sh/uv/) (package manager)
 
 ### Installation
 
 ```bash
-git clone https://github.com/ton-org/enterprise-ai.git
+git clone https://github.com/your-org/enterprise-ai.git
 cd enterprise-ai
 
-# Créer l'environnement et installer toutes les dépendances de dev
+# Create the virtual environment and install all dev dependencies
 make setup_uv
 
-# Vérifier que tout fonctionne
+# Verify everything works
 make test
 ```
 
-### Variables d'environnement
-
-Copie `.env.example` si disponible, sinon exporte au minimum :
+### Environment variables
 
 ```bash
-export ANTHROPIC_API_KEY="sk-ant-..."   # pour les tests d'intégration
+export ANTHROPIC_API_KEY="sk-ant-..."   # for integration tests (optional)
 ```
 
-Les tests unitaires n'ont pas besoin de clé API (tout est mocké).
+Unit tests do not require an API key — everything is mocked.
 
 ---
 
-## 4. Workflow Git
+## 4. Git workflow
 
 ### Branches
 
-| Branche | Rôle |
+| Branch | Role |
 |---|---|
-| `main` | Code stable, releases uniquement |
-| `dev` | Branche de développement principale — les PRs ciblent ici |
+| `main` | Stable code — releases only |
+| `dev` | Main development branch — PRs target here |
 
-### Créer une branche de travail
+### Creating a working branch
 
 ```bash
 git checkout dev
 git pull origin dev
-git checkout -b feat/mon-nouveau-truc
-# ou
-git checkout -b fix/description-du-bug
-git checkout -b docs/ce-qui-change
+git checkout -b feat/my-new-thing
+# or
+git checkout -b fix/bug-description
+git checkout -b docs/what-changes
 ```
 
-### Conventions de nommage
+### Branch naming conventions
 
 ```
-feat/nom-court          nouvelle fonctionnalité
-fix/nom-court           correction de bug
-docs/nom-court          documentation uniquement
-refactor/nom-court      refactoring sans changement fonctionnel
-chore/nom-court         maintenance (deps, CI, config)
-test/nom-court          ajout ou correction de tests
+feat/short-name        new feature
+fix/short-name         bug fix
+docs/short-name        documentation only
+refactor/short-name    refactoring without functional change
+chore/short-name       maintenance (deps, CI, config)
+test/short-name        adding or fixing tests
 ```
 
 ---
 
-## 5. Standards de code
+## 5. Code standards
 
-### Formatage et lint
+### Formatting and linting
 
 ```bash
 make format    # ruff format + ruff check --fix
 make lint      # ruff check + mypy
 ```
 
-Tout le code doit passer sans erreur avant d'ouvrir une PR.
+All code must pass without errors before opening a PR.
 
-### Règles clés
+### Key rules
 
-**Typage — obligatoire**
+**Type annotations — mandatory**
 
-Tout le code source dans `enterprise_ai/` doit être annoté. mypy ne doit rapporter aucune erreur.
+All source code in `enterprise_ai/` must be annotated. mypy must report zero errors.
 
 ```python
-# Bien
+# Good
 async def complete(self, messages: list[Message], tools: list[ToolSchema] | None = None) -> LLMResponse:
 
-# Mal
+# Bad
 async def complete(self, messages, tools=None):
 ```
 
-**Commentaires — minimaliste**
+**Comments — minimal**
 
-Ne commente que ce qui n'est pas évident depuis le code lui-même. Pas de docstrings multi-paragraphes, pas de commentaires qui répètent ce que le nom de la variable dit.
+Only comment what is not obvious from the code itself. No multi-paragraph docstrings, no comments that restate what a variable name already says.
 
 ```python
-# Bien — explique un invariant non-évident
-# Rotation sans délai : la boucle de retry ne voit qu'un seul 429 par pool complet
+# Good — explains a non-obvious invariant
+# Rotation without delay: the retry loop only sees one 429 per full pool cycle
 if getattr(exc, "status_code", None) == 429 and not self._pool.rotate():
     continue
 
-# Mal — répète ce que le code dit déjà
-# Iterate over the list of messages and add each one to memory
+# Bad — restates what the code already says
+# Iterate over messages and add each one to memory
 for msg in messages:
     self._memory.add(msg)
 ```
 
-**Pas de sur-ingénierie**
+**No over-engineering**
 
-- Trois lignes similaires valent mieux qu'une abstraction prématurée
-- Ne pas ajouter de paramètres "pour le futur"
-- Ne pas créer de fichiers helper pour une seule fonction
+- Three similar lines are better than a premature abstraction
+- Do not add parameters "for the future"
+- Do not create helper files for a single function
 
-**Gestion des erreurs**
+**Error handling**
 
-- Valider uniquement aux frontières du système (input utilisateur, API externe)
-- Faire confiance aux garanties internes du framework
-- Ne pas capturer `Exception` sauf cas documenté
+- Validate only at system boundaries (user input, external APIs)
+- Trust internal framework guarantees
+- Do not catch bare `Exception` unless documented
 
 **Imports**
 
-- Imports stdlib, puis tiers, puis projet — séparés par une ligne vide
-- Imports locaux différés dans les fonctions pour éviter les cycles
+- stdlib, then third-party, then project — separated by a blank line
+- Defer local imports inside functions to avoid circular imports
 
 ```python
-from __future__ import annotations  # toujours en premier
+from __future__ import annotations  # always first
 
 import asyncio                       # stdlib
 from typing import Any
 
-import httpx                         # tiers
+import httpx                         # third-party
 
-from enterprise_ai.schema import Message  # projet
+from enterprise_ai.schema import Message  # project
 ```
 
 **Async**
 
-- Tout I/O doit être `async`
-- Jamais de `time.sleep()` dans du code async — utiliser `asyncio.sleep()`
-- Les générateurs async doivent avoir `yield` même s'ils ne yielden jamais (pour satisfaire mypy)
+- All I/O must be `async`
+- Never use `time.sleep()` in async code — use `asyncio.sleep()`
+- Async generators must have a `yield` even if they never yield (to satisfy mypy)
 
 ---
 
 ## 6. Tests
 
-### Lancer les tests
+### Running tests
 
 ```bash
-make test                                      # tous les tests
-uv run pytest tests/test_mon_module.py -v      # un fichier
-uv run pytest -k "test_ma_fonction" -v        # un test précis
-uv run pytest --cov=enterprise_ai             # avec couverture
+make test                                          # all tests
+uv run pytest tests/test_my_module.py -v           # single file
+uv run pytest -k "test_my_function" -v             # single test
+uv run pytest --cov=enterprise_ai                  # with coverage
 ```
 
-### Règles pour les tests
+### Test rules
 
-**Chaque PR doit inclure des tests.** Pas de code sans test, pas d'exception.
+**Every PR must include tests.** No code without a test, no exceptions.
 
-**Structure d'un fichier de test**
+**Test file structure**
 
 ```python
-"""Tests pour MonModule — description courte."""
+"""Tests for MyModule — short description."""
 from __future__ import annotations
 
 import pytest
-from enterprise_ai.mon_module import MaClasse
+from enterprise_ai.my_module import MyClass
 
 
-# ── Section 1 — Comportement de base ────────────────────────────────────────
+# ── Section 1 — Basic behavior ───────────────────────────────────────────────
 
-def test_cas_normal():
-    obj = MaClasse(param="valeur")
-    assert obj.result == "attendu"
+def test_normal_case():
+    obj = MyClass(param="value")
+    assert obj.result == "expected"
 
 
-def test_cas_limite():
+def test_edge_case():
     ...
 
 
-# ── Section 2 — Comportement async ──────────────────────────────────────────
+# ── Section 2 — Async behavior ───────────────────────────────────────────────
 
 @pytest.mark.asyncio
 async def test_async_flow():
@@ -245,11 +245,11 @@ async def test_async_flow():
 
 **Mocking**
 
-- Mocker les appels API LLM avec `Provider` fake (voir exemples dans `tests/`)
-- Ne jamais faire d'appel réseau réel dans les tests unitaires
-- Utiliser `unittest.mock.patch` pour les dépendances externes
+- Mock LLM API calls using a fake `Provider` (see examples in `tests/`)
+- Never make real network calls in unit tests
+- Use `unittest.mock.patch` for external dependencies
 
-**Fake Provider pattern** (standard du projet)
+**Fake Provider pattern** (project standard)
 
 ```python
 from typing import AsyncIterator
@@ -262,25 +262,25 @@ class FakeProvider(Provider):
         return "fake"
 
     async def complete(self, messages, tools=None, max_tokens=8096, **kwargs):
-        return LLMResponse(content="réponse simulée", tool_calls=[])
+        return LLMResponse(content="simulated response", tool_calls=[])
 
     async def stream(self, *a, **kw) -> AsyncIterator[StreamEvent]:
         raise NotImplementedError
-        yield  # rend la fonction async generator pour mypy
+        yield  # makes the function an async generator for mypy
 ```
 
-**Couverture**
+**Coverage**
 
-La couverture globale ne doit pas baisser. Pour chaque nouveau module, viser > 80%.
+Overall coverage must not decrease. Aim for > 80% on each new module.
 
 ```bash
 uv run pytest --cov=enterprise_ai --cov-report=html
-# Ouvre htmlcov/index.html
+open htmlcov/index.html
 ```
 
 ---
 
-## 7. Structure du projet
+## 7. Project structure
 
 ```
 enterprise_ai/
@@ -300,59 +300,59 @@ enterprise_ai/
 ├── stream/         # StreamScrubber, TagScrubber
 ├── team/           # Team, Mailbox, TaskBoard
 └── tools/
-    ├── builtin/    # BashTool, FileEditorTool, WebSearchTool, …
+    ├── builtin/    # BashTool, FileEditorTool, WebSearchTool, ...
     ├── contract.py # BaseTool ABC
     ├── registry.py
     ├── toolsets.py
     └── search_bridge.py
 ```
 
-### Où ajouter un outil builtin
+### Adding a builtin tool
 
-1. Créer `enterprise_ai/tools/builtin/mon_outil.py`
-2. L'exporter dans `enterprise_ai/tools/builtin/__init__.py`
-3. L'enregistrer dans `_builtin_factories()` dans `toolsets.py` si applicable
-4. Créer `tests/test_mon_outil.py`
+1. Create `enterprise_ai/tools/builtin/my_tool.py`
+2. Export it from `enterprise_ai/tools/builtin/__init__.py`
+3. Register it in `_builtin_factories()` in `toolsets.py` if applicable
+4. Create `tests/test_my_tool.py`
 
-### Où ajouter un provider
+### Adding a provider
 
-1. Créer `enterprise_ai/providers/mon_provider.py` — implémenter `Provider`
-2. L'enregistrer dans `enterprise_ai/providers/factory.py` (si applicable)
-3. L'exporter dans `enterprise_ai/providers/__init__.py`
-4. Ajouter les dépendances dans `pyproject.toml` (extras si non-core)
+1. Create `enterprise_ai/providers/my_provider.py` — implement `Provider`
+2. Register it in `enterprise_ai/providers/factory.py` (if applicable)
+3. Export it from `enterprise_ai/providers/__init__.py`
+4. Add dependencies to `pyproject.toml` (as extras if not core)
 
 ---
 
-## 8. Règles de dépendances
+## 8. Dependency rules
 
-### Dépendances core (dans `dependencies`)
+### Core dependencies (in `dependencies`)
 
-Uniquement les paquets nécessaires à **chaque session agent**. Elles sont épinglées à la version exacte (`==X.Y.Z`).
+Only packages needed by **every agent session**. Pinned to exact version (`==X.Y.Z`).
 
 ```toml
-# Bien
+# Good
 "anthropic==0.49.0"
 
-# Mal
+# Bad
 "anthropic>=0.49.0"
 "anthropic"
 ```
 
-### Dépendances extras
+### Optional extras
 
-Les providers, backends de recherche, sandboxes → dans `[project.optional-dependencies]`.
+Providers, search backends, sandboxes → in `[project.optional-dependencies]`.
 
-### Ajouter une dépendance
+### Adding a dependency
 
-1. Justifie pourquoi elle est nécessaire (ne pas ajouter pour une seule utilisation)
-2. Vérifie qu'elle est activement maintenue
-3. Épingle la version exacte
-4. Régénère le lock file : `uv lock`
-5. Documente l'extra dans `pyproject.toml` et dans `docs/quickstart.md`
+1. Justify why it is needed (do not add for a single use case)
+2. Verify it is actively maintained
+3. Pin the exact version
+4. Regenerate the lock file: `uv lock`
+5. Document the extra in `pyproject.toml` and `docs/quickstart.md`
 
-### Imports différés pour les extras
+### Deferred imports for extras
 
-Si une dépendance est optionnelle, importe-la à l'intérieur de la fonction avec un message d'erreur clair :
+If a dependency is optional, import it inside the function with a clear error message:
 
 ```python
 def _get_qdrant_client(self):
@@ -360,142 +360,141 @@ def _get_qdrant_client(self):
         from qdrant_client import QdrantClient
     except ImportError:
         raise ImportError(
-            "qdrant-client est requis pour VectorMemory avec le backend Qdrant. "
-            "Installe-le avec : pip install 'enterprise-ai[qdrant]'"
+            "qdrant-client is required for VectorMemory with the Qdrant backend. "
+            "Install it with: pip install 'enterprise-ai[qdrant]'"
         )
     return QdrantClient(...)
 ```
 
 ---
 
-## 9. Messages de commit
+## 9. Commit messages
 
-Format : `type: description courte en français ou anglais`
+Format: `type: short description`
 
-### Types valides
+### Valid types
 
-| Type | Quand |
+| Type | When |
 |---|---|
-| `feat` | Nouvelle fonctionnalité |
-| `fix` | Correction de bug |
-| `docs` | Documentation uniquement |
-| `refactor` | Refactoring sans changement fonctionnel |
-| `test` | Ajout ou correction de tests |
+| `feat` | New feature |
+| `fix` | Bug fix |
+| `docs` | Documentation only |
+| `refactor` | Refactoring without functional change |
+| `test` | Adding or fixing tests |
 | `chore` | Maintenance (deps, CI, config, build) |
-| `perf` | Amélioration de performance |
+| `perf` | Performance improvement |
 
-### Règles
+### Rules
 
 ```bash
-# Bien
+# Good
 feat: add SkillCurator for post-session skill extraction
 fix: TagScrubber handles tags split across chunk boundaries
 docs: document MixtureOfAgents aggregation strategies
 
-# Mal
+# Bad
 fix stuff
 WIP
 update code
 feat: Add a new super cool feature that does many things and also fixes bugs
 ```
 
-- Ligne de titre : max 72 caractères
-- Temps présent, mode impératif ("add", pas "added" ou "adds")
-- Corps optionnel pour expliquer le *pourquoi* (pas le *quoi*)
+- Title line: max 72 characters
+- Present tense, imperative mood ("add", not "added" or "adds")
+- Optional body to explain the *why* (not the *what*)
 
 ---
 
-## 10. Ouvrir une Pull Request
+## 10. Opening a Pull Request
 
-### Avant d'ouvrir
+### Before opening
 
 ```bash
-# S'assurer que tout passe
-make lint    # ruff + mypy : 0 erreur
-make test    # tous les tests verts
+make lint    # ruff + mypy: 0 errors
+make test    # all tests pass
 ```
 
-### Checklist PR
+### PR checklist
 
-- [ ] Tests ajoutés pour chaque nouveau comportement
-- [ ] `make lint` passe sans erreur
-- [ ] `make test` passe sans erreur
-- [ ] La couverture n'a pas baissé
-- [ ] La documentation est à jour si l'API publique change
-- [ ] Le titre de la PR suit le format `type: description`
-- [ ] La branche cible est `dev` (jamais `main` directement)
+- [ ] Tests added for every new behavior
+- [ ] `make lint` passes with no errors
+- [ ] `make test` passes with no errors
+- [ ] Coverage has not decreased
+- [ ] Documentation updated if the public API changes
+- [ ] PR title follows the `type: description` format
+- [ ] Target branch is `dev` (never `main` directly)
 
-### Template de description
+### Description template
 
 ```markdown
-## Contexte
+## Context
 
-Brève description du problème ou de la feature.
+Brief description of the problem or feature.
 
-## Changements
+## Changes
 
-- Ce qui a été ajouté/modifié/supprimé
+- What was added / modified / removed
 - ...
 
 ## Tests
 
-Décrire les tests ajoutés et comment les lancer.
+Describe the tests added and how to run them.
 
-## Notes pour la review
+## Notes for reviewers
 
-Mentionner les points d'attention particuliers.
+Highlight any areas that deserve special attention.
 ```
 
 ### Review process
 
-- Au moins 1 approbation requise avant merge
-- Les commentaires de review doivent être adressés (résolus ou discutés)
-- Les PRs ouvertes depuis plus de 30 jours sans activité sont fermées
+- At least 1 approval required before merge
+- Review comments must be addressed (resolved or discussed)
+- PRs open for more than 30 days without activity are closed
 
 ---
 
-## 11. Signaler un bug
+## 11. Reporting a bug
 
-Ouvre une issue avec le template suivant :
+Open an issue using the following template:
 
 ```markdown
-**Version** : enterprise-ai X.Y.Z
-**Python** : 3.11 / 3.12 / 3.13
-**OS** : Linux / macOS / Windows
+**Version**: enterprise-ai X.Y.Z
+**Python**: 3.11 / 3.12 / 3.13
+**OS**: Linux / macOS / Windows
 
 **Description**
-Ce qui se passe vs ce qui devrait se passer.
+What happens vs. what should happen.
 
-**Reproduction minimale**
+**Minimal reproduction**
 ```python
-# Code minimal qui reproduit le bug
+# Minimal code that reproduces the bug
 ```
 
 **Traceback**
 ```
-Coller la stack trace complète ici
+Paste the full stack trace here
 ```
 
-**Contexte additionnel**
-Tout ce qui peut aider.
+**Additional context**
+Anything else that might help.
 ```
 
 ---
 
-## 12. Proposer une fonctionnalité
+## 12. Proposing a feature
 
-Ouvre une issue avec :
+Open an issue with:
 
-1. **Le problème** : quel besoin n'est pas couvert actuellement ?
-2. **La solution proposée** : comment tu envisages de l'implémenter
-3. **Les alternatives** : d'autres approches envisagées et pourquoi tu les rejettes
-4. **L'impact** : qui en bénéficie, est-ce que ça casse quelque chose
+1. **The problem**: what need is currently unmet?
+2. **The proposed solution**: how you intend to implement it
+3. **Alternatives**: other approaches considered and why you ruled them out
+4. **Impact**: who benefits, does anything break?
 
-Les features majeures sont discutées **avant** que du code soit écrit. Ouvre l'issue d'abord, code ensuite.
+Major features are discussed **before** any code is written. Open the issue first, code second.
 
 ---
 
-## Questions ?
+## Questions?
 
-- Ouvre une issue avec le label `question`
-- Consulte la [documentation](docs/README.md) en premier
+- Open an issue with the `question` label
+- Check the [documentation](docs/README.md) first
